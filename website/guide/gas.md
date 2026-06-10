@@ -8,15 +8,30 @@ so a benchmark cannot silently measure a no-op.
 
 ## The headline: settlement compression
 
-Identical scenarios on the per-level engine vs endpoint-telescoped sweeps:
+Identical scenarios on the per-level engine vs endpoint-telescoped sweeps,
+measured separately for each side of the book (`test/PublishBench.t.sol`,
+run at the pre-telescoping commit and at HEAD):
 
-| Dense thin-tick sweep | per-level (before) | telescoped (now) | |
+| Ask-side dense sweep (buying up) | per-level (before) | telescoped (now) | |
 |---|---|---|---|
-| 1 maker, 50 levels | 2,213,334 | 166,738 | 13× |
-| 1 maker, 500 levels | 21,934,544 | 167,340 | **131×** |
-| 1 maker, 5,000 levels | 286,766,384 (≈10 blocks — unexecutable) | 209,817 | **1,367×** |
-| 5 makers, 500 active levels | 21,430,170 | 214,412 | 100× |
-| sparse (2 orders, 100k-tick gap) | 1,096,008 | 1,110,572 | — (bitmap already solved sparse) |
+| 1 maker, 50 levels | 2,213,326 | 169,088 | 13× |
+| 1 maker, 500 levels | 21,934,536 | 169,853 | **129×** |
+| 1 maker, 5,000 levels | 286,766,376 (≈10 blocks — unexecutable) | 214,805 | **1,335×** |
+| 5 makers, 500 active levels | 21,430,170 | 219,473 | 98× |
+| sparse (2 orders, 100k-tick gap) | 1,096,008 | 1,168,527 | — (bitmap already solved sparse) |
+
+| Bid-side dense sweep (selling down) | per-level (before) | telescoped (now) | |
+|---|---|---|---|
+| 1 maker, 50 levels | 2,110,462 | 145,193 | 15× |
+| 1 maker, 500 levels | 21,069,262 | 145,376 | **145×** |
+| 1 maker, 5,000 levels | 278,295,022 (≈9 blocks — unexecutable) | 191,690 | **1,452×** |
+| 5 makers, 500 active levels | 20,565,073 | 174,889 | 118× |
+| sparse (2 bids, 100k-tick gap) | 1,109,168 | 1,157,296 | — (bitmap already solved sparse) |
+
+The same holds on the production `1.0001^tick` curve
+(`GeometricFrontierBook`, `test/GeoBook.t.sol`): 151,140 for a 50-level
+sweep, 196,937 for 5,000 levels — fineness-independence is
+curve-independent, one pow per run endpoint.
 
 The irreducible settlement unit is the **maker order endpoint** (~10–13k
 marginal): a sweep crossing 50 distinct makers' orders pays for 50
@@ -27,24 +42,31 @@ growth is one bitmap word read per 256 ticks traversed.
 
 | Operation | Gas |
 |---|---|
-| deposit, flat ladder | 228,913 (one bitmap word) / 250,825 (two words; widths 1k–100k within 12 gas) |
-| deposit, shaped / bid | 296,214 / 228,054–249,978 |
-| requote (re-price in place, no token movement) | 104,053 |
-| requote shaped / bid | 189,565 / 116,505 |
-| witness claim / cancel | 65,956 / 85,697 |
-| claim via on-chain binary search (width 1,000) | 73,434 |
-| recycle filled bid → new ask (zero transfers) | 181,891 (vs 251,057 round-trip) |
-| fragmentation canary (claim after 2 vs 40 lifecycles) | 70,756 — identical |
+| deposit, flat ladder | 231,393 (one bitmap word) / 253,305 (two words; widths 1k–100k within 12 gas) |
+| deposit, shaped / bid | 303,326 / 230,054–251,978 |
+| requote (re-price in place, no token movement) | 112,915 |
+| requote shaped / bid | 205,318 / 119,671 |
+| witness claim / cancel | 69,455 / 92,576 |
+| claim via on-chain binary search (width 1,000) | 53,533 (vs 52,384 with witness, same fills) |
+| recycle filled bid → new ask (zero transfers) | 181,503 (vs 252,007 round-trip) |
+| fragmentation canary (claim after 2 vs 40 lifecycles) | 74,255 — identical |
+
+Requotes and cancels execute in a delegatecalled companion module
+(`FrontierMakerOps`) so the book fits EIP-170 with room to spare; the hop
+costs ~3–7k on those operations and nothing on the hot swap path.
 
 User-count independence is bit-exact: deposit/swap/claim cost the same
 with 1 or 100 makers sharing a range.
 
 ## Takers, per level crossed
 
-~46k flat asks · ~61k shaped asks · ~44k bids (20-level sweeps including
-fixed overhead) — but remember these collapse into per-*endpoint* costs
-when levels belong to the same order. Empty-gap traversal: 161,806 over
-2,560 ticks; 2,513,068 over 256,000.
+The unit of cost is the maker **endpoint**, not the level. Marginal cost
+per distinct maker order absorbed: **~13.3k** (198,987 for a 5-endpoint
+sweep → 798,562 for 50). When levels belong to one order they collapse
+into a single run: a 20-level sweep is 153,774 flat / 165,447 shaped /
+129,640 bids as a whole transaction (≈7–8k per level, mostly fixed
+overhead). Empty-gap traversal is one bitmap word per 256 ticks: 192,785
+over 2,560 ticks; 2,682,647 over 256,000.
 
 ## Methodology note
 

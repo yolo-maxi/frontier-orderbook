@@ -7,13 +7,16 @@ periphery around it, and a factory that makes markets ephemeral.
 
 | Contract | Role |
 |---|---|
-| `RollingFrontierBook` | The book: two-sided frontier ledgers, endpoint-telescoped sweeps, shaped orders, internal balances, transferable positions, hooks + permission gates |
-| `FrontierBookFactory` | Creates books for any pair at any tick spacing; many books per pair can run in parallel; tracks the canonical book per pair for router path lookups; binds the shared permission registry and optional hooks |
+| `FrontierBookBase` | Shared storage layout, frontier ledgers, and curve virtuals — everything both halves of the book need to agree on |
+| `RollingFrontierBook` | The hot half: deposits, endpoint-telescoped sweeps, claims, shaped orders, internal balances, hooks + permission gates |
+| `FrontierMakerOps` | The cold half: requotes, cancels, position transfers — executed via delegatecall against the book's storage so the pair clears EIP-170 instead of shipping a 44KB monolith. One module is memoized per (pair, spacing, hooks) config and shared by every matching book |
+| `GeometricFrontierBook` | The production `1.0001^tick` curve as a mixin over the same machinery (the linear demo curve stays for the devnet); uniform runs telescope to one pow per endpoint |
+| `FrontierBookFactory` | Creates books for any pair at any tick spacing via embedded one-initcode deployers (`FrontierDeployers`); many books per pair can run in parallel; tracks the canonical book per pair for router path lookups; binds the shared permission registry and optional hooks |
 | `PermissionRegistry` | The delegatable-permissions registry (a standalone draft ERC) |
 
-Books hold no protocol-wide state: launch one, use it, abandon it.
-Deployment is ~cheap enough (couple million gas) for markets to be
-disposable.
+Books hold no protocol-wide state: launch one, use it, abandon it. A book
+deploys for ~9M gas at max runtime optimization (cheaper at deploy-tuned
+settings), and the maker-ops module is shared, so markets stay disposable.
 
 ## Periphery
 
@@ -23,6 +26,8 @@ disposable.
 | `FrontierLens` | Read-only. Book depth reconstruction for UIs, best bid/ask summary, and **execution-exact quotes** (`quoteBuy`/`quoteSell` replay the sweep math including mid-run budget subdivision — quote == execution to the wei, asserted in tests). |
 | `FrontierMakerKit` | Places a whole piecewise-linear quoting curve — shaped, flat, and bid segments — in one transaction, then hands ownership of every position to the caller. |
 | `RangeLP` / `RangeLPFactory` | Uniswap-style passive LP vaults on the book ([experiment](/experiments/lp)). |
+| `FrontierPositionNFT` | ERC-721 wrapper over book positions: mint-and-deposit in one call, or adopt an existing position via a one-time registry grant. |
+| `YieldRangeLP` | Personal market-making vault whose idle inventory earns lending yield in 4626-style vaults, pulled back just-in-time on rebalance; exits in kind if a vault freezes. |
 
 ## Where management lives
 

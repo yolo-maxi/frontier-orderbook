@@ -26,7 +26,12 @@ the blocker, and endpoint telescoping is the fix.
 The devnet uses a linear placeholder for legibility: both tokens 18
 decimals, `price = 1 + 0.001 × tick` USDC/WETH. So $1,628.61 = tick
 1,627,605 and one tick = **$0.001** — deliberately absurdly thin
-(±0.1% ≈ ±1,630 ticks) to showcase that fineness is free. Swapping in the
-geometric curve turns the run series from quadratic into
-arithmetico-geometric; both are closed-form, and the gas behavior is
-curve-independent.
+(±0.1% ≈ ±1,630 ticks) to showcase that fineness is free.
+
+The production curve is implemented as `GeometricFrontierBook`: the same
+machinery with `1.0001^tick` swapped in. Geometric sums **telescope** — a
+uniform run over `[a, b)` settles as `L·(P(b) − P(a))/(P(s) − 1)`, one pow
+per endpoint — so sweeps stay O(endpoints) and the gas behavior is
+curve-independent. Because every span is a difference of the same
+deterministic curve over a shared denominator, partial claims sum exactly
+against ceil-rounded deposits: no rounding leak by construction.

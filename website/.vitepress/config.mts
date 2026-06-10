@@ -22,6 +22,7 @@ export default defineConfig({
           { text: 'Hooks', link: '/guide/hooks' },
           { text: 'Gas', link: '/guide/gas' },
           { text: 'Ticks & Prices', link: '/guide/pricing' },
+          { text: 'Potential Topologies', link: '/guide/topology' },
         ],
       },
       {

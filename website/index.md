@@ -2,55 +2,39 @@
 layout: home
 hero:
   name: "FRONTIER"
-  text: "A thin-tick on-chain CLOB"
-  tagline: CEX-grade price precision with settlement work compressed to order endpoints — not ticks. Live on a public devnet, market-made by delegated bots.
+  text: "An on-chain order book with exchange-grade precision"
+  tagline: Trade at prices that move in tenths of a cent. Place whole ladders of limit orders in one click. Claim your fills whenever you like — fully on-chain, no operator.
   actions:
     - theme: brand
       text: Open the exchange
       link: https://clob.repo.box
     - theme: alt
-      text: The mechanism
-      link: /guide/mechanism
-    - theme: alt
-      text: Live demo guide
+      text: Try it in 30 seconds
       link: /guide/demo
 features:
-  - title: Thin ticks, free for takers
-    details: A 5% move through 5,000 active thin price levels settles for ~210k gas. Per-level settlement needed 287M — ten blocks. Tick fineness costs makers nothing and takers almost nothing.
-  - title: O(1) maker operations
-    details: Placing, re-pricing, or re-shaping a ladder costs the same whether it spans 10 levels or 100,000. Requotes never lose queue standing — levels are pro-rata.
-  - title: Everything is delegatable
-    details: Every owner gate consults a permission registry. Bots hold selector-scoped, expirable grants; payouts always go to owners. The live market maker runs this way.
-  - title: Uniswap-shaped periphery
-    details: Aggregators integrate via swapExactTokensForTokens. A lens quotes to the wei. A maker kit places whole quoting curves in one transaction.
+  - title: Thin-tick precision
+    details: Prices step in increments a centralized exchange would envy — on ETH, fractions of a cent — and trading stays cheap no matter how fine the grid is.
+  - title: Ladders, not single orders
+    details: Quote a whole price range at once — flat, or weighted toward the touch. One click, one transaction, one position to manage.
+  - title: Fills you claim on your time
+    details: When the market trades through your prices, your proceeds are simply yours. Claim now, claim later — nothing expires, nothing needs a keeper.
+  - title: Safe automation
+    details: Let a bot manage your quotes without ever holding your funds. Grants are per-action and expirable; payouts only ever go to you.
 ---
 
-## What this is
+## Try it now
 
-Frontier is a standalone on-chain central limit order book. Makers post
-one-way range orders (ladders) across price ticks; takers sweep them through
-a price pointer bounded by best bid and best ask. Settlement is **lazy**:
-fills update aggregate state only, and makers claim later — claims verify
-against a single high-water record per sweep, in O(log).
+1. **[Open the exchange](https://clob.repo.box)** — a demo wallet is created for you automatically.
+2. Hit **Faucet** for test WETH + USDC.
+3. **Trade**: market buy or sell with a live, exact quote — and watch the
+   order book on the chart.
+4. **Make**: drag out a ladder and see exactly where it will sit before you
+   place it. Your positions stay visible on the chart as they fill.
 
-It grew out of a take-profit-orders spec for Uniswap v4 (that lineage —
-including a hook validated on a Base mainnet fork through the real Universal
-Router — [is preserved](/experiments/v4-hook)), then became its own venue
-when the math turned out to beat the constraints of hosting it inside an AMM.
+![The exchange](/exchange.png)
 
-## The numbers that matter
+The market you'll see is live: bots quote ETH-USDC around the real
+Coinbase price at a ±0.1% spread, and a flow bot trades against them.
 
-| Operation | Cost (isolated, per-tx) |
-|---|---|
-| Place / re-price a ladder, any width | ~190–250k / ~104k |
-| Witness claim / cancel | ~66k / ~86k |
-| Taker, per maker order crossed | ~10–13k |
-| 500 active thin levels, one sweep | 167k (was 21.9M) |
-
-156 Foundry tests, differential-fuzzed against an eager reference oracle,
-plus a Base-mainnet fork suite for the v4 lineage.
-
-::: warning Prototype status
-Unaudited demo software. The devnet runs with the EVM code-size limit
-disabled (see [Roadmap & Caveats](/roadmap)).
-:::
+*Want to know how it works under the hood? Start with
+[The Mechanism](/guide/mechanism), or see [the numbers](/guide/gas).*
