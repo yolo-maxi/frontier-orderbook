@@ -334,7 +334,9 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             if (a.fromLevel === undefined || a.toBoundary === undefined) continue;
             const lo = Number(a.fromLevel);
             const hi = Number(a.toBoundary);
-            const n = BigInt(Math.max(1, Math.round((hi - lo) / spacing)));
+            // ask runs ascend (toBoundary > fromLevel); bid runs descend
+            const isBuy = hi >= lo;
+            const n = BigInt(Math.max(1, Math.round(Math.abs(hi - lo) / spacing)));
             const start = a.startSize ?? 0n;
             const slope = a.slopePerLevel ?? 0n;
             let size = start * n + (slope * n * (n - 1n)) / 2n;
@@ -342,9 +344,9 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             parsed.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
-              side: "buy", // upward run: taker bought token0 through asks
-              priceLo: tickToPrice(lo),
-              priceHi: tickToPrice(hi),
+              side: isBuy ? "buy" : "sell",
+              priceLo: tickToPrice(isBuy ? lo : hi + spacing),
+              priceHi: tickToPrice(isBuy ? hi : lo + spacing),
               size0: size,
             });
           } else {

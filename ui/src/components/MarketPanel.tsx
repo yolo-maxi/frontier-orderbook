@@ -103,7 +103,7 @@ export function MarketPanel() {
 
 const H = 280;
 const AXIS_W = 62;
-const GUTTER_W = 96;
+const GUTTER_W = 150;
 const PAD = { t: 14, b: 20, l: 12 };
 const BUCKETS = 40;
 
