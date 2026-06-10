@@ -170,8 +170,9 @@ contract FrontierShapeTest is Test {
         }
         console2.log("shaped deposit gas at widths 100/10000:", depGas[0], depGas[1]);
         console2.log("shaped requote gas at widths 100/10000:", reqGas[0], reqGas[1]);
-        assertEq(depGas[0], depGas[1], "shaped deposit O(1) in width");
-        assertEq(reqGas[0], reqGas[1], "shaped requote O(1) in width");
+        // tolerance covers calldata-byte differences between widths
+        assertApproxEqAbs(depGas[0], depGas[1], 50, "shaped deposit O(1) in width");
+        assertApproxEqAbs(reqGas[0], reqGas[1], 50, "shaped requote O(1) in width");
     }
 
     function testReshapeOnRequote() public {

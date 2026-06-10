@@ -46,28 +46,32 @@ contract FrontierQuoterTest is Test {
     // Cost of a price update
     // ------------------------------------------------------------------
 
-    function testRequoteGasColdThenWarm() public {
+    function testRequoteGasFirstAndRepeat() public {
         vm.prank(mm);
         uint256 id = book.deposit(100, 110, L);
 
-        // cold: first move to fresh levels
+        // first move to fresh levels
         vm.prank(mm);
         uint256 g = gasleft();
         book.requote(id, 105, 115, L);
-        uint256 cold = g - gasleft();
+        uint256 first = g - gasleft();
 
-        // steady state: oscillate between two quote placements (storage warm)
-        uint256 warmTotal;
+        // repeated oscillation between two placements. NOTE: in default test
+        // mode these calls share one tx, so storage stays warm — that only
+        // models BUNDLED requotes (multicall). Under --isolate each call is
+        // its own tx and repeats cost the same as the first; real per-tx
+        // requotes match the isolated number.
+        uint256 repeatTotal;
         for (uint256 i = 0; i < 10; i++) {
             int24 lo = i % 2 == 0 ? int24(100) : int24(105);
             vm.prank(mm);
             g = gasleft();
             book.requote(id, lo, lo + 10, L);
-            warmTotal += g - gasleft();
+            repeatTotal += g - gasleft();
         }
-        console2.log("requote gas cold:", cold);
-        console2.log("requote gas warm (oscillating, avg of 10):", warmTotal / 10);
-        assertLt(warmTotal / 10, cold, "steady-state requotes run warm");
+        console2.log("requote gas, first:", first);
+        console2.log("requote gas, repeat avg of 10 (warm only if bundled):", repeatTotal / 10);
+        assertLe(repeatTotal / 10, first + first / 50, "repeats must not exceed first (mod tiny drift)");
     }
 
     function testRequoteIsWidthIndependent() public {

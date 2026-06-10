@@ -51,8 +51,45 @@ contract FrontierGasTest is Test {
             gasUsed[c] = g - gasleft();
             console2.log("frontier deposit gas at width:", widths[c], gasUsed[c]);
         }
-        assertEq(gasUsed[1], gasUsed[3], "deposit must be O(1) in width (multi-word regime)");
+        // calldata bytes differ across widths (16 gas per nonzero byte), so
+        // allow a tiny absolute tolerance instead of demanding bit-equality
+        assertApproxEqAbs(gasUsed[1], gasUsed[3], 50, "deposit must be O(1) in width (multi-word regime)");
         assertLe(gasUsed[1] - gasUsed[0], 25_000, "single-word discount is one cold word write");
+    }
+
+    /// @dev Proof for the +22k deposit step: cost tracks the number of
+    /// BITMAP WORDS the endpoints touch (1 vs 2), not the range width. A
+    /// 10-level deposit placed so lower/upper straddle a 256-interval word
+    /// boundary costs the same as a 100,000-level deposit; a 10-level
+    /// deposit inside one word saves exactly one cold zero->nonzero word
+    /// write (~22.1k).
+    function testDepositStepIsBitmapWordsNotWidth() public {
+        _fresh(9);
+        address u = _user(0);
+        vm.prank(u);
+        uint256 g = gasleft();
+        book.deposit(10, 20, L); // width 10, both endpoints in word 0
+        uint256 sameWord = g - gasleft();
+
+        _fresh(199);
+        u = _user(0);
+        vm.prank(u);
+        g = gasleft();
+        book.deposit(250, 260, L); // width 10, endpoints in words 0 and 1
+        uint256 straddle = g - gasleft();
+
+        _fresh(9);
+        u = _user(0);
+        vm.prank(u);
+        g = gasleft();
+        book.deposit(10, 100010, L); // width 100,000: endpoints in two words
+        uint256 wide = g - gasleft();
+
+        console2.log("deposit width 10, one bitmap word:", sameWord);
+        console2.log("deposit width 10, straddling two words:", straddle);
+        console2.log("deposit width 100000, two words:", wide);
+        assertApproxEqAbs(straddle, wide, 200, "two-word width-10 == two-word width-100k");
+        assertApproxEqAbs(straddle - sameWord, 22_100, 500, "step == one cold zero->nonzero word write");
     }
 
     function testClaimGasFlatVsWidth() public {

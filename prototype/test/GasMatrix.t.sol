@@ -58,27 +58,41 @@ contract GasMatrixTest is Test {
         vm.prank(taker);
         book.moveTickTo(55); // fill 5 levels of the first bid
 
+        // claim measured below MUST move real token0 (ERC20 transfer included)
+        uint256 mm0Before = t0.balanceOf(mm);
         vm.prank(mm);
         g = gasleft();
-        book.claimBidTo(id, 55);
-        console2.log("bid witness-claim:", g - gasleft());
+        uint256 claimed0 = book.claimBidTo(id, 55);
+        console2.log("bid witness-claim (5 filled levels, ERC20 transfer):", g - gasleft());
+        assertEq(claimed0, 5 * uint256(L), "claim measured a real 5-level payout");
+        assertEq(t0.balanceOf(mm) - mm0Before, 5 * uint256(L), "token0 actually transferred");
 
+        // cancel measured below pays no proceeds (just claimed) but MUST
+        // refund real token1 for the 5 unfilled levels
+        uint256 mm1Before = t1.balanceOf(mm);
         vm.prank(mm);
         g = gasleft();
-        book.cancelBidWithWitness(id, 55);
-        console2.log("bid witness-cancel:", g - gasleft());
+        (uint256 proceeds0, uint256 refund1) = book.cancelBidWithWitness(id, 55);
+        console2.log("bid witness-cancel (refund transfer, no proceeds):", g - gasleft());
+        assertEq(proceeds0, 0, "proceeds already claimed");
+        assertGt(refund1, 0, "cancel measured a real refund");
+        assertEq(t1.balanceOf(mm) - mm1Before, refund1, "token1 actually transferred");
     }
 
     function testTakerCostPerLevel() public {
-        // 20 flat ask levels
+        // 20 flat ask levels — assert real input/output so the measurement
+        // provably covers fills + both token transfers
         _fresh(0);
         vm.prank(mm);
         book.deposit(1, 21, L);
         vm.prank(taker);
         uint256 g = gasleft();
-        book.moveTickTo(21);
+        (, uint256 paid1, uint256 got0) =
+            book.sweepWithLimits(21, type(uint256).max, type(uint256).max, 0, block.timestamp);
         uint256 flat20 = g - gasleft();
         console2.log("up-sweep 20 flat ask levels:", flat20, "per level:", flat20 / 20);
+        assertEq(got0, 20 * uint256(L), "swept all 20 levels");
+        assertGt(paid1, 0, "real token1 paid");
 
         // 20 shaped ask levels
         _fresh(0);
@@ -86,9 +100,10 @@ contract GasMatrixTest is Test {
         book.depositShaped(1, 21, 20 * L, -int128(L));
         vm.prank(taker);
         g = gasleft();
-        book.moveTickTo(21);
+        (, paid1, got0) = book.sweepWithLimits(21, type(uint256).max, type(uint256).max, 0, block.timestamp);
         uint256 shaped20 = g - gasleft();
         console2.log("up-sweep 20 shaped ask levels:", shaped20, "per level:", shaped20 / 20);
+        assertEq(got0, 210 * uint256(L), "swept the whole 20+19+..+1 ladder");
 
         // 20 bid levels
         _fresh(100);
@@ -96,9 +111,12 @@ contract GasMatrixTest is Test {
         book.depositBid(50, 70, L);
         vm.prank(taker);
         g = gasleft();
-        book.moveTickTo(50);
+        (, uint256 paid0, uint256 got1) =
+            book.sweepWithLimits(50, type(uint256).max, type(uint256).max, 0, block.timestamp);
         uint256 bid20 = g - gasleft();
         console2.log("down-sweep 20 bid levels:", bid20, "per level:", bid20 / 20);
+        assertEq(paid0, 20 * uint256(L), "sold into all 20 levels");
+        assertGt(got1, 0, "real token1 received");
     }
 
     function testClaimAndCancelScanVsWitness() public {
@@ -111,19 +129,22 @@ contract GasMatrixTest is Test {
         // O(log width) scan path (no witness)
         vm.prank(mm);
         uint256 g = gasleft();
-        book.claim(id);
-        console2.log("claim via binary-search scan, width 1000:", g - gasleft());
+        uint256 got = book.claim(id);
+        console2.log("claim via binary-search scan, width 1000 (2 fills):", g - gasleft());
+        assertGt(got, 0, "scan claim paid real proceeds");
 
         vm.prank(taker);
         book.moveTickTo(5); // 2 more fills
         vm.prank(mm);
         g = gasleft();
-        book.claimTo(id, 5);
-        console2.log("claim via witness:", g - gasleft());
+        got = book.claimTo(id, 5);
+        console2.log("claim via witness (2 fills):", g - gasleft());
+        assertGt(got, 0, "witness claim paid real proceeds");
 
         vm.prank(mm);
         g = gasleft();
-        book.cancel(id);
+        (, uint256 principal0) = book.cancel(id);
         console2.log("cancel via binary-search scan, width 1000:", g - gasleft());
+        assertEq(principal0, 996 * uint256(L), "cancel returned the real 996-level tail");
     }
 }

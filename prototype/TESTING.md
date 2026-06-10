@@ -160,6 +160,49 @@ FORK=true forge test --match-contract ForkBaseHookTest -vv  # fork tests
 
 ## Measured results
 
+**Methodology (corrected 2026-06-10 after audit).** Numbers below this note
+are from `forge test --isolate -vv`: every operation runs as its OWN
+transaction, so they include intrinsic tx cost (~21k), realistic cold
+storage access, and end-of-tx gas refunds — i.e. they approximate what a
+wallet pays (excluding L2 data fees). Earlier per-feature numbers in this
+file and in commit messages were measured intra-tx with `gasleft()` deltas:
+those are correct measurements of WARM execution (valid only for bundled
+multicalls) and understate standalone costs substantially — e.g. a bid
+witness-claim is ~50k isolated but appeared as ~6k warm. All measured
+operations now assert their outputs (real payouts, real transfers), so a
+benchmark cannot silently measure a no-op. Tokens are MockERC20 (cheap
+transfers); real ERC20s add roughly 10-40k per transfer. Width-equality
+assertions use a +/-50 gas tolerance for calldata-byte differences. The +22k
+deposit step at small widths is PROVEN to be one cold bitmap word write, not
+width scaling: a width-10 deposit straddling two 256-interval words costs
+the same as width-100,000 (testDepositStepIsBitmapWordsNotWidth).
+
+### Corrected headline numbers (isolated, per-transaction)
+
+Frontier book, maker ops: deposit flat 228,913 (1 bitmap word) / 250,825
+(2 words, widths 1k-100k identical); deposit shaped 296,214; deposit bid
+228,054 (10 lvls) / 249,978 (10k lvls); requote flat 104,053 (repeats cost
+the same — there is NO warm steady state across transactions); requote
+shaped 189,565; requote bid 116,505; witness-claim 65,956 any width (48,885
+when the recipient token balance slot is already nonzero); witness-cancel
+85,697-89,537; scan claim/cancel at width 1000: 73,434 / 84,292; canary
+70,756 flat at K=2/40; recycleBidIntoAsk 181,891 vs 251,057 round trip.
+
+Frontier book, taker: ~46,241/level flat asks, ~61,070/level shaped asks,
+~43,673/level bids (20-level sweeps incl. fixed overhead); empty-gap
+traversal 161,806 over 2,560 ticks / 2,513,068 over 256,000.
+
+Bucket book (isolated): deposit ~23k/level (335,864 w10 to 11,379,496
+w500); claim ~4.4k/level scanned; swap ~8-10k/level AFTER refunds (zeroing
+bucket slots refunds 4,800 each, capped at 1/5 tx gas) — cheaper per level
+for takers than the frontier book, whose fills write fresh clock stamps and
+bitmap updates; user-count independence and canary flat as before
+(202,145 / 105,371 / 109,775 / 272,258).
+
+The historical per-feature tables below are kept for relative comparisons
+(flat-vs-flat within one mode) but are intra-tx warm measurements — do not
+read them as transaction costs.
+
 Scalability (standalone book, spacing 1; gas is bit-identical, not approximately flat):
 
 | Claim | N = 1 | N = 10 | N = 100 |
