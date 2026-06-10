@@ -28,7 +28,7 @@ contract FrontierVenueTest is Test {
     function _fresh(int24 startTick) internal {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        book = new RollingFrontierBook(address(t0), address(t1), 1, startTick);
+        book = new RollingFrontierBook(address(t0), address(t1), 1, startTick, address(0), address(0));
         t0.mint(bob, 1e30);
         vm.prank(bob);
         t0.approve(address(book), type(uint256).max);
@@ -171,7 +171,7 @@ contract FrontierVenueTest is Test {
     // ------------------------------------------------------------------
 
     function testFactoryParallelMarkets() public {
-        FrontierBookFactory factory = new FrontierBookFactory();
+        FrontierBookFactory factory = new FrontierBookFactory(address(0));
         MockERC20 a = new MockERC20("A", "A");
         MockERC20 b = new MockERC20("B", "B");
 

@@ -19,7 +19,7 @@ contract FrontierGasTest is Test {
     function _fresh(int24 startTick) internal {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        book = new RollingFrontierBook(address(t0), address(t1), 1, startTick);
+        book = new RollingFrontierBook(address(t0), address(t1), 1, startTick, address(0), address(0));
         t1.mint(address(this), 1e30);
         t1.approve(address(book), type(uint256).max);
     }

@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {IRangeOrderBook} from "./IRangeOrderBook.sol";
 import {IERC20Minimal} from "./RangeTakeProfitBook.sol";
+import {IFrontierHooks, FrontierHookFlags} from "./hooks/IFrontierHooks.sol";
+import {IPermissionRegistry} from "./permissions/interfaces/IPermissionRegistry.sol";
 
 /// @title RollingFrontierBook — width-O(1) production candidate
 ///
@@ -54,9 +56,15 @@ import {IERC20Minimal} from "./RangeTakeProfitBook.sol";
 /// claimed span in one rounding. Sum of span-floors <= sum of interval-ceils,
 /// so no overclaim; payouts remain claim-order independent per position.
 contract RollingFrontierBook is IRangeOrderBook {
+    using FrontierHookFlags for address;
+
     IERC20Minimal public immutable token0;
     IERC20Minimal public immutable token1;
     int24 public immutable tickSpacing;
+    /// v4-style hooks contract (flags in its address low bits); 0 = none
+    IFrontierHooks public immutable hooks;
+    /// delegatable permissions (ERC Approval Registry); 0 = owner-only
+    IPermissionRegistry public immutable permissions;
 
     int24 public currentTick;
     uint64 public fillClock;
@@ -137,12 +145,46 @@ contract RollingFrontierBook is IRangeOrderBook {
     event InternalCredit(address indexed user, uint256 amount0, uint256 amount1);
     event InternalWithdraw(address indexed user, uint256 amount0, uint256 amount1);
 
-    constructor(address _token0, address _token1, int24 _tickSpacing, int24 _initialTick) {
+    constructor(
+        address _token0,
+        address _token1,
+        int24 _tickSpacing,
+        int24 _initialTick,
+        address _hooks,
+        address _permissions
+    ) {
         require(_tickSpacing > 0, "bad spacing");
         token0 = IERC20Minimal(_token0);
         token1 = IERC20Minimal(_token1);
         tickSpacing = _tickSpacing;
         currentTick = _initialTick;
+        hooks = IFrontierHooks(_hooks);
+        permissions = IPermissionRegistry(_permissions);
+    }
+
+    // ------------------------------------------------------------------
+    // Delegatable authorization (ERC Approval Registry integration):
+    // the owner can always act; anyone else needs a selector-scoped grant
+    // for THIS book in the registry. Payouts always go to the position
+    // owner regardless of who triggers — operators manage, never receive.
+    // ------------------------------------------------------------------
+
+    function _authOwner(address owner) internal view {
+        if (msg.sender != owner) {
+            require(address(permissions) != address(0), "not owner");
+            permissions.requireAuthorizedCall(owner, msg.sender, address(this), msg.sig);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Hook dispatch (skipped when the hook itself is the caller)
+    // ------------------------------------------------------------------
+
+    function _callHook(uint160 flag, bytes memory data, bytes4 expected) internal {
+        address h = address(hooks);
+        if (h == address(0) || !h.hasFlag(flag) || msg.sender == h) return;
+        (bool ok, bytes memory ret) = h.call(data);
+        require(ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == expected, "hook rejected");
     }
 
     // ------------------------------------------------------------------
@@ -165,6 +207,11 @@ contract RollingFrontierBook is IRangeOrderBook {
         require(liquidity > 0, "zero liquidity");
         _checkRange(lower, upper);
         _checkShape(lower, upper, liquidity, slope);
+        _callHook(
+            FrontierHookFlags.BEFORE_DEPOSIT_FLAG,
+            abi.encodeCall(IFrontierHooks.beforeDeposit, (msg.sender, lower, upper, liquidity, slope, false)),
+            IFrontierHooks.beforeDeposit.selector
+        );
 
         _addOrder(lower, upper, liquidity, slope);
 
@@ -184,6 +231,11 @@ contract RollingFrontierBook is IRangeOrderBook {
         uint256 amount0 = _principalSpan(liquidity, slope, 0, _levels(lower, upper));
         _pull0(msg.sender, amount0);
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
+        _callHook(
+            FrontierHookFlags.AFTER_DEPOSIT_FLAG,
+            abi.encodeCall(IFrontierHooks.afterDeposit, (msg.sender, positionId, false)),
+            IFrontierHooks.afterDeposit.selector
+        );
     }
 
     /// @notice O(1) re-price for quoters: move a completely UNFILLED order to
@@ -204,7 +256,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
-        require(msg.sender == p.owner, "not owner");
+        _authOwner(p.owner);
         // completely unfilled <=> first interval not filled since deposit
         // (prefix-contiguity: nothing above it can have filled either)
         require(_highSince(p.depositClock) < p.lower + tickSpacing, "partially filled");
@@ -242,7 +294,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
-        require(msg.sender == p.owner, "not owner");
+        _authOwner(p.owner);
         require(target > p.claimedUpper && target <= p.upper, "bad target");
         require((target - p.lower) % tickSpacing == 0, "unaligned target");
         require(_highSince(p.depositClock) >= target, "not filled");
@@ -252,6 +304,11 @@ contract RollingFrontierBook is IRangeOrderBook {
 
         if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
         emit Claim(positionId, proceeds1);
+        _callHook(
+            FrontierHookFlags.AFTER_CLAIM_FLAG,
+            abi.encodeCall(IFrontierHooks.afterClaim, (msg.sender, positionId, proceeds1)),
+            IFrontierHooks.afterClaim.selector
+        );
     }
 
     /// @notice Convenience variant: finds the frontier itself in O(log width).
@@ -269,7 +326,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
-        require(msg.sender == p.owner, "not owner");
+        _authOwner(p.owner);
         int24 frontier = _frontier(p);
         if (frontier <= p.claimedUpper) {
             emit Claim(positionId, 0);
@@ -294,7 +351,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
-        require(msg.sender == p.owner, "not owner");
+        _authOwner(p.owner);
         require(frontier >= p.lower && frontier <= p.upper, "frontier out of range");
         require((frontier - p.lower) % tickSpacing == 0, "unaligned frontier");
         // proves frontier is filled-up-to...
@@ -321,6 +378,11 @@ contract RollingFrontierBook is IRangeOrderBook {
         if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
         if (principal0 > 0) require(token0.transfer(p.owner, principal0), "transfer out failed");
         emit Cancel(positionId, proceeds1, principal0);
+        _callHook(
+            FrontierHookFlags.AFTER_CANCEL_FLAG,
+            abi.encodeCall(IFrontierHooks.afterCancel, (msg.sender, positionId, proceeds1, principal0)),
+            IFrontierHooks.afterCancel.selector
+        );
     }
 
     /// @notice Convenience variant: finds the frontier itself in O(log width).
@@ -328,7 +390,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
-        require(msg.sender == p.owner, "not owner");
+        _authOwner(p.owner);
         return cancelWithWitness(positionId, _frontier(p));
     }
 
@@ -348,6 +410,11 @@ contract RollingFrontierBook is IRangeOrderBook {
         require(lower < upper, "empty range");
         require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
         require(upper <= currentTick, "range not below price");
+        _callHook(
+            FrontierHookFlags.BEFORE_DEPOSIT_FLAG,
+            abi.encodeCall(IFrontierHooks.beforeDeposit, (msg.sender, lower, upper, liquidity, 0, true)),
+            IFrontierHooks.beforeDeposit.selector
+        );
 
         _addBid(lower, upper, liquidity);
 
@@ -367,6 +434,11 @@ contract RollingFrontierBook is IRangeOrderBook {
         uint256 amount1 = _uniformSpanValue(lower, upper, liquidity, true);
         _pull1(msg.sender, amount1);
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
+        _callHook(
+            FrontierHookFlags.AFTER_DEPOSIT_FLAG,
+            abi.encodeCall(IFrontierHooks.afterDeposit, (msg.sender, positionId, true)),
+            IFrontierHooks.afterDeposit.selector
+        );
     }
 
     /// @notice O(1) re-price of a completely unfilled bid; token1 settles
@@ -375,7 +447,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
-        require(msg.sender == p.owner, "not owner");
+        _authOwner(p.owner);
         require(newLiquidity > 0, "zero liquidity");
         // completely unfilled <=> topmost level not filled since deposit
         require(bidFillClock[p.upper - tickSpacing] <= p.depositClock, "partially filled");
@@ -410,7 +482,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
-        require(msg.sender == p.owner, "not owner");
+        _authOwner(p.owner);
         require(target < p.claimedUpper && target >= p.lower, "bad target");
         require((target - p.lower) % tickSpacing == 0, "unaligned target");
         require(bidFillClock[target] > p.depositClock, "not filled");
@@ -420,6 +492,11 @@ contract RollingFrontierBook is IRangeOrderBook {
 
         if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
         emit Claim(positionId, proceeds0);
+        _callHook(
+            FrontierHookFlags.AFTER_CLAIM_FLAG,
+            abi.encodeCall(IFrontierHooks.afterClaim, (msg.sender, positionId, proceeds0)),
+            IFrontierHooks.afterClaim.selector
+        );
     }
 
     /// @notice Convenience variant: finds the bid frontier in O(log width).
@@ -437,7 +514,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
-        require(msg.sender == p.owner, "not owner");
+        _authOwner(p.owner);
         int24 frontier = _bidFrontier(p);
         if (frontier >= p.claimedUpper) {
             emit Claim(positionId, 0);
@@ -501,7 +578,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
-        require(msg.sender == p.owner, "not owner");
+        _authOwner(p.owner);
         require(frontier >= p.lower && frontier <= p.upper, "frontier out of range");
         require((frontier - p.lower) % tickSpacing == 0, "unaligned frontier");
         if (frontier < p.upper) require(bidFillClock[frontier] > p.depositClock, "frontier not filled");
@@ -524,6 +601,11 @@ contract RollingFrontierBook is IRangeOrderBook {
         if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
         if (refund1 > 0) require(token1.transfer(p.owner, refund1), "transfer out failed");
         emit Cancel(positionId, proceeds0, refund1);
+        _callHook(
+            FrontierHookFlags.AFTER_CANCEL_FLAG,
+            abi.encodeCall(IFrontierHooks.afterCancel, (msg.sender, positionId, proceeds0, refund1)),
+            IFrontierHooks.afterCancel.selector
+        );
     }
 
     /// @notice Convenience variant: finds the bid frontier in O(log width).
@@ -531,7 +613,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
-        require(msg.sender == p.owner, "not owner");
+        _authOwner(p.owner);
         return cancelBidWithWitness(positionId, _bidFrontier(p));
     }
 
@@ -569,6 +651,11 @@ contract RollingFrontierBook is IRangeOrderBook {
         require(block.timestamp <= deadline, "expired");
         int24 oldTick = currentTick;
         if (target == oldTick) return (oldTick, 0, 0);
+        _callHook(
+            FrontierHookFlags.BEFORE_SWEEP_FLAG,
+            abi.encodeCall(IFrontierHooks.beforeSweep, (msg.sender, oldTick, target)),
+            IFrontierHooks.beforeSweep.selector
+        );
         if (target > oldTick) {
             (reached, paid, received) = _sweepUp(oldTick, target, maxFills, maxPay);
             currentTick = reached;
@@ -582,6 +669,11 @@ contract RollingFrontierBook is IRangeOrderBook {
             if (paid > 0) require(token0.transferFrom(msg.sender, address(this), paid), "fill payment failed");
             if (received > 0) require(token1.transfer(msg.sender, received), "fill payout failed");
         }
+        _callHook(
+            FrontierHookFlags.AFTER_SWEEP_FLAG,
+            abi.encodeCall(IFrontierHooks.afterSweep, (msg.sender, oldTick, reached, paid, received)),
+            IFrontierHooks.afterSweep.selector
+        );
     }
 
     /// @dev ENDPOINT-TELESCOPED up-sweep ("tick ozempic"): between order

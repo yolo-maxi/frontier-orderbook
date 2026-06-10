@@ -24,7 +24,7 @@ contract FrontierRecycleTest is Test {
         seller = makeAddr("seller");
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        book = new RollingFrontierBook(address(t0), address(t1), 1, 100);
+        book = new RollingFrontierBook(address(t0), address(t1), 1, 100, address(0), address(0));
 
         t0.mint(mm, 1e30);
         t1.mint(mm, 1e30);

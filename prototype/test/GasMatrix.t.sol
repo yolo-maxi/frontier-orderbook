@@ -20,7 +20,7 @@ contract GasMatrixTest is Test {
     function _fresh(int24 startTick) internal {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        book = new RollingFrontierBook(address(t0), address(t1), 1, startTick);
+        book = new RollingFrontierBook(address(t0), address(t1), 1, startTick, address(0), address(0));
         mm = makeAddr("mm");
         taker = makeAddr("taker");
         t0.mint(mm, 1e30);

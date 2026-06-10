@@ -14,7 +14,7 @@ contract FrontierScenariosTest is ScenarioSuite {
         override
         returns (IRangeOrderBook)
     {
-        return IRangeOrderBook(address(new RollingFrontierBook(token0, token1_, spacing_, startTick)));
+        return IRangeOrderBook(address(new RollingFrontierBook(token0, token1_, spacing_, startTick, address(0), address(0))));
     }
 
     function _frontierBook() internal view returns (RollingFrontierBook) {

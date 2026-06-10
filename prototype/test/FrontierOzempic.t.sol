@@ -25,7 +25,7 @@ contract FrontierOzempicTest is Test {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
         // spacing 1, rate curve 0.1%/tick: 500 ticks ~ a 5% move
-        book = new RollingFrontierBook(address(t0), address(t1), 1, 0);
+        book = new RollingFrontierBook(address(t0), address(t1), 1, 0, address(0), address(0));
         for (uint256 i = 0; i < 5; i++) {
             makers[i] = makeAddr(string(abi.encodePacked("maker", vm.toString(i))));
             t0.mint(makers[i], 1e30);
@@ -97,7 +97,7 @@ contract FrontierOzempicTest is Test {
         for (uint256 c = 0; c < levels.length; c++) {
             t0 = new MockERC20("T0", "T0");
             t1 = new MockERC20("T1", "T1");
-            book = new RollingFrontierBook(address(t0), address(t1), 1, 0);
+            book = new RollingFrontierBook(address(t0), address(t1), 1, 0, address(0), address(0));
             t0.mint(makers[0], 1e30);
             vm.prank(makers[0]);
             t0.approve(address(book), type(uint256).max);

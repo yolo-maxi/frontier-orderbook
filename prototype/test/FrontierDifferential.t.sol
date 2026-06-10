@@ -44,7 +44,7 @@ contract FrontierDifferentialTest is Test {
         p1 = new MockERC20("P1", "P1");
         r0 = new MockERC20("R0", "R0");
         r1 = new MockERC20("R1", "R1");
-        prod = IRangeOrderBook(address(new RollingFrontierBook(address(p0), address(p1), 1, 0)));
+        prod = IRangeOrderBook(address(new RollingFrontierBook(address(p0), address(p1), 1, 0, address(0), address(0))));
         ref = IRangeOrderBook(address(new ReferenceBook(address(r0), address(r1), 1, 0)));
 
         for (uint256 i = 0; i < users.length; i++) {
