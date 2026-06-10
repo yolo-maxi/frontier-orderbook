@@ -1,0 +1,6 @@
+[submodule "prototype/lib/forge-std"]
+	path = prototype/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "prototype/lib/v4-core"]
+	path = prototype/lib/v4-core
+	url = https://github.com/uniswap/v4-core
