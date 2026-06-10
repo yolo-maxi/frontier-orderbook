@@ -1,32 +1,56 @@
-# Uniswap-Style One-Way Range Take-Profit Orders
+# Frontier — a thin-tick on-chain CLOB
 
-Status: requirements/spec draft
-Date: 2026-06-10
-Owner: Fran
+A standalone on-chain central limit order book where **user-facing ticks
+stay thin** (CEX-grade price precision) and **settlement work is
+compressed**: taker sweeps cost O(order endpoints crossed), not O(ticks
+crossed), so a 5% move through 5,000 active thin levels settles for ~210k
+gas (it was 287M — unexecutable — under per-level settlement).
 
-## Purpose
+**Live demo: https://clob.repo.box** — ETH-USDC book on a public devnet
+(RPC `https://rpc-clob.repo.box`, chain 84009), market-made around the
+live Coinbase ETH price at ±0.1% by bots whose fast-path requotes run
+through **delegated operator keys** (selector-scoped permission grants —
+no custody).
 
-Define the desired behavior for a Uniswap-compatible mechanism that lets users place one-way range take-profit orders.
+## What's here
 
-The implementation form is intentionally left open:
+| | |
+|---|---|
+| `prototype/src/RollingFrontierBook.sol` | **Core**: two-sided book, endpoint-telescoped sweeps, shaped (linear-ladder) orders, O(1) deposit/requote/witness-claims, internal-balance recycling, transferable positions, v4-style hooks, delegatable permissions |
+| `prototype/src/FrontierBookFactory.sol` | Ephemeral markets: any pair, any tick spacing, many books in parallel |
+| `prototype/src/periphery/` | **Periphery**: `FrontierRouter` (Uniswap-v2-shaped `swapExactTokensForTokens` for aggregators), `FrontierLens` (depth + to-the-wei quotes), `FrontierMakerKit` (whole quoting curves in one tx), `RangeLP` (Uniswap-style passive LP vaults on the book) |
+| `prototype/src/permissions/` | ERC Approval Registry (delegatable, selector-scoped, expirable permissions) |
+| `prototype/src/hooks/` | v4-style hooks: permissions in the hook address bits, selector-return validation |
+| `bots/` | MM bot (±0.1% around live spot, operator-key requotes) + taker flow bot |
+| `ui/` | The trading UI served at clob.repo.box |
 
-- best case: Uniswap v4 hook
-- acceptable: Uniswap-compatible vault/periphery
-- acceptable: custom AMM/order pool with Uniswap-like position semantics
-- fallback: external accounting system routing through Uniswap liquidity
+## The four ideas underneath
 
-This folder is a requirements package, not an implementation plan.
+1. **Rolling frontier**: an order is two ledger deltas; fills consume the
+   aggregate frontier and roll it — no per-user work in swaps, O(1)
+   deposits at any width, no resurrection by construction.
+2. **Prefix-contiguity**: a valid order's fills are always a contiguous
+   prefix of its range, so claims verify against one high-water mark in
+   O(log) — no per-tick clocks, fragmentation-proof.
+3. **Endpoint telescoping**: between order endpoints the ladder is affine;
+   whole runs settle via closed-form series. Tick fineness is free.
+4. **Everything is delegatable**: every owner gate consults a shared
+   permission registry; bots manage, owners receive.
 
-## Core idea
+## Docs
 
-Users place sell orders across tick ranges. When price traverses part of a range in the sell direction, that portion of the order is consumed exactly once. The resulting proceeds become claimable by the user, similar to how Uniswap LP fees are lazily collected.
+- `prototype/README.md` — prototype map + headline results (156 tests)
+- `prototype/DESIGN.md` / `IMPLEMENTATION.md` / `TESTING.md` — why / how / proof
+- `prototype/PRICING.md` — ticks ↔ prices for ETH/USDC and BTC/USDC
+- `prototype/EXPERIMENTS.md` — yield-while-quoted, hooks, LP-on-book
+- `prototype/DEPLOYMENT.md` — devnet runbook + Base Sepolia (needs funded key)
+- `requirements.md`, `invariants.md`, `test-plan.md`, `accounting-scenarios.md` — the original spec package this grew from
+- The fill-clock bucket book + real Uniswap v4 hook variant (Base-mainnet-fork validated) remain in `prototype/src/` as the v4-compatible lineage
 
-Unlike normal Uniswap LP liquidity, consumed sell liquidity must not become active again if price reverses.
+## Run
 
-## Files
-
-- `requirements.md` — product/mechanism requirements
-- `invariants.md` — correctness properties that must always hold
-- `test-plan.md` — Solidity/Foundry test scenarios and gas properties
-- `accounting-scenarios.md` — concrete Bob/Alice/Carol examples
-- `open-questions.md` — unresolved design questions and feasibility risks
+```sh
+cd prototype && forge test                 # 156 tests (no network)
+FORK=true forge test --match-contract Fork # Base mainnet fork suite
+./deploy-devnet.sh                         # deploy the full demo stack
+```
