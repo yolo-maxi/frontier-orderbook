@@ -6,6 +6,7 @@ import {MockERC20} from "../src/MockERC20.sol";
 import {MockYieldVault} from "../src/MockYieldVault.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
 import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
+import {RollingBookDeployer, MakerOpsDeployer} from "../src/FrontierDeployers.sol";
 import {FrontierRouter} from "../src/periphery/FrontierRouter.sol";
 import {FrontierLens} from "../src/periphery/FrontierLens.sol";
 import {RangeLPFactory} from "../src/periphery/RangeLP.sol";
@@ -28,7 +29,8 @@ contract DeployDemo is Script {
         MockERC20 weth = new MockERC20("Wrapped Ether (demo)", "WETH");
         MockERC20 usdc = new MockERC20("USD Coin (demo)", "USDC");
         PermissionRegistry registry = new PermissionRegistry();
-        FrontierBookFactory factory = new FrontierBookFactory(address(registry));
+        FrontierBookFactory factory =
+            new FrontierBookFactory(address(registry), new RollingBookDeployer(), new MakerOpsDeployer());
         FrontierRouter router = new FrontierRouter(factory);
         FrontierLens lens = new FrontierLens();
         RangeLPFactory lpFactory = new RangeLPFactory();

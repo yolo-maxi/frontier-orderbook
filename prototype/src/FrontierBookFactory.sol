@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {RollingFrontierBook} from "./RollingFrontierBook.sol";
+import {RollingBookDeployer, MakerOpsDeployer} from "./FrontierDeployers.sol";
 
 /// @notice Spins up independent rolling-frontier books. Markets are meant to
 /// be cheap and ephemeral: anyone can launch one for any (token0, token1)
@@ -9,8 +9,14 @@ import {RollingFrontierBook} from "./RollingFrontierBook.sol";
 /// parallel (e.g. a fine-grained book and a coarse one for the same pair),
 /// and simply abandon a book once its orders are claimed/cancelled — books
 /// hold no protocol-wide state and need no cleanup.
-import {FrontierHookFlags} from "./hooks/IFrontierHooks.sol";
-
+///
+/// EIP-170 layout: each book is a core contract plus a FrontierMakerOps
+/// companion it delegatecalls for requotes/cancels/transfers. The companion
+/// only depends on (token0, token1, spacing, hooks) + the shared registry,
+/// so the factory memoizes ONE companion per such config and reuses it for
+/// every book that matches. Actual deployment happens in two thin deployer
+/// contracts (one embedded initcode each) so the factory itself stays under
+/// the code-size limit.
 contract FrontierBookFactory {
     event BookCreated(
         address indexed book,
@@ -25,13 +31,19 @@ contract FrontierBookFactory {
     address[] public books;
     /// shared delegatable-permission registry for all books (0 = owner-only)
     address public immutable permissionRegistry;
+    RollingBookDeployer public immutable bookDeployer;
+    MakerOpsDeployer public immutable makerOpsDeployer;
     /// canonical book per (token0, token1, spacing) for router path lookups
     mapping(address => mapping(address => mapping(int24 => address))) public getBook;
     /// first book created for a pair, any spacing — the v2-style default
     mapping(address => mapping(address => address)) public defaultBook;
+    /// memoized maker-ops companion per (token0, token1, spacing, hooks)
+    mapping(bytes32 => address) public makerOpsFor;
 
-    constructor(address _permissionRegistry) {
+    constructor(address _permissionRegistry, RollingBookDeployer _bookDeployer, MakerOpsDeployer _makerOpsDeployer) {
         permissionRegistry = _permissionRegistry;
+        bookDeployer = _bookDeployer;
+        makerOpsDeployer = _makerOpsDeployer;
     }
 
     function bookCount() external view returns (uint256) {
@@ -52,7 +64,13 @@ contract FrontierBookFactory {
         returns (address book)
     {
         require(token0 != token1 && token0 != address(0) && token1 != address(0), "bad tokens");
-        book = address(new RollingFrontierBook(token0, token1, tickSpacing, startTick, hooks, permissionRegistry));
+        bytes32 opsKey = keccak256(abi.encode(token0, token1, tickSpacing, hooks));
+        address ops = makerOpsFor[opsKey];
+        if (ops == address(0)) {
+            ops = makerOpsDeployer.deploy(token0, token1, tickSpacing, hooks, permissionRegistry);
+            makerOpsFor[opsKey] = ops;
+        }
+        book = bookDeployer.deploy(token0, token1, tickSpacing, startTick, hooks, permissionRegistry, ops);
         books.push(book);
         if (getBook[token0][token1][tickSpacing] == address(0)) {
             getBook[token0][token1][tickSpacing] = book;

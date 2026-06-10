@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {newBook} from "./utils/BookFab.sol";
 
 /// @notice Internal-balance recycling: earned proceeds flow into new orders
 /// without leaving the book — no claim transfer, no approve, no transferFrom.
@@ -24,7 +25,7 @@ contract FrontierRecycleTest is Test {
         seller = makeAddr("seller");
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        book = new RollingFrontierBook(address(t0), address(t1), 1, 100, address(0), address(0));
+        book = newBook(address(t0), address(t1), 1, 100, address(0), address(0));
 
         t0.mint(mm, 1e30);
         t1.mint(mm, 1e30);

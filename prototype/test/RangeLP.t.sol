@@ -6,6 +6,7 @@ import {MockERC20} from "../src/MockERC20.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
 import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
 import {RangeLP, RangeLPFactory} from "../src/periphery/RangeLP.sol";
+import {newFactory} from "./utils/BookFab.sol";
 
 /// @notice Uniswap-style passive LP living on the orderbook: symmetric
 /// ladders around mid, fills convert inventory, rebalance re-centers.
@@ -25,7 +26,7 @@ contract RangeLPTest is Test {
         taker = makeAddr("taker");
         t0 = new MockERC20("WETH", "WETH");
         t1 = new MockERC20("USDC", "USDC");
-        FrontierBookFactory factory = new FrontierBookFactory(address(0));
+        FrontierBookFactory factory = newFactory(address(0));
         book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 100));
 
         RangeLPFactory lpf = new RangeLPFactory();

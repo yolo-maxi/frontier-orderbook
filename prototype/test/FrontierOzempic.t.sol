@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {newBook} from "./utils/BookFab.sol";
 
 /// @notice "Tick ozempic": endpoint-telescoped sweeps. Ticks stay thin
 /// (full price precision); a sweep settles each run BETWEEN order endpoints
@@ -25,7 +26,7 @@ contract FrontierOzempicTest is Test {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
         // spacing 1, rate curve 0.1%/tick: 500 ticks ~ a 5% move
-        book = new RollingFrontierBook(address(t0), address(t1), 1, 0, address(0), address(0));
+        book = newBook(address(t0), address(t1), 1, 0, address(0), address(0));
         for (uint256 i = 0; i < 5; i++) {
             makers[i] = makeAddr(string(abi.encodePacked("maker", vm.toString(i))));
             t0.mint(makers[i], 1e30);
@@ -97,7 +98,7 @@ contract FrontierOzempicTest is Test {
         for (uint256 c = 0; c < levels.length; c++) {
             t0 = new MockERC20("T0", "T0");
             t1 = new MockERC20("T1", "T1");
-            book = new RollingFrontierBook(address(t0), address(t1), 1, 0, address(0), address(0));
+            book = newBook(address(t0), address(t1), 1, 0, address(0), address(0));
             t0.mint(makers[0], 1e30);
             vm.prank(makers[0]);
             t0.approve(address(book), type(uint256).max);
@@ -193,5 +194,73 @@ contract FrontierOzempicTest is Test {
         }
         assertEq(book.claimable(id), acc / 1e18, "quadratic-series settlement exact to the wei");
         assertLt(sweepGas, 400_000, "shape does not break telescoping");
+    }
+
+    // ------------------------------------------------------------------
+    // BID side: the mirror telescoping (low-water stack, uniform runs)
+    // ------------------------------------------------------------------
+
+    function testDownSweepGasIndependentOfTickFineness() public {
+        // a bid wall quoted at 10x finer ticks must not cost more to sweep
+        // through — this is the recenter-across-the-wall case that used to
+        // exceed block gas per-level
+        uint24[3] memory levels = [uint24(50), 500, 5000];
+        uint256[3] memory gasUsed;
+        for (uint256 c = 0; c < levels.length; c++) {
+            t0 = new MockERC20("T0", "T0");
+            t1 = new MockERC20("T1", "T1");
+            int24 top = int24(levels[c]) + 1;
+            book = newBook(address(t0), address(t1), 1, top, address(0), address(0));
+            t1.mint(makers[0], 1e30);
+            vm.prank(makers[0]);
+            t1.approve(address(book), type(uint256).max);
+            t0.mint(taker, 1e30);
+            vm.prank(taker);
+            t0.approve(address(book), type(uint256).max);
+
+            vm.prank(makers[0]);
+            book.depositBid(1, top, L);
+            vm.prank(taker);
+            uint256 g = gasleft();
+            book.sweepWithLimits(1, type(uint256).max, type(uint256).max, 0, block.timestamp);
+            gasUsed[c] = g - gasleft();
+            console2.log("down-sweep gas at tick-fineness (levels in same span):", levels[c], gasUsed[c]);
+        }
+        uint256 wordBudget = (uint256(levels[2] - levels[0]) / 256 + 2) * 2600;
+        assertLt(gasUsed[2] - gasUsed[0], wordBudget, "growth must be word-bounded (1/256 compression)");
+        assertLt(gasUsed[2], gasUsed[0] + uint256(levels[2]) * 1_000, "no per-level scaling");
+    }
+
+    function testBidMidRunBudgetParkAndResume() public {
+        t0.mint(taker, 1e30);
+        vm.prank(taker);
+        t0.approve(address(book), type(uint256).max);
+        t1.mint(makers[0], 1e30);
+        vm.prank(makers[0]);
+        t1.approve(address(book), type(uint256).max);
+
+        vm.prank(taker);
+        book.moveTickTo(301);
+        vm.prank(makers[0]);
+        uint256 id = book.depositBid(1, 301, L); // one bid, 300 thin levels
+
+        // taker can only deliver 120 levels' token0: uniform subdivision
+        vm.prank(taker);
+        (int24 reached, uint256 paid,) =
+            book.sweepWithLimits(1, type(uint256).max, 120 * uint256(L), 0, block.timestamp);
+
+        assertEq(reached, 181, "parked mid-run at exact affordability");
+        assertEq(paid, 120 * uint256(L), "pays exactly the budget");
+        assertEq(book.bidClaimable(id), 120 * uint256(L), "partial run credited exactly");
+
+        // resume completes the rest; totals exact
+        vm.prank(taker);
+        book.sweepWithLimits(1, type(uint256).max, type(uint256).max, 0, block.timestamp);
+        assertEq(book.bidClaimable(id), 300 * uint256(L), "resume exact, no double-fill");
+
+        // freshness: a new bid in the swept region is untouched
+        vm.prank(makers[0]);
+        uint256 fresh = book.depositBid(0, 1, L);
+        assertEq(book.bidClaimable(fresh), 0, "low-water clocks keep new bids fresh");
     }
 }

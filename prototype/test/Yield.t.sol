@@ -6,6 +6,7 @@ import {MockERC20} from "../src/MockERC20.sol";
 import {MockYieldVault} from "../src/MockYieldVault.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
 import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
+import {newFactory} from "./utils/BookFab.sol";
 
 /// @notice NOTES-yield.md Level 0: "yield-bearing pairs are just pairs".
 /// The book trades the VAULT SHARE token; share price appreciates while
@@ -32,7 +33,7 @@ contract YieldTest is Test {
         vault = new MockYieldVault(address(weth), "Wrapped Aave WETH", "waWETH");
 
         // book trades (waWETH, USDC)
-        FrontierBookFactory factory = new FrontierBookFactory(address(0));
+        FrontierBookFactory factory = newFactory(address(0));
         book = RollingFrontierBook(factory.createBook(address(vault), address(usdc), 1, 100));
 
         // maker wraps WETH into shares 1:1 at start

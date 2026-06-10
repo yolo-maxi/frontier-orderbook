@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {newBook} from "./utils/BookFab.sol";
 
 /// @notice Fills the measurement gaps for the comprehensive gas comparison:
 /// bid-side operation costs and taker cost-per-level across paths.
@@ -20,7 +21,7 @@ contract GasMatrixTest is Test {
     function _fresh(int24 startTick) internal {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        book = new RollingFrontierBook(address(t0), address(t1), 1, startTick, address(0), address(0));
+        book = newBook(address(t0), address(t1), 1, startTick, address(0), address(0));
         mm = makeAddr("mm");
         taker = makeAddr("taker");
         t0.mint(mm, 1e30);

@@ -6,6 +6,7 @@ import {MockERC20} from "../src/MockERC20.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
 import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
 import {PermissionRegistry} from "../src/permissions/PermissionRegistry.sol";
+import {newFactory} from "./utils/BookFab.sol";
 
 /// @notice Delegatable permissions (ERC Approval Registry) on the book:
 /// owners grant selector-scoped rights to operators (bots, keepers) who can
@@ -29,7 +30,7 @@ contract PermissionsTest is Test {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
         registry = new PermissionRegistry();
-        FrontierBookFactory factory = new FrontierBookFactory(address(registry));
+        FrontierBookFactory factory = newFactory(address(registry));
         book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 0));
 
         t0.mint(mm, 1e30);
@@ -112,7 +113,7 @@ contract PermissionsTest is Test {
 
     function testNoRegistryMeansOwnerOnly() public {
         // a book created without a registry keeps strict owner-only behavior
-        FrontierBookFactory bare = new FrontierBookFactory(address(0));
+        FrontierBookFactory bare = newFactory(address(0));
         RollingFrontierBook bareBook = RollingFrontierBook(bare.createBook(address(t0), address(t1), 1, 0));
         vm.prank(mm);
         t0.approve(address(bareBook), type(uint256).max);

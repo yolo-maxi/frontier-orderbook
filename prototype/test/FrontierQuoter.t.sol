@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {newBook} from "./utils/BookFab.sol";
 
 /// @notice The market-maker view: how cheap is it to keep quotes current?
 /// Key facts measured here: requote is O(1) in ladder width (a 100-level
@@ -29,7 +30,7 @@ contract FrontierQuoterTest is Test {
     function _fresh() internal {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        book = new RollingFrontierBook(address(t0), address(t1), 1, 0, address(0), address(0));
+        book = newBook(address(t0), address(t1), 1, 0, address(0), address(0));
         t0.mint(mm, 1e30);
         vm.prank(mm);
         t0.approve(address(book), type(uint256).max);

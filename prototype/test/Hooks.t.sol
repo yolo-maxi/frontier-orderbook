@@ -7,6 +7,7 @@ import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
 import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
 import {FrontierHookFlags} from "../src/hooks/IFrontierHooks.sol";
 import {GatedVolumeHook} from "../src/hooks/examples/ExampleHooks.sol";
+import {newFactory} from "./utils/BookFab.sol";
 
 /// @notice v4-style hooks: permissions live in the hook contract's ADDRESS
 /// low bits; callbacks must return their selector; flagless addresses are
@@ -28,7 +29,7 @@ contract HooksTest is Test {
         taker = makeAddr("taker");
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        factory = new FrontierBookFactory(address(0));
+        factory = newFactory(address(0));
 
         // deploy the hook at an address with its permission flags encoded
         uint160 flags = FrontierHookFlags.BEFORE_DEPOSIT_FLAG | FrontierHookFlags.AFTER_SWEEP_FLAG;

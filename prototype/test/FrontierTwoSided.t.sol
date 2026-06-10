@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {newBook} from "./utils/BookFab.sol";
 
 /// @notice Two-sided market (bids below / asks above one shared pointer) and
 /// taker protections (maxPay / minOut / deadline on both sweep directions).
@@ -26,7 +27,7 @@ contract FrontierTwoSidedTest is Test {
         seller = makeAddr("seller");
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        book = new RollingFrontierBook(address(t0), address(t1), 1, 100, address(0), address(0));
+        book = newBook(address(t0), address(t1), 1, 100, address(0), address(0));
 
         address[2] memory makers = [mm, mm2];
         for (uint256 i = 0; i < 2; i++) {

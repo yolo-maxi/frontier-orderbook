@@ -8,3 +8,11 @@ optimizer = true
 optimizer_runs = 44444444
 via_ir = true
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
+
+# Deployment profile: size-optimized for EIP-170 chains (Base Sepolia etc).
+# The default profile favors runtime gas for benchmarks; this one favors
+# bytecode size. FOUNDRY_PROFILE=deploy forge build --sizes
+[profile.deploy]
+optimizer = true
+optimizer_runs = 200
+via_ir = true

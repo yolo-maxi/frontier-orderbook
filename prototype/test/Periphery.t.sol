@@ -28,7 +28,7 @@ contract PeripheryTest is Test {
         trader = makeAddr("trader");
         t0 = new MockERC20("WETH", "WETH");
         t1 = new MockERC20("USDC", "USDC");
-        factory = new FrontierBookFactory(address(0));
+        factory = newFactory(address(0));
         router = new FrontierRouter(factory);
         lens = new FrontierLens();
         book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 100));
@@ -118,6 +118,7 @@ contract PeripheryTest is Test {
 }
 
 import {FrontierMakerKit} from "../src/periphery/FrontierMakerKit.sol";
+import {newFactory} from "./utils/BookFab.sol";
 
 contract MakerKitTest is Test {
     MockERC20 internal t0;
@@ -130,7 +131,7 @@ contract MakerKitTest is Test {
         mm = makeAddr("mm");
         t0 = new MockERC20("WETH", "WETH");
         t1 = new MockERC20("USDC", "USDC");
-        FrontierBookFactory factory = new FrontierBookFactory(address(0));
+        FrontierBookFactory factory = newFactory(address(0));
         book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 100));
         kit = new FrontierMakerKit();
         t0.mint(mm, 1e30);
