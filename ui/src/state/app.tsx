@@ -8,7 +8,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { getAbiItem, parseUnits, type PrivateKeyAccount, type PublicClient } from "viem";
+import {
+  decodeFunctionResult,
+  encodeFunctionData,
+  getAbiItem,
+  parseUnits,
+  type PrivateKeyAccount,
+  type PublicClient,
+} from "viem";
 import type { DeploymentConfig } from "../lib/config";
 import { isConfigured } from "../lib/config";
 import { makePublicClient, makeWalletClient, type DemoWalletClient } from "../lib/chain";
@@ -120,6 +127,34 @@ const LENS_GAS_HINT = 1_000_000_000n;
 const TICK_MAX = 8_388_607; // int24 sentinels used by lens.summary
 const TICK_MIN = -8_388_608;
 
+/** eth_call with an explicit gas field — viem's readContract typing omits
+ * `gas`, but the per-tick lens scans need a raised budget on nodes that
+ * allow it (devnets do). */
+async function readSummary(client: PublicClient, lens: `0x${string}`, book: `0x${string}`, window: number) {
+  const data = encodeFunctionData({ abi: lensAbi, functionName: "summary", args: [book, window] });
+  const res = await client.call({ to: lens, data, gas: LENS_GAS_HINT });
+  if (!res.data) throw new Error("lens.summary: empty result");
+  return decodeFunctionResult({ abi: lensAbi, functionName: "summary", data: res.data });
+}
+
+async function readDepth(
+  client: PublicClient,
+  lens: `0x${string}`,
+  book: `0x${string}`,
+  fromTick: number,
+  toTick: number,
+  maxLevels: bigint,
+) {
+  const data = encodeFunctionData({
+    abi: lensAbi,
+    functionName: "depth",
+    args: [book, fromTick, toTick, maxLevels],
+  });
+  const res = await client.call({ to: lens, data, gas: LENS_GAS_HINT });
+  if (!res.data) throw new Error("lens.depth: empty result");
+  return decodeFunctionResult({ abi: lensAbi, functionName: "depth", data: res.data });
+}
+
 // ---------------------------------------------------------------- provider
 
 export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children: ReactNode }) {
@@ -180,13 +215,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
         // adaptive scan window: shrink on eth_call gas-cap failures
         for (;;) {
           try {
-            s = await client.readContract({
-              address: cfg.contracts.lens,
-              abi: lensAbi,
-              functionName: "summary",
-              args: [cfg.contracts.book, windowRef.current],
-              gas: LENS_GAS_HINT,
-            });
+            s = await readSummary(client, cfg.contracts.lens, cfg.contracts.book, windowRef.current);
             break;
           } catch (e) {
             if (windowRef.current <= MIN_DEPTH_WINDOW) throw e;
@@ -205,22 +234,28 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
           hasAsk: bestAsk !== TICK_MAX && bestAsk > cur,
           hasBid: bestBid !== TICK_MIN && bestBid <= cur,
         };
-        const levels = await client.readContract({
-          address: cfg.contracts.lens,
-          abi: lensAbi,
-          functionName: "depth",
-          args: [cfg.contracts.book, cur - win, cur + win, DEPTH_MAX_LEVELS],
-          gas: LENS_GAS_HINT,
-        });
+        // query each side separately — with thin ticks a single call's
+        // maxLevels budget is consumed entirely by the ask side
+        const [askLevels, bidLevels] = await Promise.all([
+          readDepth(client, cfg.contracts.lens, cfg.contracts.book, cur, cur + win, DEPTH_MAX_LEVELS),
+          readDepth(client, cfg.contracts.lens, cfg.contracts.book, cur - win, cur, DEPTH_MAX_LEVELS),
+        ]);
         if (stop) return;
         setSummary(sum);
-        setDepth(
-          levels.map((l) => ({
-            tick: Number(l.tick),
-            askSize: l.askSize,
-            bidSize: l.bidSize,
-          })),
-        );
+        const merged = new Map<number, DepthLevel>();
+        for (const l of askLevels) {
+          if (l.askSize > 0n) {
+            merged.set(Number(l.tick), { tick: Number(l.tick), askSize: l.askSize, bidSize: 0n });
+          }
+        }
+        for (const l of bidLevels) {
+          if (l.bidSize > 0n) {
+            const t = Number(l.tick);
+            const prev = merged.get(t);
+            merged.set(t, { tick: t, askSize: prev?.askSize ?? 0n, bidSize: l.bidSize });
+          }
+        }
+        setDepth([...merged.values()]);
         setPriceHistory((h) => {
           const next = [...h, { t: Date.now(), price: tickToPrice(cur) }];
           return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;

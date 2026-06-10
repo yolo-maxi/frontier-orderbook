@@ -116,3 +116,66 @@ contract PeripheryTest is Test {
         assertEq(bids, 10, "10 bid levels visible");
     }
 }
+
+import {FrontierMakerKit} from "../src/periphery/FrontierMakerKit.sol";
+
+contract MakerKitTest is Test {
+    MockERC20 internal t0;
+    MockERC20 internal t1;
+    RollingFrontierBook internal book;
+    FrontierMakerKit internal kit;
+    address internal mm;
+
+    function setUp() public {
+        mm = makeAddr("mm");
+        t0 = new MockERC20("WETH", "WETH");
+        t1 = new MockERC20("USDC", "USDC");
+        FrontierBookFactory factory = new FrontierBookFactory(address(0));
+        book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 100));
+        kit = new FrontierMakerKit();
+        t0.mint(mm, 1e30);
+        t1.mint(mm, 1e30);
+        vm.startPrank(mm);
+        t0.approve(address(kit), type(uint256).max);
+        t1.approve(address(kit), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    function testPlaceWholeCurveInOneTx() public {
+        // a 3-segment quoting curve: front-loaded asks, flat far asks, bids
+        FrontierMakerKit.Segment[] memory segs = new FrontierMakerKit.Segment[](3);
+        segs[0] = FrontierMakerKit.Segment(101, 111, 10e18, -1e18, false); // 10..1 decaying
+        segs[1] = FrontierMakerKit.Segment(111, 121, 1e18, 0, false); // flat tail
+        segs[2] = FrontierMakerKit.Segment(90, 100, 2e18, 0, true); // bids
+
+        vm.prank(mm);
+        uint256[] memory ids = kit.placeCurve(book, segs);
+
+        assertEq(book.activeLiquidity(101), 10e18, "shaped segment live");
+        assertEq(book.activeLiquidity(111), 1e18, "flat segment live");
+        assertEq(book.bidLiquidity(95), 2e18, "bid segment live");
+        // positions belong to the CALLER, not the kit
+        for (uint256 i = 0; i < 3; i++) {
+            (address owner,,,,,,,,) = book.positions(ids[i]);
+            assertEq(owner, mm, "caller owns the position");
+        }
+        // and the caller can manage them directly
+        vm.prank(mm);
+        book.cancel(ids[1]);
+        assertEq(book.activeLiquidity(111), 0, "caller cancelled their own segment");
+    }
+
+    function testTransferPosition() public {
+        address alice = makeAddr("alice");
+        vm.startPrank(mm);
+        t0.approve(address(book), type(uint256).max);
+        uint256 id = book.deposit(101, 103, 1e18);
+        book.transferPosition(id, alice);
+        vm.expectRevert(bytes("not owner"));
+        book.cancel(id); // old owner locked out
+        vm.stopPrank();
+        vm.prank(alice);
+        book.cancel(id); // new owner controls (and receives funds)
+        assertGt(t0.balanceOf(alice), 0, "principal followed ownership");
+    }
+}

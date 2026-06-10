@@ -142,6 +142,7 @@ contract RollingFrontierBook is IRangeOrderBook {
     event Claim(uint256 indexed positionId, uint256 proceeds1);
     event Cancel(uint256 indexed positionId, uint256 proceeds1, uint256 principal0);
     event Requote(uint256 indexed positionId, int24 lower, int24 upper, uint128 liquidity);
+    event PositionTransferred(uint256 indexed positionId, address indexed from, address indexed to);
     event InternalCredit(address indexed user, uint256 amount0, uint256 amount1);
     event InternalWithdraw(address indexed user, uint256 amount0, uint256 amount1);
 
@@ -236,6 +237,18 @@ contract RollingFrontierBook is IRangeOrderBook {
             abi.encodeCall(IFrontierHooks.afterDeposit, (msg.sender, positionId, false)),
             IFrontierHooks.afterDeposit.selector
         );
+    }
+
+    /// @notice Transfer position ownership (claims/refunds follow the new
+    /// owner). Makes positions composable assets: periphery contracts can
+    /// build positions and hand them to users; wrappers can tokenize them.
+    function transferPosition(uint256 positionId, address to) external {
+        Position storage p = positions[positionId];
+        require(p.live, "not live");
+        _authOwner(p.owner);
+        require(to != address(0), "zero owner");
+        p.owner = to;
+        emit PositionTransferred(positionId, msg.sender, to);
     }
 
     /// @notice O(1) re-price for quoters: move a completely UNFILLED order to
