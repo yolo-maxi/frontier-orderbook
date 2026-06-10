@@ -9,7 +9,7 @@ loops over users.
 
 **Status (2026-06-10):** mechanism designed, built four ways (standalone
 fill-clock book, naive reference oracle, real Uniswap v4 hook, and a
-width-O(1) rolling-frontier book), and verified — 132 tests passing,
+width-O(1) rolling-frontier book), and verified — 135 tests passing,
 including the full spec scenario suite against all four implementations, 2,000-run differential fuzzing, gas proofs of the
 complexity requirements, and an end-to-end Base mainnet fork test using the
 deployed PoolManager, real WETH/USDC, and the deployed Universal Router.
@@ -60,6 +60,29 @@ FOUNDRY_FUZZ_RUNS=2000 forge test --match-test testFuzz_Differential
 FORK=true forge test --match-contract ForkBaseHookTest -vv   # Base mainnet fork
 # optional: BASE_RPC_URL=<url> to override the default Base RPC
 ```
+
+## The thin-tick story (publishable summary)
+
+User-facing ticks stay THIN — full price precision — while settlement work
+is compressed. Mechanism in three sentences: between two order endpoints,
+the active liquidity ladder is a straight line (constant per level, or
+linear for shaped orders), so a taker sweep settles the whole run with one
+closed-form sum instead of one state transition per tick. The sweep only
+touches points where the book's composition actually changes (order
+endpoints, found via bitmap), and writes survivors once at the end.
+Freshness and no-resurrection are kept by recording one "this sweep covered
+up to boundary H" entry per sweep — a position's filled prefix is just that
+high-water mark clamped to its range, provable in O(log sweeps).
+
+Before/after, same scenarios, real per-transaction gas (--isolate): a sweep
+through 500 active thin levels fell from 21.9M gas (2/3 of a block) to
+167k (131x); through 5,000 levels from 286.8M (unexecutable, ~10 blocks)
+to 210k (1,367x). Payouts stay exact to the wei against brute-force
+per-tick references; maxPay parks mid-run at the exact affordable thin
+tick; user-count independence, freshness, and no-resurrection are all
+test-pinned. Known limits: cost scales with distinct order ENDPOINTS
+crossed (~10-13k each — maker count, not tick count), and bid-side
+down-sweeps are not yet telescoped.
 
 ## Headline results
 

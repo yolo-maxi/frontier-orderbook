@@ -1,6 +1,6 @@
 # Testing & Verification
 
-What the test suite proves, how, and the measured numbers. 132 tests total:
+What the test suite proves, how, and the measured numbers. 135 tests total:
 130 local (offline) + 2 Base-mainnet fork tests (gated behind `FORK=true`).
 
 ## Strategy
@@ -195,6 +195,27 @@ assertions use a +/-50 gas tolerance for calldata-byte differences. The +22k
 deposit step at small widths is PROVEN to be one cold bitmap word write, not
 width scaling: a width-10 deposit straddling two 256-interval words costs
 the same as width-100,000 (testDepositStepIsBitmapWordsNotWidth).
+
+### Endpoint sweeps: before/after (isolated, per-transaction, identical scenarios)
+
+Measured by running `test/PublishBench.t.sol` under `--isolate` on this
+commit and on the pre-telescoping commit (5b29538) in a git worktree:
+
+| Dense thin-tick sweep | per-level (before) | telescoped (after) | reduction |
+|---|---|---|---|
+| 1 maker, 50 levels | 2,213,334 | 166,738 | 13x |
+| 1 maker, 500 levels | 21,934,544 | 167,340 | **131x** |
+| 1 maker, 5,000 levels | 286,766,384 (~10 blocks; unexecutable) | 209,817 | **1,367x** |
+| 5 makers, 500 active levels | 21,430,170 | 214,412 | 100x |
+| sparse: 2 orders, 100k-tick gap | 1,096,008 | 1,110,572 | ~same (bitmap already solved sparse) |
+
+Thin ticks are no longer a taker cost: sweep gas is O(order endpoints
+crossed + bitmap words), so fineness costs ~nothing (50 vs 5,000 levels of
+one order: +43k, all bitmap word-walk). The irreducible unit is the ORDER
+ENDPOINT (~10-13k marginal): a sweep crossing 50 distinct makers' separate
+orders pays for 50 absorptions — that is maker-count, not tick-count.
+Bid-side (down-sweep) telescoping is not yet mirrored: bids still settle
+per-level (~44k/level); the ask side demonstrates the mechanism.
 
 ### Corrected headline numbers (isolated, per-transaction)
 
