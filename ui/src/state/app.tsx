@@ -108,10 +108,17 @@ const runFilledEvent = getAbiItem({ abi: bookAbi, name: "RunFilled" });
 const intervalFilledEvent = getAbiItem({ abi: bookAbi, name: "IntervalFilled" });
 const depositEvent = getAbiItem({ abi: bookAbi, name: "Deposit" });
 
-const DEPTH_WINDOW = 8000; // ticks each side
+const DEPTH_WINDOW = 8000; // ticks each side (shrinks adaptively if the node's eth_call gas cap is tight)
+const MIN_DEPTH_WINDOW = 500;
 const DEPTH_MAX_LEVELS = 60n;
 const MAX_FILLS = 60;
 const MAX_HISTORY = 1200;
+/** The lens walks per-tick ledgers; ±8000 ticks needs ~80M gas, above many
+ * nodes' default eth_call budget. An explicit gas field lifts it where the
+ * node allows (anvil does); otherwise we fall back to a narrower window. */
+const LENS_GAS_HINT = 1_000_000_000n;
+const TICK_MAX = 8_388_607; // int24 sentinels used by lens.summary
+const TICK_MIN = -8_388_608;
 
 // ---------------------------------------------------------------- provider
 
@@ -160,6 +167,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   }, [configured, client, cfg, account]);
 
   // -------- summary + depth + price history (2s)
+  const windowRef = useRef(DEPTH_WINDOW);
   useEffect(() => {
     if (!configured) return;
     let stop = false;
@@ -168,26 +176,41 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       if (inflight || stop) return;
       inflight = true;
       try {
-        const s = await client.readContract({
-          address: cfg.contracts.lens,
-          abi: lensAbi,
-          functionName: "summary",
-          args: [cfg.contracts.book, DEPTH_WINDOW],
-        });
+        let s;
+        // adaptive scan window: shrink on eth_call gas-cap failures
+        for (;;) {
+          try {
+            s = await client.readContract({
+              address: cfg.contracts.lens,
+              abi: lensAbi,
+              functionName: "summary",
+              args: [cfg.contracts.book, windowRef.current],
+              gas: LENS_GAS_HINT,
+            });
+            break;
+          } catch (e) {
+            if (windowRef.current <= MIN_DEPTH_WINDOW) throw e;
+            windowRef.current = Math.max(MIN_DEPTH_WINDOW, Math.floor(windowRef.current / 2));
+          }
+        }
+        const win = windowRef.current;
         const cur = Number(s.currentTick);
+        const bestAsk = Number(s.bestAsk);
+        const bestBid = Number(s.bestBid);
         const sum: BookSummary = {
           currentTick: cur,
           tickSpacing: Number(s.tickSpacing),
-          bestAsk: Number(s.bestAsk),
-          bestBid: Number(s.bestBid),
-          hasAsk: Number(s.bestAsk) > cur && Number(s.bestAsk) < cur + DEPTH_WINDOW,
-          hasBid: Number(s.bestBid) <= cur && Number(s.bestBid) > cur - DEPTH_WINDOW,
+          bestAsk,
+          bestBid,
+          hasAsk: bestAsk !== TICK_MAX && bestAsk > cur,
+          hasBid: bestBid !== TICK_MIN && bestBid <= cur,
         };
         const levels = await client.readContract({
           address: cfg.contracts.lens,
           abi: lensAbi,
           functionName: "depth",
-          args: [cfg.contracts.book, cur - DEPTH_WINDOW, cur + DEPTH_WINDOW, DEPTH_MAX_LEVELS],
+          args: [cfg.contracts.book, cur - win, cur + win, DEPTH_MAX_LEVELS],
+          gas: LENS_GAS_HINT,
         });
         if (stop) return;
         setSummary(sum);

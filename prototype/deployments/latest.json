@@ -1,16 +1,18 @@
 {
   "name": "Frontier Devnet",
   "chainId": 84009,
-  "startTick": 3999000,
+  "rpcUrl": "https://rpc-clob.repo.box",
+  "startTick": 1627605,
+  "faucetKey": "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a",
   "contracts": {
-    "book": "0xEb2C096D09650979D6e4BD8726D714E9EaecBB05",
-    "factory": "0xc527Af4949245B88568a1839cc0E8d2288990830",
-    "router": "0xFe90c37a0F5643c9263f6EcB3a4Aa0c5c4CF440e",
-    "lens": "0x73382c7e934335738aDEAd302f63745820b5205b",
-    "registry": "0x990bba99F3757778b74DA5b9BAC80B72fece4e4C",
-    "lpFactory": "0x677c7CBC70B62476251C072bb2A7F3818830f8b6",
-    "yieldVault": "0xCa486B9e8dd9a17ee75d239f6D59270E7cd9Cf9e",
-    "weth": "0xDdbF74b88f812fe14C5CaA8D2a2c1b46C21ade97",
-    "usdc": "0x75B27e510db452d3a42B12D59224540a534B01DE"
+    "book": "0xD4eF5bFBe5925B905BD3EC0921bFe28b04ac61aE",
+    "factory": "0x0E801D84Fa97b50751Dbf25036d067dCf18858bF",
+    "router": "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf",
+    "lens": "0x9d4454B023096f34B160D6B654540c56A1F81688",
+    "registry": "0x99bbA657f2BbC93c02D617f8bA121cB8Fc104Acf",
+    "lpFactory": "0x5eb3Bc0a489C5A8288765d2336659EbCA68FCd00",
+    "yieldVault": "0x36C02dA8a0983159322a80FFE9F24b1acfF8B570",
+    "weth": "0x70e0bA845a1A0F2DA3359C97E0285013525FFC49",
+    "usdc": "0x4826533B4897376654Bb4d4AD88B7faFD0C98528"
   }
 }

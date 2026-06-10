@@ -43,9 +43,18 @@ async function settleAndRepost(targetTick, offset) {
   // owner path: settle fills, recenter pointer through the (now empty) spread, repost
   if (askId) { try { await write(owner, book, bookAbi, 'cancel', [askId]); } catch {} askId = 0n; }
   if (bidId) { try { await write(owner, book, bookAbi, 'cancelBid', [bidId]); } catch {} bidId = 0n; }
-  const cur = await pub.readContract({ address: book, abi: bookAbi, functionName: 'currentTick' });
-  if (Math.abs(Number(cur) - targetTick) > offset) {
-    try { await write(owner, book, bookAbi, 'moveTickTo', [targetTick]); } catch (e) { log('mm', 'recenter blocked (live liquidity in path)'); }
+  // recenter with CHUNKED resumable sweeps (crossing big walls can exceed
+  // block gas in one tx — bids are not telescoped yet)
+  for (let i = 0; i < 40; i++) {
+    const cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: 'currentTick' }));
+    if (Math.abs(cur - targetTick) <= offset) break;
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 120);
+    try {
+      await write(owner, book, bookAbi, 'sweepWithLimits', [targetTick, 200n, 2n ** 200n, 0n, deadline]);
+    } catch (e) {
+      log('mm', 'recenter chunk failed:', e.shortMessage?.slice(0, 80) || e.message?.slice(0, 80));
+      break;
+    }
   }
   const askLo = targetTick + offset, bidHi = targetTick - offset;
   const r1 = await pub.simulateContract({ address: book, abi: bookAbi, functionName: 'deposit', args: [askLo, askLo + LADDER_TICKS, SIZE], account: owner.account });
@@ -76,5 +85,6 @@ async function tick() {
 }
 
 await setup();
-await tick();
-setInterval(() => tick().catch((e) => log('mm', 'tick error:', e.message?.slice(0, 120))), 12_000);
+const safeTick = () => tick().catch((e) => log('mm', 'tick error:', e.shortMessage?.slice(0, 120) || e.message?.slice(0, 120)));
+await safeTick();
+setInterval(safeTick, 12_000);

@@ -18,7 +18,10 @@ LPF=$(dep src/periphery/RangeLP.sol:RangeLPFactory)
 YV=$(dep src/MockYieldVault.sol:MockYieldVault --constructor-args $WETH "Yield-bearing demo WETH" "ywWETH")
 echo "tokens/infra deployed"
 
-START_TICK=3999000
+# seed at the LIVE ETH price so the book opens on-market
+PRICE=$(curl -s --max-time 8 https://api.coinbase.com/v2/prices/ETH-USD/spot | python3 -c "import json,sys;print(json.load(sys.stdin)['data']['amount'])" 2>/dev/null || echo 4000)
+START_TICK=$(python3 -c "print(round((float('$PRICE')-1)*1000))")
+echo "seeding at \$$PRICE (tick $START_TICK)" 
 cast send $FACTORY "createBook(address,address,int24,int24)" $WETH $USDC 1 $START_TICK --rpc-url $RPC --private-key $K > /dev/null
 BOOK=$(cast call $FACTORY "defaultBook(address,address)(address)" $WETH $USDC --rpc-url $RPC)
 echo "book: $BOOK"
