@@ -70,3 +70,32 @@ trapped maker funds. Mitigations, all of which should ship together:
 Level 0 needs nothing from us (document it). Level 1 is the standard
 cluster vault — build it WITH the cluster work. Level 2 ships policy (a)
 or (b) only, never (c); it's an adapter layer, not a book change.
+
+## Tokenomics decision (Fran, 2026-06-10)
+
+Two-loop model:
+1. EMISSIONS: users earn tokens weekly based on activity.
+2. DIVIDENDS: skimmed yield (+ later taker fees) is distributed to ACTIVE
+   token stakers (staked during the epoch).
+
+Design principles:
+- Weight emissions by REVENUE CONTRIBUTION, not volume. Volume is
+  wash-tradeable (fee-free self-fills cost only gas + dust); but resting
+  principal-time in rehypothecated books IS the thing that generates the
+  dividend revenue, and taker fees paid ARE revenue. "Points = the yield
+  your capital produced + the fees you paid" makes farming the token
+  identical to funding the dividend pot — self-financing and wash-resistant
+  by construction.
+- Compute activity OFF-CHAIN from events (deposits/fills/cancels emit
+  everything needed for exact time-weighted balances), distribute weekly
+  via merkle drop. Putting per-position balance-time integrals on-chain is
+  the same path-dependent query that breaks O(1) claims — keep it in the
+  indexer where it costs nothing.
+- Books need ZERO changes. New components, all standard and separate from
+  the protocol layer: Token, epoch StakingVault (must be staked during the
+  epoch to receive it), weekly MerkleDistributor, Skimmer
+  (aTokenBalance - sum(entitlements) -> distributor).
+- Cluster-vault yield stays the MM's own (not skimmable); clusters
+  contribute to dividends via taker fees only.
+- makerRebateBps parameter retained (set 0) as the competitive-pressure
+  valve.

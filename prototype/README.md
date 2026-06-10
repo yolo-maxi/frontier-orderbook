@@ -9,7 +9,7 @@ loops over users.
 
 **Status (2026-06-10):** mechanism designed, built four ways (standalone
 fill-clock book, naive reference oracle, real Uniswap v4 hook, and a
-width-O(1) rolling-frontier book), and verified — 115 tests passing,
+width-O(1) rolling-frontier book), and verified — 125 tests passing,
 including the full spec scenario suite against all four implementations, 2,000-run differential fuzzing, gas proofs of the
 complexity requirements, and an end-to-end Base mainnet fork test using the
 deployed PoolManager, real WETH/USDC, and the deployed Universal Router.

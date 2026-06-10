@@ -109,11 +109,20 @@ contract RollingFrontierBook is IRangeOrderBook {
 
     mapping(uint256 => Position) public positions;
 
+    // Internal balance ledger: proceeds/refunds can be credited here instead
+    // of transferred out, and every deposit path spends credit FIRST, pulling
+    // only the shortfall via transferFrom. This is what lets earned balances
+    // recycle into new orders with zero token transfers.
+    mapping(address => uint256) public internalBalance0;
+    mapping(address => uint256) public internalBalance1;
+
     event Deposit(uint256 indexed positionId, address indexed owner, int24 lower, int24 upper, uint128 liquidity);
     event IntervalFilled(int24 indexed lowerTick, uint128 liquidity, uint256 proceeds1, uint64 clock);
     event Claim(uint256 indexed positionId, uint256 proceeds1);
     event Cancel(uint256 indexed positionId, uint256 proceeds1, uint256 principal0);
     event Requote(uint256 indexed positionId, int24 lower, int24 upper, uint128 liquidity);
+    event InternalCredit(address indexed user, uint256 amount0, uint256 amount1);
+    event InternalWithdraw(address indexed user, uint256 amount0, uint256 amount1);
 
     constructor(address _token0, address _token1, int24 _tickSpacing, int24 _initialTick) {
         require(_tickSpacing > 0, "bad spacing");
@@ -160,7 +169,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         });
 
         uint256 amount0 = _principalSpan(liquidity, slope, 0, _levels(lower, upper));
-        require(token0.transferFrom(msg.sender, address(this), amount0), "transfer in failed");
+        _pull0(msg.sender, amount0);
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
     }
 
@@ -205,7 +214,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         p.claimedUpper = newLower;
 
         if (newAmount0 > oldAmount0) {
-            require(token0.transferFrom(msg.sender, address(this), newAmount0 - oldAmount0), "transfer in failed");
+            _pull0(msg.sender, newAmount0 - oldAmount0);
         } else if (oldAmount0 > newAmount0) {
             require(token0.transfer(msg.sender, oldAmount0 - newAmount0), "transfer out failed");
         }
@@ -234,6 +243,16 @@ contract RollingFrontierBook is IRangeOrderBook {
 
     /// @notice Convenience variant: finds the frontier itself in O(log width).
     function claim(uint256 positionId) external returns (uint256 proceeds1) {
+        return _claimAsk(positionId, false);
+    }
+
+    /// @notice Like claim(), but proceeds are CREDITED to the owner's
+    /// internal token1 balance instead of transferred — fuel for new bids.
+    function claimInternal(uint256 positionId) external returns (uint256 proceeds1) {
+        return _claimAsk(positionId, true);
+    }
+
+    function _claimAsk(uint256 positionId, bool toInternal) internal returns (uint256 proceeds1) {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
@@ -243,7 +262,13 @@ contract RollingFrontierBook is IRangeOrderBook {
             emit Claim(positionId, 0);
             return 0;
         }
-        return claimTo(positionId, frontier);
+        if (!toInternal) return claimTo(positionId, frontier);
+
+        proceeds1 = _spanAmt1(p, p.claimedUpper, frontier);
+        p.claimedUpper = frontier;
+        internalBalance1[p.owner] += proceeds1;
+        emit InternalCredit(p.owner, 0, proceeds1);
+        emit Claim(positionId, proceeds1);
     }
 
     /// @notice O(1) cancel against a maximal-frontier witness: pays unclaimed
@@ -301,6 +326,10 @@ contract RollingFrontierBook is IRangeOrderBook {
     /// [lower, upper), which must sit entirely at/below the current price.
     /// Pulls the token1 value of the span (ceil; book-favorable).
     function depositBid(int24 lower, int24 upper, uint128 liquidity) external returns (uint256 positionId) {
+        return _depositBid(lower, upper, liquidity);
+    }
+
+    function _depositBid(int24 lower, int24 upper, uint128 liquidity) internal returns (uint256 positionId) {
         require(liquidity > 0, "zero liquidity");
         require(lower < upper, "empty range");
         require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
@@ -322,7 +351,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         });
 
         uint256 amount1 = _uniformSpanValue(lower, upper, liquidity, true);
-        require(token1.transferFrom(msg.sender, address(this), amount1), "transfer in failed");
+        _pull1(msg.sender, amount1);
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
     }
 
@@ -354,7 +383,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         p.claimedUpper = newUpper;
 
         if (newAmount1 > oldAmount1) {
-            require(token1.transferFrom(msg.sender, address(this), newAmount1 - oldAmount1), "transfer in failed");
+            _pull1(msg.sender, newAmount1 - oldAmount1);
         } else if (oldAmount1 > newAmount1) {
             require(token1.transfer(msg.sender, oldAmount1 - newAmount1), "transfer out failed");
         }
@@ -381,6 +410,16 @@ contract RollingFrontierBook is IRangeOrderBook {
 
     /// @notice Convenience variant: finds the bid frontier in O(log width).
     function claimBid(uint256 positionId) external returns (uint256 proceeds0) {
+        return _claimBid(positionId, false);
+    }
+
+    /// @notice Like claimBid(), but the bought token0 is CREDITED to the
+    /// owner's internal balance instead of transferred — fuel for new asks.
+    function claimBidInternal(uint256 positionId) external returns (uint256 proceeds0) {
+        return _claimBid(positionId, true);
+    }
+
+    function _claimBid(uint256 positionId, bool toInternal) internal returns (uint256 proceeds0) {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
@@ -390,7 +429,53 @@ contract RollingFrontierBook is IRangeOrderBook {
             emit Claim(positionId, 0);
             return 0;
         }
-        return claimBidTo(positionId, frontier);
+        if (!toInternal) return claimBidTo(positionId, frontier);
+
+        proceeds0 =
+            uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
+        p.claimedUpper = frontier;
+        internalBalance0[p.owner] += proceeds0;
+        emit InternalCredit(p.owner, proceeds0, 0);
+        emit Claim(positionId, proceeds0);
+    }
+
+    // ------------------------------------------------------------------
+    // Recycling: earned balances -> new orders, zero token transfers
+    // ------------------------------------------------------------------
+
+    /// @notice One call: claim a filled bid's token0 internally and commit it
+    /// straight into a new ask ladder. No ERC20 transfers happen unless the
+    /// new order needs more than the claimed credit (shortfall is pulled) —
+    /// excess credit stays withdrawable.
+    function recycleBidIntoAsk(uint256 bidId, int24 lower, int24 upper, uint128 liquidity, int128 slope)
+        external
+        returns (uint256 newPositionId)
+    {
+        _claimBid(bidId, true);
+        newPositionId = depositShaped(lower, upper, liquidity, slope);
+    }
+
+    /// @notice One call: claim a filled ask's token1 internally and commit it
+    /// straight into a new bid. Mirror of recycleBidIntoAsk.
+    function recycleAskIntoBid(uint256 askId, int24 lower, int24 upper, uint128 liquidity)
+        external
+        returns (uint256 newPositionId)
+    {
+        _claimAsk(askId, true);
+        newPositionId = _depositBid(lower, upper, liquidity);
+    }
+
+    /// @notice Withdraw internal credits to the wallet.
+    function withdrawInternal(uint256 amount0, uint256 amount1) external {
+        if (amount0 > 0) {
+            internalBalance0[msg.sender] -= amount0;
+            require(token0.transfer(msg.sender, amount0), "transfer out failed");
+        }
+        if (amount1 > 0) {
+            internalBalance1[msg.sender] -= amount1;
+            require(token1.transfer(msg.sender, amount1), "transfer out failed");
+        }
+        emit InternalWithdraw(msg.sender, amount0, amount1);
     }
 
     /// @notice O(1) bid cancel against a maximal-frontier witness: pays
@@ -850,6 +935,29 @@ contract RollingFrontierBook is IRangeOrderBook {
         int256 r = int256(PRICE_SCALE) + int256(t) * 1e15;
         require(r > 0, "rate underflow");
         return uint256(r);
+    }
+
+    /// @dev Spend the payer's internal token0 credit first; transferFrom
+    /// only the shortfall.
+    function _pull0(address payer, uint256 amount) internal {
+        uint256 credit = internalBalance0[payer];
+        if (credit >= amount) {
+            internalBalance0[payer] = credit - amount;
+            return;
+        }
+        if (credit > 0) internalBalance0[payer] = 0;
+        require(token0.transferFrom(payer, address(this), amount - credit), "transfer in failed");
+    }
+
+    /// @dev Mirror for token1.
+    function _pull1(address payer, uint256 amount) internal {
+        uint256 credit = internalBalance1[payer];
+        if (credit >= amount) {
+            internalBalance1[payer] = credit - amount;
+            return;
+        }
+        if (credit > 0) internalBalance1[payer] = 0;
+        require(token1.transferFrom(payer, address(this), amount - credit), "transfer in failed");
     }
 
     /// @dev Single write path for deltas, keeping the bitmap in sync:

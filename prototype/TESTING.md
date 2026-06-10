@@ -1,7 +1,7 @@
 # Testing & Verification
 
-What the test suite proves, how, and the measured numbers. 115 tests total:
-113 local (offline) + 2 Base-mainnet fork tests (gated behind `FORK=true`).
+What the test suite proves, how, and the measured numbers. 125 tests total:
+123 local (offline) + 2 Base-mainnet fork tests (gated behind `FORK=true`).
 
 ## Strategy
 
@@ -130,6 +130,19 @@ trading), while moves inside the spread stay free. Taker protections:
 maxPay in both directions (resumable), reverts on minOut shortfall and
 expired deadlines. Conservation: both delta ledgers sum to zero after full
 settlement, zero stranded token0, wei-dust token1.
+
+### `test/FrontierRecycle.t.sol` — internal-balance recycling
+
+Seven tests for the internal ledger: a maker who has NEVER approved token0
+recycles a filled bid's earnings straight into a new ask
+(`recycleBidIntoAsk`) with the wallet untouched — the zero-approval setup
+proves no transferFrom can be involved; the ask->bid mirror leaves excess
+earnings as withdrawable credit; shortfalls pull exactly the difference;
+plain deposits spend credit first; `withdrawInternal` exits and underflows
+revert; credits are fully token-backed and the book drains to dust on full
+exit; recycle beats the claim+deposit round trip in gas (149,579 vs
+162,509 with cheap mock tokens — the gap widens with real ERC20s and the
+avoided approve).
 
 ### `test/ForkBaseHook.t.sol` — Base mainnet fork (block 47,138,448)
 
