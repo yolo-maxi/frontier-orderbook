@@ -1,0 +1,16 @@
+{
+  "name": "Frontier Devnet",
+  "chainId": 84009,
+  "startTick": 3999000,
+  "contracts": {
+    "book": "0xEb2C096D09650979D6e4BD8726D714E9EaecBB05",
+    "factory": "0xc527Af4949245B88568a1839cc0E8d2288990830",
+    "router": "0xFe90c37a0F5643c9263f6EcB3a4Aa0c5c4CF440e",
+    "lens": "0x73382c7e934335738aDEAd302f63745820b5205b",
+    "registry": "0x990bba99F3757778b74DA5b9BAC80B72fece4e4C",
+    "lpFactory": "0x677c7CBC70B62476251C072bb2A7F3818830f8b6",
+    "yieldVault": "0xCa486B9e8dd9a17ee75d239f6D59270E7cd9Cf9e",
+    "weth": "0xDdbF74b88f812fe14C5CaA8D2a2c1b46C21ade97",
+    "usdc": "0x75B27e510db452d3a42B12D59224540a534B01DE"
+  }
+}

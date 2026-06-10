@@ -7,3 +7,4 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 44444444
 via_ir = true
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
