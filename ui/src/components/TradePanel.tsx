@@ -18,13 +18,23 @@ const MAX_UINT = 2n ** 256n - 1n;
 const QUOTE_MAX_LEVELS = 500n;
 
 export function TradePanel() {
-  const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh } = useApp();
+  const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview } = useApp();
   const [side, setSide] = useState<Side>("buy");
   const [amountStr, setAmountStr] = useState("");
   const [slippage, setSlippage] = useState(0.5);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteErr, setQuoteErr] = useState<string | null>(null);
   const [allowance, setAllowance] = useState<bigint | null>(null);
+
+  // project the quoted execution range onto the chart
+  useEffect(() => {
+    if (quote && quote.out > 0n) {
+      setPreview({ kind: "trade", side: side === "buy" ? "ask" : "bid", endTick: quote.endTick });
+    } else {
+      setPreview(null);
+    }
+  }, [quote, side, setPreview]);
+  useEffect(() => () => setPreview(null), [setPreview]);
 
   const amountIn = parseAmount(amountStr);
   const tokenIn = side === "buy" ? cfg.contracts.usdc : cfg.contracts.weth;

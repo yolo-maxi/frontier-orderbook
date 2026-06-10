@@ -28,7 +28,7 @@ interface Plan {
 }
 
 export function MakePanel() {
-  const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh } = useApp();
+  const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview } = useApp();
   const [side, setSide] = useState<Side>("ask");
   const [fromStr, setFromStr] = useState("");
   const [toStr, setToStr] = useState("");
@@ -122,6 +122,23 @@ export function MakePanel() {
     }
     return { lower, upper, n, liquidity, slope, cost, error };
   }, [cur, fromStr, toStr, sizeStr, side, spacing, frontLoaded, sizePerLevel?.toString()]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // publish the configured ladder to the chart as a live preview
+  useEffect(() => {
+    if (plan && plan.error === null && plan.liquidity > 0n && plan.upper > plan.lower) {
+      setPreview({
+        kind: "make",
+        side: side === "ask" ? "ask" : "bid",
+        lowerTick: plan.lower,
+        upperTick: plan.upper,
+        sizePerLevel: plan.liquidity,
+        slope: plan.slope,
+      });
+    } else {
+      setPreview(null);
+    }
+  }, [plan, side, setPreview]);
+  useEffect(() => () => setPreview(null), [setPreview]);
 
   const payToken = side === "ask" ? cfg.contracts.weth : cfg.contracts.usdc;
   const paySymbol = side === "ask" ? "WETH" : "USDC";

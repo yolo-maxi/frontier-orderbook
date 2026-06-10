@@ -4,6 +4,8 @@
 (chain id 84009, 2s blocks) · addresses: served at
 [`/deployment.json`](https://clob.repo.box/deployment.json)
 
+![The exchange](/exchange.png)
+
 ## Using the exchange
 
 1. The app creates a **demo wallet** in your browser on first load and

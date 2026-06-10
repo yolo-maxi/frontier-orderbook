@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { useApp } from "../state/app";
 import { fmtPrice, niceStep, stepDecimals, tickToPrice } from "../lib/format";
 import { formatUnits } from "viem";
@@ -35,6 +35,7 @@ function bucketize(
 
 export function OrderBook() {
   const { summary, depth } = useApp();
+  const midDirRef = useRef<{ prev: number | null; dir: 1 | -1 | 0 }>({ prev: null, dir: 0 });
 
   const model = useMemo(() => {
     if (!summary) return null;
@@ -77,13 +78,40 @@ export function OrderBook() {
     return (
       <section className="panel book-panel">
         <div className="panel-title">Order Book</div>
-        <div className="empty-state">loading depth…</div>
+        <div className="book-head num">
+          <span>Price (USDC)</span>
+          <span>Size (WETH)</span>
+          <span>Total</span>
+        </div>
+        <div className="book-body">
+          <div className="book-side book-asks">
+            {SKELETON_WIDTHS.map((w, i) => (
+              <SkeletonRow key={`sa${i}`} w={w} />
+            ))}
+          </div>
+          <div className="skel-mid">
+            <span className="skel" />
+          </div>
+          <div className="book-side book-bids">
+            {SKELETON_WIDTHS.map((_, i) => (
+              <SkeletonRow key={`sb${i}`} w={SKELETON_WIDTHS[SKELETON_WIDTHS.length - 1 - i]} />
+            ))}
+          </div>
+        </div>
       </section>
     );
   }
 
   const { askBuckets, bidBuckets, maxCum, mid, spread, dp, step } = model;
   const sizeDp = 3;
+
+  // mid-price direction (vs. previous non-equal mid) for the spread divider arrow
+  const tracker = midDirRef.current;
+  if (tracker.prev !== null && mid !== tracker.prev) {
+    tracker.dir = mid > tracker.prev ? 1 : -1;
+  }
+  tracker.prev = mid;
+  const midDir = tracker.dir;
 
   return (
     <section className="panel book-panel">
@@ -111,9 +139,18 @@ export function OrderBook() {
           ))}
         </div>
         <div className="book-mid num">
-          <span className="book-mid-px">{fmtPrice(mid, 3)}</span>
-          <span className="dim">
-            {spread !== null ? `spread ${fmtPrice(spread, 3)} · ${fmtPrice((spread / mid) * 10000, 2)} bps` : "one-sided"}
+          <span
+            className={`book-mid-px ${midDir === 1 ? "up" : midDir === -1 ? "down" : ""}`}
+          >
+            {fmtPrice(mid, 3)}
+            {midDir !== 0 && (
+              <span className="book-mid-arrow">{midDir === 1 ? "▲" : "▼"}</span>
+            )}
+          </span>
+          <span className="book-mid-spread">
+            {spread !== null
+              ? `spread ${fmtPrice(spread, 3)} · ${fmtPrice((spread / mid) * 10000, 2)} bps`
+              : "one-sided book"}
           </span>
         </div>
         <div className="book-side book-bids">
@@ -132,6 +169,18 @@ export function OrderBook() {
         </div>
       </div>
     </section>
+  );
+}
+
+const SKELETON_WIDTHS = [72, 64, 58, 52, 46, 42, 38, 34, 30, 26, 22, 18];
+
+function SkeletonRow({ w }: { w: number }) {
+  return (
+    <div className="skel-row">
+      <span className="skel" style={{ width: "64%" }} />
+      <span className="skel" style={{ width: `${w}%` }} />
+      <span className="skel" style={{ width: `${Math.min(96, w + 18)}%` }} />
+    </div>
   );
 }
 

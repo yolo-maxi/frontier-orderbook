@@ -28,9 +28,11 @@ export function SidePanel() {
         </button>
       </div>
       <div className="side-body">
-        {tab === "trade" && <TradePanel />}
-        {tab === "make" && <MakePanel />}
-        {tab === "positions" && <PositionsPanel />}
+        <div className="tab-pane" key={tab}>
+          {tab === "trade" && <TradePanel />}
+          {tab === "make" && <MakePanel />}
+          {tab === "positions" && <PositionsPanel />}
+        </div>
       </div>
     </section>
   );

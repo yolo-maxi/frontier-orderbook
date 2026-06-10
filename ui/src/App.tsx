@@ -7,6 +7,7 @@ import { OrderBook } from "./components/OrderBook";
 import { MarketPanel } from "./components/MarketPanel";
 import { SidePanel } from "./components/SidePanel";
 import { Toasts } from "./components/Toasts";
+import { Brand } from "./components/Brand";
 
 type ConfigState =
   | { phase: "loading" }
@@ -42,7 +43,7 @@ export default function App() {
     return (
       <div className="boot">
         <div className="boot-brand">
-          FRONTIER<span className="brand-dot">·</span>CLOB
+          <Brand markSize={30} />
         </div>
         <div className="dim">loading deployment config…</div>
       </div>
@@ -53,7 +54,7 @@ export default function App() {
     return (
       <div className="boot">
         <div className="boot-brand">
-          FRONTIER<span className="brand-dot">·</span>CLOB
+          <Brand markSize={30} />
         </div>
         <div className="note warn boot-note">
           Could not load <span className="num">deployment.json</span>: {state.message}

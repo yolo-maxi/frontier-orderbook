@@ -74,6 +74,17 @@ export interface Balances {
   usdc: bigint;
 }
 
+/** What the chart should preview on top of live data. */
+export interface ChartPreview {
+  kind: "make" | "trade";
+  side: "ask" | "bid"; // make: order side · trade: which side gets consumed
+  lowerTick?: number;
+  upperTick?: number;
+  sizePerLevel?: bigint;
+  slope?: bigint;
+  endTick?: number; // trade: projected execution end
+}
+
 export interface TxToast {
   id: number;
   label: string;
@@ -96,6 +107,8 @@ interface AppData {
   rpcError: string | null;
   toasts: TxToast[];
   busy: string | null;
+  preview: ChartPreview | null;
+  setPreview: (p: ChartPreview | null) => void;
   sendTx: (label: string, fn: () => Promise<`0x${string}`>) => Promise<boolean>;
   faucet: () => Promise<void>;
   refresh: () => void;
@@ -174,6 +187,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [rpcError, setRpcError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<TxToast[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [preview, setPreview] = useState<ChartPreview | null>(null);
   const [nonce, setNonce] = useState(0); // manual refresh trigger
 
   const summaryRef = useRef<BookSummary | null>(null);
@@ -567,6 +581,8 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const value: AppData = {
     cfg,
     configured,
+    preview,
+    setPreview,
     client,
     wallet,
     account,
