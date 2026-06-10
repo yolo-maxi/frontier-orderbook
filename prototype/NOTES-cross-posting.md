@@ -75,3 +75,42 @@ A market maker funds inventory once and quotes it everywhere: many grids,
 many pairs (any book whose ask asset matches the vault's holding), updating
 with O(1) requotes per book. Capital efficiency of CEX-style cross-venue
 quoting, with on-chain-atomic inventory safety that CEXs cannot offer.
+
+## Addendum: the triangle (ETH<>BTC<>USDC) and balance-scaled quotes
+
+With one-maker books + proceeds-to-vault, claims disappear AND most of the
+bookkeeping does too: clocks/cursors/epoch isolation exist to protect makers
+from each other. A cluster book is just (price ladder, frontier, vault ref).
+
+Automatic redeployment is the vault balances themselves: an ETH->USDC fill
+turns vault ETH into vault USDC, which instantly backs the USDC->ETH and
+USDC->BTC books (provided those were pre-quoted). No transaction moves
+funds "between venues" — backing follows balance.
+
+Three sizing regimes:
+
+1. FIXED QUOTES + CLAMP (effective = min(quoted, balance)): free, but
+   over-quoting to cover multiple books lets one taker drain the shared pot
+   through a single book's cheapest levels — the ladder's per-price size
+   discipline is lost.
+2. FIXED QUOTES + PER-BOOK BUDGETS via ERC20 ALLOWANCES: the vault simply
+   approves each book for a budget (approve(bookA, 30 ETH);
+   approve(bookB, 70 ETH)). Effective depth = min(quoted, allowance,
+   balance). The token layer enforces cross-book distribution with ZERO new
+   protocol machinery; budgets retune with O(1) approve calls. The MM's bot
+   then only requotes PRICES (O(1) per book) and occasionally rebalances
+   budgets. <- recommended v1.
+3. BALANCE-PROPORTIONAL SIZES (size = weight x balance): quotes rescale with
+   no transactions at all — but this is definitionally an AMM with a custom
+   discretized curve (liquidity-density-function style). Within-sweep math
+   becomes geometric decay (closed-form with pow, or per-level recompute),
+   and the semantics flip from one-way take-profit to continuous two-way
+   quoting (an MM WANTS resurrection). Feasible and attractive — but it is
+   a sibling product (curve-mode book) sharing the venue infrastructure
+   (factory, bitmap, sweeps), not a mode of the order book. Build later if
+   wanted.
+
+Note the semantic fork: take-profit users want no-resurrection; market
+makers want requoting/resurrection. The cluster design serves MMs via cheap
+explicit requotes (regime 2); regime 3 automates them away entirely at the
+cost of becoming an AMM.
