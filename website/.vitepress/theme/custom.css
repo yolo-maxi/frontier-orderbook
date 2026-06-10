@@ -1,0 +1,12 @@
+:root {
+  --vp-c-brand-1: #2ebd85;
+  --vp-c-brand-2: #2ebd85;
+  --vp-c-brand-3: #1ea06d;
+  --vp-c-bg: #0b0e11;
+  --vp-c-bg-alt: #0f1318;
+  --vp-c-bg-soft: #11161c;
+  --vp-c-divider: rgba(255,255,255,0.08);
+  --vp-home-hero-name-color: #2ebd85;
+}
+.VPHero .name { font-family: ui-monospace, monospace; letter-spacing: 0.02em; }
+table { font-variant-numeric: tabular-nums; }
