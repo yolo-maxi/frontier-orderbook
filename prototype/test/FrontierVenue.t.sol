@@ -88,21 +88,30 @@ contract FrontierVenueTest is Test {
     // ------------------------------------------------------------------
 
     function testResumableSweep() public {
-        vm.prank(bob);
-        uint256 id = book.deposit(10, 14, L); // 4 intervals
+        // sweep budgets count ENDPOINTS (runs), not levels: use stacked
+        // DISTINCT-size orders so each junction is a real endpoint
+        // (equal sizes would net the shared boundary to zero and merge runs)
+        uint256[4] memory ids;
+        for (uint256 i = 0; i < 4; i++) {
+            vm.prank(bob);
+            ids[i] = book.deposit(int24(10 + int256(i)), int24(11 + int256(i)), uint128((i + 1)) * L);
+        }
 
         vm.prank(taker);
-        int24 reached = book.sweep(14, 2); // budget: 2 fills
-        assertEq(reached, 12, "parked at first unfilled interval");
+        int24 reached = book.sweep(14, 2); // budget: 2 endpoint-steps
+        assertEq(reached, 12, "parked at first unconsumed endpoint");
         assertEq(book.currentTick(), 12, "pointer parked");
-        assertEq(book.claimable(id), amt1(10, L) + amt1(11, L), "two fills paid");
-        assertEq(book.activeLiquidity(12), L, "rolled frontier waiting at 12");
+        assertEq(book.claimable(ids[0]), amt1(10, L), "first order paid");
+        assertEq(book.claimable(ids[1]), amt1(11, 2 * L), "second order paid");
+        assertEq(book.claimable(ids[2]), 0, "third order untouched");
+        assertEq(book.activeLiquidity(12), 3 * L, "third order still resting");
 
         vm.prank(taker);
         reached = book.sweep(14, type(uint256).max); // resume
         assertEq(reached, 14, "completed");
-        assertEq(book.claimable(id), amt1(10, L) + amt1(11, L) + amt1(12, L) + amt1(13, L), "all fills paid");
-        assertEq(book.unfilledPrincipal(id), 0, "fully consumed");
+        assertEq(book.claimable(ids[2]), amt1(12, 3 * L), "third paid after resume");
+        assertEq(book.claimable(ids[3]), amt1(13, 4 * L), "fourth paid after resume");
+        assertEq(book.unfilledPrincipal(ids[3]), 0, "fully consumed");
     }
 
     function testZeroBudgetSweepMovesNothing() public {

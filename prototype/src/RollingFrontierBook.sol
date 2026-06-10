@@ -75,8 +75,20 @@ contract RollingFrontierBook is IRangeOrderBook {
     // skip empty price regions in O(1) per 256 intervals instead of one SLOAD
     // per interval (which would brick sweeps across wide gaps)
     mapping(int16 => uint256) public tickBitmap;
-    // upper boundary u: global clock when [u-s, u) last filled with liquidity
-    mapping(int24 => uint64) public boundaryFillClock;
+    // ASK-side fill records: ONE entry per liquidity-moving up-sweep instead
+    // of a clock stamp per level ("endpoint sweeps"). Entries keep clocks
+    // strictly increasing and highs strictly decreasing (dominated entries
+    // are popped), so "highest boundary covered since clock c" is the first
+    // entry with clock > c — O(log sweeps). Soundness: a sweep that reached
+    // boundary H crossed every boundary <= H after that clock, and it cannot
+    // cover a live position's levels without consuming them (bits force
+    // absorption); prefix-contiguity turns that into per-position proof.
+    struct HighWater {
+        uint64 clock;
+        int24 high;
+    }
+
+    HighWater[] internal _highWaters;
 
     // ----- BID side (buy token0 with token1, resting BELOW the price) -----
     // Exact mirror of the ask machinery: sizes are token0-denominated
@@ -118,6 +130,7 @@ contract RollingFrontierBook is IRangeOrderBook {
 
     event Deposit(uint256 indexed positionId, address indexed owner, int24 lower, int24 upper, uint128 liquidity);
     event IntervalFilled(int24 indexed lowerTick, uint128 liquidity, uint256 proceeds1, uint64 clock);
+    event RunFilled(int24 indexed fromLevel, int24 toBoundary, uint256 startSize, int256 slopePerLevel, uint64 clock);
     event Claim(uint256 indexed positionId, uint256 proceeds1);
     event Cancel(uint256 indexed positionId, uint256 proceeds1, uint256 principal0);
     event Requote(uint256 indexed positionId, int24 lower, int24 upper, uint128 liquidity);
@@ -194,7 +207,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         require(msg.sender == p.owner, "not owner");
         // completely unfilled <=> first interval not filled since deposit
         // (prefix-contiguity: nothing above it can have filled either)
-        require(boundaryFillClock[p.lower + tickSpacing] <= p.depositClock, "partially filled");
+        require(_highSince(p.depositClock) < p.lower + tickSpacing, "partially filled");
         _checkRange(newLower, newUpper);
         _checkShape(newLower, newUpper, newLiquidity, newSlope);
 
@@ -232,7 +245,7 @@ contract RollingFrontierBook is IRangeOrderBook {
         require(msg.sender == p.owner, "not owner");
         require(target > p.claimedUpper && target <= p.upper, "bad target");
         require((target - p.lower) % tickSpacing == 0, "unaligned target");
-        require(boundaryFillClock[target] > p.depositClock, "not filled");
+        require(_highSince(p.depositClock) >= target, "not filled");
 
         proceeds1 = _spanAmt1(p, p.claimedUpper, target);
         p.claimedUpper = target;
@@ -285,10 +298,11 @@ contract RollingFrontierBook is IRangeOrderBook {
         require(frontier >= p.lower && frontier <= p.upper, "frontier out of range");
         require((frontier - p.lower) % tickSpacing == 0, "unaligned frontier");
         // proves frontier is filled-up-to...
-        if (frontier > p.lower) require(boundaryFillClock[frontier] > p.depositClock, "frontier not filled");
+        int24 hw = _highSince(p.depositClock);
+        if (frontier > p.lower) require(hw >= frontier, "frontier not filled");
         // ...and maximal (next interval NOT filled since deposit)
         if (frontier < p.upper) {
-            require(boundaryFillClock[frontier + tickSpacing] <= p.depositClock, "frontier not maximal");
+            require(hw < frontier + tickSpacing, "frontier not maximal");
         }
 
         if (frontier > p.claimedUpper) {
@@ -570,64 +584,136 @@ contract RollingFrontierBook is IRangeOrderBook {
         }
     }
 
-    /// @dev Per crossed ask level: consume the aggregate frontier liquidity,
-    /// roll the surviving suffix (and shape slope) upward, stamp the boundary.
-    function _sweepUp(int24 oldTick, int24 target, uint256 maxFills, uint256 maxPay)
+    /// @dev ENDPOINT-TELESCOPED up-sweep ("tick ozempic"): between order
+    /// endpoints (set bits), aggregate liquidity evolves affinely
+    /// (A(e+k) = a0 + k*S), so a whole run of thin levels settles with ONE
+    /// closed-form series and ONE absorption — no per-level state
+    /// transitions. The storage end-state is identical to the per-level
+    /// roll (survivors materialize once at the sweep end / park point), so
+    /// claims, cancels, and views are unchanged. Per-boundary clock stamps
+    /// are replaced by one high-water record per liquidity-moving sweep.
+    /// Cost: O(endpoints crossed + bitmap words), independent of tick count.
+    function _sweepUp(int24 oldTick, int24 target, uint256 maxSteps, uint256 maxPay)
         internal
         returns (int24 reached, uint256 owed1, uint256 owed0)
     {
-        uint256 fills;
-        // lowest interval whose upper boundary lies in (oldTick, target]
-        int24 cursorT = _nextBoundaryAbove(oldTick) - tickSpacing;
+        int24 lastLevel = target - tickSpacing;
         reached = target;
 
-        while (true) {
-            (int24 t, bool found) = _nextActive(cursorT, target - tickSpacing);
-            if (!found) break; // nothing left to fill: pointer goes to target
+        int256 B; // rolled base: size sold at the previous level
+        int256 S; // absolute per-level slope in effect
+        uint256 steps;
+        uint64 clock;
+        bool parked;
 
-            // active liquidity at t = rolled base + slope in effect at t
-            // (slope advance is applied at CONSUMPTION time, so value slots
-            // always hold pure bases/jumps and the prefix-sum view stays
-            // consistent)
-            int256 slopeAtT = frontierSlope[t];
-            int256 d = frontierDelta[t] + slopeAtT;
-            // crossings happen left-to-right, so every covering order has
-            // rolled into t before t is crossed; negative is unreachable
-            require(d > 0, "negative frontier");
-            uint128 liq = uint128(uint256(d));
-            uint256 proceeds1 = _ceilAmt1(t, liq); // contract-favorable collection
+        (int24 e, bool found) = _nextActive(_nextBoundaryAbove(oldTick) - tickSpacing, lastLevel);
+        while (found) {
+            (int24 e2, bool found2) = _nextActive(e + tickSpacing, lastLevel);
+            int24 runEnd = found2 ? e2 : target;
 
-            if (fills == maxFills || owed1 + proceeds1 > maxPay) {
-                // budget exhausted with liquidity remaining at t: park just
-                // below it so a later sweep resumes exactly there
-                reached = t > oldTick ? t : oldTick;
+            // absorb endpoint e (locally; storage zeroed only if we proceed)
+            int256 S2 = S + frontierSlope[e];
+            int256 a0 = B + frontierDelta[e] + S2; // size sold at level e
+            uint256 n = uint256(uint24(runEnd - e)) / uint256(uint24(tickSpacing));
+            {
+                int256 aLast = a0 + int256(n - 1) * S2;
+                // endpoints of an affine run bound every level in it
+                require(a0 >= 0 && aLast >= 0, "negative run");
+            }
+
+            (uint256 out0, uint256 cost1) = _runAmounts(e, a0, S2, n);
+
+            if (steps == maxSteps || owed1 + cost1 > maxPay) {
+                uint256 fit = 0;
+                if (steps != maxSteps && maxPay > owed1) {
+                    fit = _maxAffordable(e, a0, S2, n, maxPay - owed1);
+                }
+                if (fit > 0) {
+                    (uint256 fo0, uint256 fc1) = _runAmounts(e, a0, S2, fit);
+                    owed0 += fo0;
+                    owed1 += fc1;
+                    if (clock == 0) clock = ++fillClock;
+                    int24 park = e + int24(uint24(fit)) * tickSpacing;
+                    emit RunFilled(e, park, uint256(a0), S2, clock);
+                    _writeDelta(e, 0);
+                    _writeSlope(e, 0);
+                    // survivors materialize at the park point, per-level-equivalent
+                    _writeDelta(park, frontierDelta[park] + a0 + int256(fit - 1) * S2);
+                    _writeSlope(park, frontierSlope[park] + S2);
+                    reached = park;
+                } else {
+                    // park before this endpoint; leave the rolled state on it
+                    if (B != 0) _writeDelta(e, frontierDelta[e] + B);
+                    if (S != 0) _writeSlope(e, frontierSlope[e] + S);
+                    reached = e > oldTick ? e : oldTick;
+                }
+                parked = true;
                 break;
             }
 
-            int24 u = t + tickSpacing;
-            // roll the shape accumulator: slope in effect at u = slope at t
-            // plus resting slope entries at u
-            int256 slopeAtU = slopeAtT + frontierSlope[u];
-            if (slopeAtT != 0) {
-                frontierSlope[t] = 0;
+            _writeDelta(e, 0);
+            _writeSlope(e, 0);
+            if (out0 > 0) {
+                owed0 += out0;
+                owed1 += cost1;
+                if (clock == 0) clock = ++fillClock;
+                emit RunFilled(e, runEnd, uint256(a0), S2, clock);
             }
-            if (slopeAtU != frontierSlope[u]) {
-                frontierSlope[u] = slopeAtU;
-            }
-            _writeDelta(t, 0);
-            _writeDelta(u, frontierDelta[u] + d); // self-cancels for orders ending at u
-            uint64 clock = ++fillClock;
-            boundaryFillClock[u] = clock;
 
-            owed0 += uint256(liq);
-            owed1 += proceeds1;
-            emit IntervalFilled(t, liq, proceeds1, clock);
-
+            B = a0 + int256(n - 1) * S2; // arrival base at runEnd
+            S = S2;
             unchecked {
-                fills++;
+                steps++;
             }
-            cursorT = u;
+            e = e2;
+            found = found2;
         }
+
+        if (!parked) {
+            // materialize survivors once at the sweep end
+            if (B != 0) _writeDelta(target, frontierDelta[target] + B);
+            if (S != 0) _writeSlope(target, frontierSlope[target] + S);
+        }
+        if (clock != 0) _pushHighWater(clock, reached);
+    }
+
+    /// @dev token0 sold and token1 collected (ceil, contract-favorable) for
+    /// an affine run of `n` levels starting at level `e` with start size
+    /// `a0` and per-level slope `slope`. Closed form: size linear in k,
+    /// rate linear in tick => quadratic series.
+    function _runAmounts(int24 e, int256 a0, int256 slope, uint256 n)
+        internal
+        view
+        returns (uint256 out0, uint256 cost1)
+    {
+        int256 ni = int256(n);
+        int256 sumK = (ni * (ni - 1)) / 2;
+        int256 sumK2 = ((ni - 1) * ni * (2 * ni - 1)) / 6;
+        int256 tot0 = a0 * ni + slope * sumK;
+        int256 c0 = int256(PRICE_SCALE) + int256(e) * 1e15;
+        int256 c1 = int256(tickSpacing) * 1e15;
+        int256 val = a0 * c0 * ni + (a0 * c1 + slope * c0) * sumK + slope * c1 * sumK2;
+        require(tot0 >= 0 && val >= 0, "negative run");
+        out0 = uint256(tot0);
+        cost1 = (uint256(val) + PRICE_SCALE - 1) / PRICE_SCALE;
+    }
+
+    /// @dev Largest prefix m <= n of the run whose cost fits the budget
+    /// (binary search over the closed form).
+    function _maxAffordable(int24 e, int256 a0, int256 slope, uint256 n, uint256 budget)
+        internal
+        view
+        returns (uint256 m)
+    {
+        uint256 lo = 0;
+        uint256 hi = n;
+        while (lo < hi) {
+            uint256 mid = (lo + hi + 1) / 2;
+            (, uint256 c) = _runAmounts(e, a0, slope, mid);
+            if (c <= budget) lo = mid;
+            else hi = mid - 1;
+        }
+        return lo;
     }
 
     /// @dev Mirror: per crossed bid level [t, t+s) (crossed when price drops
@@ -716,7 +802,7 @@ contract RollingFrontierBook is IRangeOrderBook {
 
     function isConsumedFor(uint256 positionId, int24 lowerTick) external view returns (bool) {
         Position storage p = positions[positionId];
-        return boundaryFillClock[lowerTick + tickSpacing] > p.depositClock;
+        return _highSince(p.depositClock) >= lowerTick + tickSpacing;
     }
 
     /// @notice Aggregate live BID size (token0 units) at a level: suffix sum
@@ -785,8 +871,8 @@ contract RollingFrontierBook is IRangeOrderBook {
         if (slope != 0) {
             // slope takes effect from the SECOND level; ends at upper.
             // (single-level orders: the two writes hit the same slot, net 0)
-            frontierSlope[lower + tickSpacing] += int256(slope);
-            frontierSlope[upper] -= int256(slope);
+            _writeSlope(lower + tickSpacing, frontierSlope[lower + tickSpacing] + int256(slope));
+            _writeSlope(upper, frontierSlope[upper] - int256(slope));
         }
         if (!_minBoundarySet || lower < _minBoundary) {
             _minBoundary = lower;
@@ -805,13 +891,13 @@ contract RollingFrontierBook is IRangeOrderBook {
         uint24 n = _levels(lower, upper);
         if (frontier == lower) {
             _writeDelta(frontier, frontierDelta[frontier] - _sizeAt(liquidity, slope, 0));
-            if (slope != 0) frontierSlope[lower + tickSpacing] -= int256(slope);
+            if (slope != 0) _writeSlope(lower + tickSpacing, frontierSlope[lower + tickSpacing] - int256(slope));
         } else {
             _writeDelta(frontier, frontierDelta[frontier] - _sizeAt(liquidity, slope, jF - 1));
-            if (slope != 0) frontierSlope[frontier] -= int256(slope);
+            if (slope != 0) _writeSlope(frontier, frontierSlope[frontier] - int256(slope));
         }
         _writeDelta(upper, frontierDelta[upper] + _sizeAt(liquidity, slope, n - 1));
-        if (slope != 0) frontierSlope[upper] += int256(slope);
+        if (slope != 0) _writeSlope(upper, frontierSlope[upper] + int256(slope));
     }
 
     function _addBid(int24 lower, int24 upper, uint128 liquidity) internal {
@@ -960,18 +1046,35 @@ contract RollingFrontierBook is IRangeOrderBook {
         require(token1.transferFrom(payer, address(this), amount - credit), "transfer in failed");
     }
 
-    /// @dev Single write path for deltas, keeping the bitmap in sync:
-    /// bit set <=> frontierDelta != 0.
+    /// @dev Single write paths for the ask ledgers, keeping the bitmap in
+    /// sync. Bit set <=> frontierDelta != 0 OR frontierSlope != 0 — runs
+    /// telescope between set bits, so a slope-only endpoint MUST be visible
+    /// or a run would sail over a shape change.
     function _writeDelta(int24 t, int256 newVal) internal {
         int256 old = frontierDelta[t];
         if (old == newVal) return;
         frontierDelta[t] = newVal;
-        if (old == 0 || newVal == 0) {
-            int24 c = t / tickSpacing; // exact: t is always spacing-aligned
-            int16 wordPos = int16(c >> 8);
-            uint8 bitPos = uint8(uint24(c)); // low 8 bits, two's complement safe
-            if (newVal != 0) tickBitmap[wordPos] |= (uint256(1) << bitPos);
-            else tickBitmap[wordPos] &= ~(uint256(1) << bitPos);
+        if (old == 0 || newVal == 0) _syncAskBit(t);
+    }
+
+    function _writeSlope(int24 t, int256 newVal) internal {
+        int256 old = frontierSlope[t];
+        if (old == newVal) return;
+        frontierSlope[t] = newVal;
+        if (old == 0 || newVal == 0) _syncAskBit(t);
+    }
+
+    function _syncAskBit(int24 t) internal {
+        bool set = frontierDelta[t] != 0 || frontierSlope[t] != 0;
+        int24 c = t / tickSpacing; // exact: t is always spacing-aligned
+        int16 wordPos = int16(c >> 8);
+        uint8 bitPos = uint8(uint24(c)); // low 8 bits, two's complement safe
+        uint256 word = tickBitmap[wordPos];
+        uint256 mask = uint256(1) << bitPos;
+        if (set) {
+            if (word & mask == 0) tickBitmap[wordPos] = word | mask;
+        } else {
+            if (word & mask != 0) tickBitmap[wordPos] = word & ~mask;
         }
     }
 
@@ -1030,26 +1133,38 @@ contract RollingFrontierBook is IRangeOrderBook {
         }
     }
 
-    /// @dev Find the position's frontier by BINARY SEARCH: within the
-    /// position's own range, `boundaryFillClock[u] > depositClock` is a
-    /// prefix-monotone predicate (true for every boundary up to the frontier,
-    /// false above it — this is the prefix-contiguity theorem), so the
-    /// frontier is found in O(log width) SLOADs. Starts from claimedUpper,
-    /// which is always <= the true frontier (it only ever advances past
-    /// boundaries proven filled, and stamps only grow).
+    /// @dev Frontier = highest boundary covered by any up-sweep since the
+    /// position's deposit, clamped to its range (prefix-contiguity makes the
+    /// clamp exact). O(log sweep-records).
     function _frontier(Position storage p) internal view returns (int24 lo) {
         lo = p.claimedUpper;
-        uint24 n = uint24(p.upper - lo) / uint24(tickSpacing); // candidate boundaries above lo
-        while (n > 0) {
-            uint24 half = (n + 1) / 2;
-            int24 cand = lo + int24(half) * tickSpacing;
-            if (boundaryFillClock[cand] > p.depositClock) {
-                lo = cand;
-                n -= half;
-            } else {
-                n = half - 1;
-            }
+        int24 hw = _highSince(p.depositClock);
+        if (hw > lo) lo = hw > p.upper ? p.upper : hw;
+    }
+
+    /// @dev Highest boundary covered by a liquidity-moving up-sweep with
+    /// clock > c. Entries: clocks ascending, highs strictly descending, so
+    /// the first entry past c carries the maximum.
+    function _highSince(uint64 c) internal view returns (int24) {
+        uint256 n = _highWaters.length;
+        uint256 lo = 0;
+        uint256 hi = n;
+        while (lo < hi) {
+            uint256 mid = (lo + hi) / 2;
+            if (_highWaters[mid].clock > c) hi = mid;
+            else lo = mid + 1;
         }
+        if (lo == n) return type(int24).min;
+        return _highWaters[lo].high;
+    }
+
+    function _pushHighWater(uint64 clock, int24 high) internal {
+        uint256 n = _highWaters.length;
+        while (n > 0 && _highWaters[n - 1].high <= high) {
+            _highWaters.pop();
+            n--;
+        }
+        _highWaters.push(HighWater({clock: clock, high: high}));
     }
 
     uint256 internal constant PRICE_SCALE = 1e18;

@@ -1,8 +1,10 @@
 # Design: Endpoint-Bounded Sweeps (thin ticks for free)
 
-Status: designed, NOT yet implemented — written from the branch session while
-the main session was concurrently editing RollingFrontierBook.sol (shaped
-orders). Apply on top of the shaped-orders version; the two compose.
+Status: IMPLEMENTED 2026-06-10 on top of the shaped-orders version (ask
+side; bids still per-level — mirror pending). Measured: a 5% move across 500
+ACTIVE thin levels from 5 makers sweeps for 218,895 gas isolated (~23M
+before, ~105x); fineness is taker-free up to the bitmap word walk (5,000
+levels in one order: +43k over 50 levels). See test/FrontierOzempic.t.sol.
 
 ## Problem
 

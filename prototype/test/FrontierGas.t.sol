@@ -152,20 +152,44 @@ contract FrontierGasTest is Test {
         assertApproxEqRel(gasUsed[0], gasUsed[1], 0.05e18, "swap gas must not grow with users");
     }
 
-    function testSwapGasScalesOnlyWithCrossedIntervals() public {
-        uint24[3] memory crossed = [uint24(1), 10, 50];
+    function testSwapGasFlatVsLevelsOfOneOrder() public {
+        // the ozempic property: one order spanning N thin levels is ONE
+        // endpoint + ONE run — sweep cost must NOT scale with N
+        uint24[3] memory widths = [uint24(1), 100, 10000];
         uint256[3] memory gasUsed;
-        for (uint256 c = 0; c < crossed.length; c++) {
+        for (uint256 c = 0; c < widths.length; c++) {
             _fresh(9);
             address u = _user(0);
             vm.prank(u);
-            book.deposit(10, 10 + int24(crossed[c]), L);
+            book.deposit(10, 10 + int24(widths[c]), L);
             uint256 g = gasleft();
-            book.moveTickTo(10 + int24(crossed[c]));
+            book.moveTickTo(10 + int24(widths[c]));
             gasUsed[c] = g - gasleft();
-            console2.log("frontier swap gas crossing intervals:", crossed[c], gasUsed[c]);
+            console2.log("sweep gas, one order spanning levels:", widths[c], gasUsed[c]);
         }
-        assertGt(gasUsed[2], gasUsed[1], "expected crossed-interval scaling (allowed by S5)");
+        // residual growth is the bitmap word walk (1 cold read / 256 levels)
+        uint256 wordBudget = (uint256(widths[2] - widths[0]) / 256 + 2) * 2600;
+        assertLt(gasUsed[2] - gasUsed[0], wordBudget, "growth must be word-bounded, not per-level");
+    }
+
+    function testSwapGasScalesWithEndpointsNotLevels() public {
+        // N stacked distinct-size orders = N endpoints; same total levels
+        uint24[2] memory counts = [uint24(5), 50];
+        uint256[2] memory gasUsed;
+        for (uint256 c = 0; c < counts.length; c++) {
+            _fresh(9);
+            for (uint24 i = 0; i < counts[c]; i++) {
+                address u = _user(i);
+                vm.prank(u);
+                book.deposit(int24(10 + int24(i)), int24(11 + int24(i)), uint128(i + 1) * L);
+            }
+            uint256 g = gasleft();
+            book.moveTickTo(int24(10 + int24(counts[c])));
+            gasUsed[c] = g - gasleft();
+            console2.log("sweep gas with N endpoint orders:", counts[c], gasUsed[c]);
+        }
+        // end-of-tx refunds (capped at 1/5) compress the isolated ratio; 3x for 10x endpoints holds in both accounting modes
+        assertGt(gasUsed[1], gasUsed[0] * 3, "cost scales with endpoints crossed");
     }
 
     // ------------------------------------------------------------------

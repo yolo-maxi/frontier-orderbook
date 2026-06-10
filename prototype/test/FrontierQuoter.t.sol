@@ -240,7 +240,7 @@ contract FrontierQuoterTest is Test {
             price = next;
 
             (,, int24 lo,,,,) = _pos(id);
-            if (book.boundaryFillClock(lo + 1) > _depClock(id)) {
+            if (book.isConsumedFor(id, lo)) {
                 // got filled: settle + re-place (the slow path)
                 vm.startPrank(mm);
                 book.cancel(id);

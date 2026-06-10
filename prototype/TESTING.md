@@ -1,7 +1,7 @@
 # Testing & Verification
 
-What the test suite proves, how, and the measured numbers. 125 tests total:
-123 local (offline) + 2 Base-mainnet fork tests (gated behind `FORK=true`).
+What the test suite proves, how, and the measured numbers. 132 tests total:
+130 local (offline) + 2 Base-mainnet fork tests (gated behind `FORK=true`).
 
 ## Strategy
 
@@ -143,6 +143,25 @@ revert; credits are fully token-backed and the book drains to dust on full
 exit; recycle beats the claim+deposit round trip in gas (149,579 vs
 162,509 with cheap mock tokens — the gap widens with real ERC20s and the
 avoided approve).
+
+### `test/FrontierOzempic.t.sol` — endpoint-telescoped sweeps (thin ticks, compressed settlement)
+
+The "tick ozempic" upgrade: up-sweeps settle whole runs between ORDER
+ENDPOINTS with one closed-form series + one absorption (per-boundary clock
+stamps replaced by one high-water record per sweep; claims/cancels resolve
+the per-position prefix against it in O(log sweeps)). Five tests: a 5% move
+across 500 ACTIVE thin levels from 5 makers sweeps for 218,895 gas isolated
+(per-level it was ~46k x 500 ~ 23M) with every maker's claim exact to the
+wei vs brute force; sweep gas independent of tick fineness for one order
+(50 vs 5,000 levels: +43k, all bitmap word-walk — growth asserted
+word-bounded, never per-level); freshness + no-resurrection across
+telescoped sweeps and lifecycles; maxPay parks MID-RUN at the exact
+affordable thin tick via closed-form subdivision and resumes exactly;
+shaped 500-level ladders settle as one quadratic-series run (150,396 gas),
+exact to the wei. The differential fuzz (2,000 runs) passes unchanged —
+telescoped settlement is outcome-identical to per-level. Sweep budget
+(`maxFills`) now counts endpoint-steps, not levels; adjacent same-size
+single-level orders coalesce into one run automatically.
 
 ### `test/ForkBaseHook.t.sol` — Base mainnet fork (block 47,138,448)
 
