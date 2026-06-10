@@ -36,6 +36,7 @@ trade-off).
 | [`DESIGN.md`](DESIGN.md) | Why this mechanism: the two simplifying observations, boundary semantics (Q6), dust policy (Q7), requirements coverage table, the width-O(1) impossibility claim and its correction — the rolling-frontier design (Q1–Q3), the v4 hook answer (Q4) |
 | [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | How it's built: contracts, state model, operation flows, v4 hook mechanics (noSelfCall, ERC-6909 settlement, boundary rule), Universal Router encoding facts, build config, known gaps |
 | [`TESTING.md`](TESTING.md) | What's proven and how: suite-by-suite breakdown, measured gas tables, fork-test numbers, spec traceability matrix (I1–I14, S1–S5) |
+| [`PRICING.md`](PRICING.md) | Ticks → prices for ETH/USDC and BTC/USDC with verified signs/decimals, thin-tick precision ($0.40 on ETH, $10 on BTC), and the before/after gas story |
 
 ## Layout
 
