@@ -78,9 +78,21 @@ contract RollingFrontierBook is IRangeOrderBook {
     // upper boundary u: global clock when [u-s, u) last filled with liquidity
     mapping(int24 => uint64) public boundaryFillClock;
 
-    // lowest boundary ever used; only for the O(width) view scans
+    // ----- BID side (buy token0 with token1, resting BELOW the price) -----
+    // Exact mirror of the ask machinery: sizes are token0-denominated
+    // (per-level amount of token0 the maker wants to buy, so claims and
+    // span sums stay closed-form), the frontier rolls DOWNWARD, and fill
+    // clocks are keyed by the interval's LOWER boundary. Uniform sizes only
+    // (shapes mirror mechanically; kept ask-side for now).
+    mapping(int24 => int256) public bidDelta; // +B at bid frontiers (interval lower), -B at lower-s
+    mapping(int16 => uint256) public bidBitmap;
+    mapping(int24 => uint64) public bidFillClock; // interval lower t: when [t, t+s) filled downward
+
+    // lowest/highest boundaries ever used; only for the O(width) view scans
     int24 internal _minBoundary;
     bool internal _minBoundarySet;
+    int24 internal _maxBoundary;
+    bool internal _maxBoundarySet;
 
     struct Position {
         address owner;
@@ -89,8 +101,10 @@ contract RollingFrontierBook is IRangeOrderBook {
         uint128 liquidity; // size at `lower` (L0)
         int128 slope; // per-level size increment; size at level j = L0 + slope*j
         uint64 depositClock;
-        int24 claimedUpper; // proceeds already paid for [lower, claimedUpper)
+        // asks: proceeds paid for [lower, cursor); bids: paid for [cursor, upper)
+        int24 claimedUpper;
         bool live;
+        bool isBid;
     }
 
     mapping(uint256 => Position) public positions;
@@ -141,7 +155,8 @@ contract RollingFrontierBook is IRangeOrderBook {
             slope: slope,
             depositClock: fillClock,
             claimedUpper: lower,
-            live: true
+            live: true,
+            isBid: false
         });
 
         uint256 amount0 = _principalSpan(liquidity, slope, 0, _levels(lower, upper));
@@ -166,6 +181,7 @@ contract RollingFrontierBook is IRangeOrderBook {
     {
         Position storage p = positions[positionId];
         require(p.live, "not live");
+        require(!p.isBid, "use bid methods");
         require(msg.sender == p.owner, "not owner");
         // completely unfilled <=> first interval not filled since deposit
         // (prefix-contiguity: nothing above it can have filled either)
@@ -203,6 +219,7 @@ contract RollingFrontierBook is IRangeOrderBook {
     function claimTo(uint256 positionId, int24 target) public returns (uint256 proceeds1) {
         Position storage p = positions[positionId];
         require(p.live, "not live");
+        require(!p.isBid, "use bid methods");
         require(msg.sender == p.owner, "not owner");
         require(target > p.claimedUpper && target <= p.upper, "bad target");
         require((target - p.lower) % tickSpacing == 0, "unaligned target");
@@ -219,6 +236,7 @@ contract RollingFrontierBook is IRangeOrderBook {
     function claim(uint256 positionId) external returns (uint256 proceeds1) {
         Position storage p = positions[positionId];
         require(p.live, "not live");
+        require(!p.isBid, "use bid methods");
         require(msg.sender == p.owner, "not owner");
         int24 frontier = _frontier(p);
         if (frontier <= p.claimedUpper) {
@@ -237,6 +255,7 @@ contract RollingFrontierBook is IRangeOrderBook {
     {
         Position storage p = positions[positionId];
         require(p.live, "not live");
+        require(!p.isBid, "use bid methods");
         require(msg.sender == p.owner, "not owner");
         require(frontier >= p.lower && frontier <= p.upper, "frontier out of range");
         require((frontier - p.lower) % tickSpacing == 0, "unaligned frontier");
@@ -269,8 +288,152 @@ contract RollingFrontierBook is IRangeOrderBook {
     function cancel(uint256 positionId) external returns (uint256 proceeds1, uint256 principal0) {
         Position storage p = positions[positionId];
         require(p.live, "not live");
+        require(!p.isBid, "use bid methods");
         require(msg.sender == p.owner, "not owner");
         return cancelWithWitness(positionId, _frontier(p));
+    }
+
+    // ------------------------------------------------------------------
+    // BID side: buy token0 with token1, resting below the price
+    // ------------------------------------------------------------------
+
+    /// @notice O(1) bid: `liquidity` token0-units wanted per level over
+    /// [lower, upper), which must sit entirely at/below the current price.
+    /// Pulls the token1 value of the span (ceil; book-favorable).
+    function depositBid(int24 lower, int24 upper, uint128 liquidity) external returns (uint256 positionId) {
+        require(liquidity > 0, "zero liquidity");
+        require(lower < upper, "empty range");
+        require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
+        require(upper <= currentTick, "range not below price");
+
+        _addBid(lower, upper, liquidity);
+
+        positionId = nextPositionId++;
+        positions[positionId] = Position({
+            owner: msg.sender,
+            lower: lower,
+            upper: upper,
+            liquidity: liquidity,
+            slope: 0,
+            depositClock: fillClock,
+            claimedUpper: upper, // bid cursor descends from upper
+            live: true,
+            isBid: true
+        });
+
+        uint256 amount1 = _uniformSpanValue(lower, upper, liquidity, true);
+        require(token1.transferFrom(msg.sender, address(this), amount1), "transfer in failed");
+        emit Deposit(positionId, msg.sender, lower, upper, liquidity);
+    }
+
+    /// @notice O(1) re-price of a completely unfilled bid; token1 settles
+    /// difference-only; clock refresh preserves freshness.
+    function requoteBid(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external {
+        Position storage p = positions[positionId];
+        require(p.live, "not live");
+        require(p.isBid, "not a bid");
+        require(msg.sender == p.owner, "not owner");
+        require(newLiquidity > 0, "zero liquidity");
+        // completely unfilled <=> topmost level not filled since deposit
+        require(bidFillClock[p.upper - tickSpacing] <= p.depositClock, "partially filled");
+        require(newLower < newUpper, "empty range");
+        require(newLower % tickSpacing == 0 && newUpper % tickSpacing == 0, "unaligned");
+        require(newUpper <= currentTick, "range not below price");
+
+        _writeBidDelta(p.upper - tickSpacing, bidDelta[p.upper - tickSpacing] - int256(uint256(p.liquidity)));
+        _writeBidDelta(p.lower - tickSpacing, bidDelta[p.lower - tickSpacing] + int256(uint256(p.liquidity)));
+        _addBid(newLower, newUpper, newLiquidity);
+
+        uint256 oldAmount1 = _uniformSpanValue(p.lower, p.upper, p.liquidity, true);
+        uint256 newAmount1 = _uniformSpanValue(newLower, newUpper, newLiquidity, true);
+
+        p.lower = newLower;
+        p.upper = newUpper;
+        p.liquidity = newLiquidity;
+        p.depositClock = fillClock;
+        p.claimedUpper = newUpper;
+
+        if (newAmount1 > oldAmount1) {
+            require(token1.transferFrom(msg.sender, address(this), newAmount1 - oldAmount1), "transfer in failed");
+        } else if (oldAmount1 > newAmount1) {
+            require(token1.transfer(msg.sender, oldAmount1 - newAmount1), "transfer out failed");
+        }
+        emit Requote(positionId, newLower, newUpper, newLiquidity);
+    }
+
+    /// @notice O(1) bid claim against a boundary witness: pays the token0 for
+    /// filled levels [target, cursor). Mirror of claimTo.
+    function claimBidTo(uint256 positionId, int24 target) public returns (uint256 proceeds0) {
+        Position storage p = positions[positionId];
+        require(p.live, "not live");
+        require(p.isBid, "not a bid");
+        require(msg.sender == p.owner, "not owner");
+        require(target < p.claimedUpper && target >= p.lower, "bad target");
+        require((target - p.lower) % tickSpacing == 0, "unaligned target");
+        require(bidFillClock[target] > p.depositClock, "not filled");
+
+        proceeds0 = uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - target)) / uint256(uint24(tickSpacing)));
+        p.claimedUpper = target;
+
+        if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
+        emit Claim(positionId, proceeds0);
+    }
+
+    /// @notice Convenience variant: finds the bid frontier in O(log width).
+    function claimBid(uint256 positionId) external returns (uint256 proceeds0) {
+        Position storage p = positions[positionId];
+        require(p.live, "not live");
+        require(p.isBid, "not a bid");
+        require(msg.sender == p.owner, "not owner");
+        int24 frontier = _bidFrontier(p);
+        if (frontier >= p.claimedUpper) {
+            emit Claim(positionId, 0);
+            return 0;
+        }
+        return claimBidTo(positionId, frontier);
+    }
+
+    /// @notice O(1) bid cancel against a maximal-frontier witness: pays
+    /// unclaimed token0, refunds unfilled token1 (floor), retires the bid.
+    function cancelBidWithWitness(uint256 positionId, int24 frontier)
+        public
+        returns (uint256 proceeds0, uint256 refund1)
+    {
+        Position storage p = positions[positionId];
+        require(p.live, "not live");
+        require(p.isBid, "not a bid");
+        require(msg.sender == p.owner, "not owner");
+        require(frontier >= p.lower && frontier <= p.upper, "frontier out of range");
+        require((frontier - p.lower) % tickSpacing == 0, "unaligned frontier");
+        if (frontier < p.upper) require(bidFillClock[frontier] > p.depositClock, "frontier not filled");
+        if (frontier > p.lower) {
+            require(bidFillClock[frontier - tickSpacing] <= p.depositClock, "frontier not maximal");
+        }
+
+        if (frontier < p.claimedUpper) {
+            proceeds0 =
+                uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
+            p.claimedUpper = frontier;
+        }
+        if (frontier > p.lower) {
+            _writeBidDelta(frontier - tickSpacing, bidDelta[frontier - tickSpacing] - int256(uint256(p.liquidity)));
+            _writeBidDelta(p.lower - tickSpacing, bidDelta[p.lower - tickSpacing] + int256(uint256(p.liquidity)));
+            refund1 = _uniformSpanValue(p.lower, frontier, p.liquidity, false);
+        }
+        p.live = false;
+
+        if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
+        if (refund1 > 0) require(token1.transfer(p.owner, refund1), "transfer out failed");
+        emit Cancel(positionId, proceeds0, refund1);
+    }
+
+    /// @notice Convenience variant: finds the bid frontier in O(log width).
+    function cancelBid(uint256 positionId) external returns (uint256 proceeds0, uint256 refund1) {
+        Position storage p = positions[positionId];
+        require(p.live, "not live");
+        require(p.isBid, "not a bid");
+        require(msg.sender == p.owner, "not owner");
+        return cancelBidWithWitness(positionId, _bidFrontier(p));
     }
 
     // ------------------------------------------------------------------
@@ -286,23 +449,48 @@ contract RollingFrontierBook is IRangeOrderBook {
         sweep(newTick, type(uint256).max);
     }
 
-    /// @notice Bounded, resumable taker sweep. Crosses at most `maxFills`
-    /// non-empty intervals, walking the tick bitmap so empty price regions
-    /// cost one word-read per 256 intervals instead of one read each. If the
-    /// fill budget runs out, the pointer parks at the lower boundary of the
-    /// first unfilled interval and a later sweep resumes from there.
-    /// Per crossed interval: consume the aggregate frontier liquidity, roll
-    /// the surviving suffix forward, stamp the boundary. Never touches
-    /// positions.
+    /// @notice Bounded, resumable taker sweep with no price/size protection
+    /// (kept for compatibility; takers should prefer sweepWithLimits).
     function sweep(int24 target, uint256 maxFills) public returns (int24 reached) {
-        int24 oldTick = currentTick;
-        if (target <= oldTick) {
-            currentTick = target;
-            return target;
-        }
+        (reached,,) = sweepWithLimits(target, maxFills, type(uint256).max, 0, block.timestamp);
+    }
 
-        uint256 owed0;
-        uint256 owed1;
+    /// @notice Taker entry, both directions. UP-sweeps buy token0 from asks
+    /// (pay token1); DOWN-sweeps sell token0 into bids (pay token0, receive
+    /// token1). Walks the side's tick bitmap so empty price regions cost one
+    /// word-read per 256 intervals. Crosses at most `maxFills` levels and
+    /// never commits more than `maxPay` of the input token: on either budget
+    /// the pointer parks adjacent to the first unfilled level and a later
+    /// sweep resumes exactly there. Reverts if total output < `minOut` or
+    /// past `deadline`. Never touches positions.
+    function sweepWithLimits(int24 target, uint256 maxFills, uint256 maxPay, uint256 minOut, uint256 deadline)
+        public
+        returns (int24 reached, uint256 paid, uint256 received)
+    {
+        require(block.timestamp <= deadline, "expired");
+        int24 oldTick = currentTick;
+        if (target == oldTick) return (oldTick, 0, 0);
+        if (target > oldTick) {
+            (reached, paid, received) = _sweepUp(oldTick, target, maxFills, maxPay);
+            currentTick = reached;
+            require(received >= minOut, "insufficient output");
+            if (paid > 0) require(token1.transferFrom(msg.sender, address(this), paid), "fill payment failed");
+            if (received > 0) require(token0.transfer(msg.sender, received), "fill payout failed");
+        } else {
+            (reached, paid, received) = _sweepDown(oldTick, target, maxFills, maxPay);
+            currentTick = reached;
+            require(received >= minOut, "insufficient output");
+            if (paid > 0) require(token0.transferFrom(msg.sender, address(this), paid), "fill payment failed");
+            if (received > 0) require(token1.transfer(msg.sender, received), "fill payout failed");
+        }
+    }
+
+    /// @dev Per crossed ask level: consume the aggregate frontier liquidity,
+    /// roll the surviving suffix (and shape slope) upward, stamp the boundary.
+    function _sweepUp(int24 oldTick, int24 target, uint256 maxFills, uint256 maxPay)
+        internal
+        returns (int24 reached, uint256 owed1, uint256 owed0)
+    {
         uint256 fills;
         // lowest interval whose upper boundary lies in (oldTick, target]
         int24 cursorT = _nextBoundaryAbove(oldTick) - tickSpacing;
@@ -311,12 +499,6 @@ contract RollingFrontierBook is IRangeOrderBook {
         while (true) {
             (int24 t, bool found) = _nextActive(cursorT, target - tickSpacing);
             if (!found) break; // nothing left to fill: pointer goes to target
-            if (fills == maxFills) {
-                // budget exhausted with liquidity remaining at t: park just
-                // below it so a later sweep resumes exactly there
-                reached = t > oldTick ? t : oldTick;
-                break;
-            }
 
             // active liquidity at t = rolled base + slope in effect at t
             // (slope advance is applied at CONSUMPTION time, so value slots
@@ -327,6 +509,15 @@ contract RollingFrontierBook is IRangeOrderBook {
             // crossings happen left-to-right, so every covering order has
             // rolled into t before t is crossed; negative is unreachable
             require(d > 0, "negative frontier");
+            uint128 liq = uint128(uint256(d));
+            uint256 proceeds1 = _ceilAmt1(t, liq); // contract-favorable collection
+
+            if (fills == maxFills || owed1 + proceeds1 > maxPay) {
+                // budget exhausted with liquidity remaining at t: park just
+                // below it so a later sweep resumes exactly there
+                reached = t > oldTick ? t : oldTick;
+                break;
+            }
 
             int24 u = t + tickSpacing;
             // roll the shape accumulator: slope in effect at u = slope at t
@@ -343,8 +534,6 @@ contract RollingFrontierBook is IRangeOrderBook {
             uint64 clock = ++fillClock;
             boundaryFillClock[u] = clock;
 
-            uint128 liq = uint128(uint256(d));
-            uint256 proceeds1 = _ceilAmt1(t, liq); // contract-favorable collection
             owed0 += uint256(liq);
             owed1 += proceeds1;
             emit IntervalFilled(t, liq, proceeds1, clock);
@@ -354,10 +543,52 @@ contract RollingFrontierBook is IRangeOrderBook {
             }
             cursorT = u;
         }
+    }
 
-        currentTick = reached;
-        if (owed1 > 0) require(token1.transferFrom(msg.sender, address(this), owed1), "fill payment failed");
-        if (owed0 > 0) require(token0.transfer(msg.sender, owed0), "fill payout failed");
+    /// @dev Mirror: per crossed bid level [t, t+s) (crossed when price drops
+    /// to <= t), consume the aggregate bid frontier, roll it downward, stamp
+    /// the LOWER boundary. Taker delivers token0, receives the level's token1.
+    function _sweepDown(int24 oldTick, int24 target, uint256 maxFills, uint256 maxPay)
+        internal
+        returns (int24 reached, uint256 owed0, uint256 owed1)
+    {
+        uint256 fills;
+        // highest bid interval whose lower boundary lies in [target, oldTick)
+        int24 cursorT = _floorAligned(oldTick - 1);
+        reached = target;
+
+        while (true) {
+            (int24 t, bool found) = _prevActive(cursorT, target);
+            if (!found) break; // nothing left to fill: pointer goes to target
+
+            int256 d = bidDelta[t];
+            // crossings happen right-to-left, so every covering bid has
+            // rolled into t before t is crossed; negative is unreachable
+            require(d > 0, "negative bid frontier");
+            uint128 liq = uint128(uint256(d));
+            uint256 give1 = (uint256(liq) * _rate(t)) / PRICE_SCALE; // taker receives (floor)
+
+            if (fills == maxFills || owed0 + uint256(liq) > maxPay) {
+                // park just above the unfilled level
+                reached = t + tickSpacing < oldTick ? t + tickSpacing : oldTick;
+                break;
+            }
+
+            int24 dn = t - tickSpacing;
+            _writeBidDelta(t, 0);
+            _writeBidDelta(dn, bidDelta[dn] + d); // self-cancels for bids ending at lower
+            uint64 clock = ++fillClock;
+            bidFillClock[t] = clock;
+
+            owed0 += uint256(liq);
+            owed1 += give1;
+            emit IntervalFilled(t, liq, give1, clock);
+
+            unchecked {
+                fills++;
+            }
+            cursorT = dn;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -367,7 +598,7 @@ contract RollingFrontierBook is IRangeOrderBook {
 
     function claimable(uint256 positionId) external view returns (uint256) {
         Position storage p = positions[positionId];
-        if (!p.live) return 0;
+        if (!p.live || p.isBid) return 0;
         int24 frontier = _frontier(p);
         if (frontier <= p.claimedUpper) return 0;
         return _spanAmt1(p, p.claimedUpper, frontier);
@@ -375,14 +606,44 @@ contract RollingFrontierBook is IRangeOrderBook {
 
     function unfilledPrincipal(uint256 positionId) external view returns (uint256) {
         Position storage p = positions[positionId];
-        if (!p.live) return 0;
+        if (!p.live || p.isBid) return 0;
         int24 frontier = _frontier(p);
         return _principalSpan(p.liquidity, p.slope, _levelOf(p, frontier), _levels(p.lower, p.upper));
+    }
+
+    /// @notice token0 a bid could claim right now.
+    function bidClaimable(uint256 positionId) external view returns (uint256) {
+        Position storage p = positions[positionId];
+        if (!p.live || !p.isBid) return 0;
+        int24 frontier = _bidFrontier(p);
+        if (frontier >= p.claimedUpper) return 0;
+        return uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
+    }
+
+    /// @notice token1 still backing a bid's unfilled levels (floor).
+    function bidRefundable(uint256 positionId) external view returns (uint256) {
+        Position storage p = positions[positionId];
+        if (!p.live || !p.isBid) return 0;
+        int24 frontier = _bidFrontier(p);
+        if (frontier <= p.lower) return 0;
+        return _uniformSpanValue(p.lower, frontier, p.liquidity, false);
     }
 
     function isConsumedFor(uint256 positionId, int24 lowerTick) external view returns (bool) {
         Position storage p = positions[positionId];
         return boundaryFillClock[lowerTick + tickSpacing] > p.depositClock;
+    }
+
+    /// @notice Aggregate live BID size (token0 units) at a level: suffix sum
+    /// of bid endpoint deltas from above (mirror of activeLiquidity).
+    function bidLiquidity(int24 lowerTick) external view returns (uint128) {
+        if (!_maxBoundarySet || lowerTick > _maxBoundary) return 0;
+        int256 sum;
+        for (int24 u = _maxBoundary; u >= lowerTick; u -= tickSpacing) {
+            sum += bidDelta[u];
+        }
+        require(sum >= 0, "negative active");
+        return uint128(uint256(sum));
     }
 
     /// @dev Aggregate live liquidity covering [lowerTick, lowerTick+s) =
@@ -466,6 +727,129 @@ contract RollingFrontierBook is IRangeOrderBook {
         }
         _writeDelta(upper, frontierDelta[upper] + _sizeAt(liquidity, slope, n - 1));
         if (slope != 0) frontierSlope[upper] += int256(slope);
+    }
+
+    function _addBid(int24 lower, int24 upper, uint128 liquidity) internal {
+        _writeBidDelta(upper - tickSpacing, bidDelta[upper - tickSpacing] + int256(uint256(liquidity)));
+        _writeBidDelta(lower - tickSpacing, bidDelta[lower - tickSpacing] - int256(uint256(liquidity)));
+        if (!_maxBoundarySet || upper > _maxBoundary) {
+            _maxBoundary = upper;
+            _maxBoundarySet = true;
+        }
+    }
+
+    /// @dev Bid mirror of _writeDelta, maintaining the bid bitmap.
+    function _writeBidDelta(int24 t, int256 newVal) internal {
+        int256 old = bidDelta[t];
+        if (old == newVal) return;
+        bidDelta[t] = newVal;
+        if (old == 0 || newVal == 0) {
+            int24 c = t / tickSpacing;
+            int16 wordPos = int16(c >> 8);
+            uint8 bitPos = uint8(uint24(c));
+            if (newVal != 0) bidBitmap[wordPos] |= (uint256(1) << bitPos);
+            else bidBitmap[wordPos] &= ~(uint256(1) << bitPos);
+        }
+    }
+
+    /// @dev Largest spacing-aligned t in [minT, fromT] with nonzero bidDelta,
+    /// scanning whole bitmap words downward.
+    function _prevActive(int24 fromT, int24 minT) internal view returns (int24, bool) {
+        if (fromT < minT) return (0, false);
+        int24 c = fromT / tickSpacing;
+        int24 cMin = minT / tickSpacing;
+        while (c >= cMin) {
+            int16 wordPos = int16(c >> 8);
+            uint8 bitPos = uint8(uint24(c));
+            // keep bits at and below bitPos
+            uint256 word = bidBitmap[wordPos] << (255 - bitPos);
+            if (word != 0) {
+                int24 cFound = c - int24(uint24(255 - _msb(word)));
+                if (cFound < cMin) return (0, false);
+                return (cFound * tickSpacing, true);
+            }
+            c = (int24(wordPos) * 256) - 1;
+        }
+        return (0, false);
+    }
+
+    function _msb(uint256 x) private pure returns (uint8 r) {
+        // precondition: x != 0
+        if (x >> 128 != 0) {
+            r += 128;
+            x >>= 128;
+        }
+        if (x >> 64 != 0) {
+            r += 64;
+            x >>= 64;
+        }
+        if (x >> 32 != 0) {
+            r += 32;
+            x >>= 32;
+        }
+        if (x >> 16 != 0) {
+            r += 16;
+            x >>= 16;
+        }
+        if (x >> 8 != 0) {
+            r += 8;
+            x >>= 8;
+        }
+        if (x >> 4 != 0) {
+            r += 4;
+            x >>= 4;
+        }
+        if (x >> 2 != 0) {
+            r += 2;
+            x >>= 2;
+        }
+        if (x >> 1 != 0) {
+            r += 1;
+        }
+    }
+
+    /// @dev Mirror of _frontier: lowest boundary t in the bid's range such
+    /// that level [t, t+s) has filled since deposit. The bid fill predicate
+    /// is suffix-monotone within the range (prefix-from-the-top), so binary
+    /// search applies. Starts from the cursor, which is always >= the true
+    /// frontier.
+    function _bidFrontier(Position storage p) internal view returns (int24 hi) {
+        hi = p.claimedUpper;
+        uint24 n = uint24(hi - p.lower) / uint24(tickSpacing); // candidate boundaries below hi
+        while (n > 0) {
+            uint24 half = (n + 1) / 2;
+            int24 cand = hi - int24(half) * tickSpacing;
+            if (bidFillClock[cand] > p.depositClock) {
+                hi = cand;
+                n -= half;
+            } else {
+                n = half - 1;
+            }
+        }
+    }
+
+    function _floorAligned(int24 x) internal view returns (int24) {
+        int24 q = x / tickSpacing;
+        if (x < 0 && x % tickSpacing != 0) q -= 1;
+        return q * tickSpacing;
+    }
+
+    /// @dev token1 value of `size` token0-units per level over [a, b) at the
+    /// linear rate curve; ceil = book-favorable (bid deposits), floor = payouts.
+    function _uniformSpanValue(int24 a, int24 b, uint128 size, bool roundUp) internal view returns (uint256) {
+        int256 sp = int256(tickSpacing);
+        int256 n = (int256(b) - int256(a)) / sp;
+        int256 tickSum = n * int256(a) + (sp * n * (n - 1)) / 2;
+        int256 rateSum = n * int256(PRICE_SCALE) + tickSum * 1e15;
+        require(rateSum > 0, "rate underflow");
+        uint256 v = uint256(size) * uint256(rateSum);
+        return roundUp ? (v + PRICE_SCALE - 1) / PRICE_SCALE : v / PRICE_SCALE;
+    }
+
+    function _rate(int24 t) internal pure returns (uint256) {
+        int256 r = int256(PRICE_SCALE) + int256(t) * 1e15;
+        require(r > 0, "rate underflow");
+        return uint256(r);
     }
 
     /// @dev Single write path for deltas, keeping the bitmap in sync:

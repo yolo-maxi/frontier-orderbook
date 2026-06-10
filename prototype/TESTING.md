@@ -1,7 +1,7 @@
 # Testing & Verification
 
-What the test suite proves, how, and the measured numbers. 102 tests total:
-100 local (offline) + 2 Base-mainnet fork tests (gated behind `FORK=true`).
+What the test suite proves, how, and the measured numbers. 115 tests total:
+113 local (offline) + 2 Base-mainnet fork tests (gated behind `FORK=true`).
 
 ## Strategy
 
@@ -114,6 +114,22 @@ each maker exactly; shaped deposit (255,316) and requote (151,330) are
 bit-identical at widths 100 and 10,000; re-shaping on requote settles only
 the size difference; the level-size >= 1 floor is enforced (protects the
 bitmap-driven sweep).
+
+### `test/FrontierTwoSided.t.sol` — bids, two-sided structure, taker limits
+
+Thirteen tests. Bid side (the descending mirror, token0-denominated sizes):
+deposit pulls the ceil token1 value, down-sweeps pay sellers per-level
+floors, makers claim exact token0; no-resurrection and epoch isolation on
+price recovery; bid requote (82,155 gas) with freshness; witness checks
+reject under/overstated frontiers; cancel mid-fill returns the token0/token1
+mix. Market structure: up-sweeps fill only asks, down-sweeps only bids;
+crossing deposits revert on both sides; the pointer cannot cross resting
+liquidity for free (a no-funds account reverts trying — moving the price IS
+trading), while moves inside the spread stay free. Taker protections:
+`sweepWithLimits(target, maxFills, maxPay, minOut, deadline)` parks on
+maxPay in both directions (resumable), reverts on minOut shortfall and
+expired deadlines. Conservation: both delta ledgers sum to zero after full
+settlement, zero stranded token0, wei-dust token1.
 
 ### `test/ForkBaseHook.t.sol` — Base mainnet fork (block 47,138,448)
 

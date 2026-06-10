@@ -9,7 +9,7 @@ loops over users.
 
 **Status (2026-06-10):** mechanism designed, built four ways (standalone
 fill-clock book, naive reference oracle, real Uniswap v4 hook, and a
-width-O(1) rolling-frontier book), and verified — 102 tests passing,
+width-O(1) rolling-frontier book), and verified — 115 tests passing,
 including the full spec scenario suite against all four implementations, 2,000-run differential fuzzing, gas proofs of the
 complexity requirements, and an end-to-end Base mainnet fork test using the
 deployed PoolManager, real WETH/USDC, and the deployed Universal Router.
@@ -79,7 +79,8 @@ FORK=true forge test --match-contract ForkBaseHookTest -vv   # Base mainnet fork
 
 ## What's deliberately not here yet
 
-Token1→token0 mirror direction (optional per R2), nonzero-fee pools (needs a
-small per-fill record), multi-pool hook instances, keeper/batch claiming
-(spec Q8, one-line change), sub-range claims. See the gaps sections in
-`IMPLEMENTATION.md` and `TESTING.md`.
+Nonzero-fee pools for the v4 hook (needs a small per-fill record),
+multi-pool hook instances, keeper/batch claiming (spec Q8, one-line change),
+shaped bids (asks have shapes; the bid mirror is mechanical), sub-tick
+partial fills (designed and parked — `NOTES-partial-fills.md`). See the gaps
+sections in `IMPLEMENTATION.md` and `TESTING.md`.
