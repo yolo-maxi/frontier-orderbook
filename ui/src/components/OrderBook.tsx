@@ -48,10 +48,12 @@ export function OrderBook() {
         bids.push({ price: tickToPrice(l.tick), size: Number(formatUnits(l.bidSize, 18)) });
       }
     }
-    const prices = [...asks, ...bids].map((x) => x.price);
-    const span =
-      prices.length > 1 ? Math.max(...prices) - Math.min(...prices) : 0;
-    const step = niceStep(span / (BUCKETS_PER_SIDE * 1.6));
+    const sideSpan = (xs: { price: number }[]) =>
+      xs.length > 1
+        ? Math.max(...xs.map((x) => x.price)) - Math.min(...xs.map((x) => x.price))
+        : 0;
+    const span = Math.max(sideSpan(asks), sideSpan(bids));
+    const step = niceStep(span / BUCKETS_PER_SIDE);
     const dp = stepDecimals(step);
     const askBuckets = bucketize(asks, step, "ask");
     const bidBuckets = bucketize(bids, step, "bid");
@@ -68,7 +70,7 @@ export function OrderBook() {
       summary.hasAsk && summary.hasBid
         ? tickToPrice(summary.bestAsk) - tickToPrice(summary.bestBid)
         : null;
-    return { askBuckets, bidBuckets, maxCum, mid, spread, dp };
+    return { askBuckets, bidBuckets, maxCum, mid, spread, dp, step };
   }, [summary, depth]);
 
   if (!model) {
@@ -80,13 +82,13 @@ export function OrderBook() {
     );
   }
 
-  const { askBuckets, bidBuckets, maxCum, mid, spread, dp } = model;
+  const { askBuckets, bidBuckets, maxCum, mid, spread, dp, step } = model;
   const sizeDp = 3;
 
   return (
     <section className="panel book-panel">
       <div className="panel-title">
-        Order Book <span className="dim title-note">bucket {fmtPrice(niceish(askBuckets, bidBuckets), 3)}</span>
+        Order Book <span className="dim title-note">bucket ${fmtPrice(step, 3)}</span>
       </div>
       <div className="book-head num">
         <span>Price (USDC)</span>
@@ -111,7 +113,7 @@ export function OrderBook() {
         <div className="book-mid num">
           <span className="book-mid-px">{fmtPrice(mid, 3)}</span>
           <span className="dim">
-            {spread !== null ? `spread ${fmtPrice(spread, 3)} (${fmtPrice((spread / mid) * 10000, 1)} bps)` : "one-sided"}
+            {spread !== null ? `spread ${fmtPrice(spread, 3)} · ${fmtPrice((spread / mid) * 10000, 2)} bps` : "one-sided"}
           </span>
         </div>
         <div className="book-side book-bids">
@@ -139,13 +141,4 @@ function fmtSize(n: number, dp: number): string {
     minimumFractionDigits: dp,
     maximumFractionDigits: dp,
   });
-}
-
-function niceish(a: Bucket[], b: Bucket[]): number {
-  const all = [...a, ...b];
-  if (all.length < 2) return 0.001;
-  const ps = all.map((x) => x.price).sort((x, y) => x - y);
-  let min = Infinity;
-  for (let i = 1; i < ps.length; i++) min = Math.min(min, ps[i] - ps[i - 1]);
-  return Number.isFinite(min) ? min : 0.001;
 }

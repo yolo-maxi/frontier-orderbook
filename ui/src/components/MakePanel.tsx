@@ -44,12 +44,13 @@ export function MakePanel() {
   useEffect(() => {
     if (mid === null) return;
     if (fromStr === "" && toStr === "") {
+      // ticks are $0.001 thin — keep default ladders narrow (50 levels)
       if (side === "ask") {
-        setFromStr((mid * 1.005).toFixed(2));
-        setToStr((mid * 1.02).toFixed(2));
+        setFromStr((mid + 0.01).toFixed(3));
+        setToStr((mid + 0.06).toFixed(3));
       } else {
-        setFromStr((mid * 0.98).toFixed(2));
-        setToStr((mid * 0.995).toFixed(2));
+        setFromStr((mid - 0.06).toFixed(3));
+        setToStr((mid - 0.01).toFixed(3));
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,8 +305,8 @@ export function MakePanel() {
         </div>
       )}
 
-      {needsApproval ? (
-        <button className="btn btn-wide btn-accent" disabled={busy !== null || insufficient} onClick={onApprove}>
+      {needsApproval && !insufficient ? (
+        <button className="btn btn-wide btn-accent" disabled={busy !== null} onClick={onApprove}>
           Approve {paySymbol}
         </button>
       ) : (

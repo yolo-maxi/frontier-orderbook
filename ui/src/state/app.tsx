@@ -117,7 +117,9 @@ const depositEvent = getAbiItem({ abi: bookAbi, name: "Deposit" });
 
 const DEPTH_WINDOW = 8000; // ticks each side (shrinks adaptively if the node's eth_call gas cap is tight)
 const MIN_DEPTH_WINDOW = 500;
-const DEPTH_MAX_LEVELS = 60n;
+/** Per-side cap on emitted levels. Ticks are $0.001 thin, so a real ladder
+ * spans thousands of levels; the UI aggregates them into price buckets. */
+const DEPTH_MAX_LEVELS = 4000n;
 const MAX_FILLS = 60;
 const MAX_HISTORY = 1200;
 /** The lens walks per-tick ledgers; ±8000 ticks needs ~80M gas, above many

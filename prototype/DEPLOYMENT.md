@@ -2,9 +2,18 @@
 
 ## Live demo (clob devnet)
 
-- UI: https://clob.repo.box
+- UI: https://clob.repo.box (static, served from the FRONT server)
 - RPC: https://rpc-clob.repo.box (chain id 84009, 2s blocks, anvil with
   state persistence under pm2 `clob-devnet`, state in /home/xiko/clob-devnet)
+
+TOPOLOGY: public DNS for *.repo.box points at the front server
+(fran@204.168.190.248); this box publishes through it. The UI is static
+files at /var/www/repo.box/subdomains/clob ON THE FRONT; the RPC is an SSH
+reverse tunnel (pm2 `clob-rpc-tunnel`, front 127.0.0.1:43110 -> local
+8547) behind the front's Caddy. The local Caddy entries on this box only
+matter for loopback testing. clob.repo.box previously carried the
+uniswap-tools mock book preview (port 43109) — replaced 2026-06-10, front
+Caddyfile backed up (.bak.clob-full-*).
 - Addresses: `deployments/latest.json` (also served at clob.repo.box/deployment.json)
 - Bots on the box (pm2): `clob-mm-bot` quotes ETH-USDC at ±0.1% around the
   live Coinbase spot, requoting through a DELEGATED operator key
