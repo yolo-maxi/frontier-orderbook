@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
 import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
@@ -97,6 +97,45 @@ contract HookExperimentsTest is Test {
         vm.warp(block.timestamp + 10);
         vm.expectRevert(bytes("lookback beyond history"));
         hook.consult(11);
+    }
+
+    /// What attaching the oracle costs takers: identical ladders and sweeps
+    /// on a hookless book vs a TWAP-hooked one. Run with --isolate for
+    /// per-transaction numbers (the docs methodology).
+    function testTwapHookSweepOverhead() public {
+        (, RollingFrontierBook hooked) = _twapSetup();
+        RollingFrontierBook plain = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 0));
+        vm.startPrank(mm);
+        t0.approve(address(plain), type(uint256).max);
+        plain.deposit(1, 201, L);
+        vm.stopPrank();
+        vm.prank(taker);
+        t1.approve(address(plain), type(uint256).max);
+
+        // first sweep: the oracle's count + ring slot are zero -> nonzero
+        vm.prank(taker);
+        uint256 g = gasleft();
+        plain.moveTickTo(10);
+        uint256 plainFirst = g - gasleft();
+        vm.prank(taker);
+        g = gasleft();
+        hooked.moveTickTo(10);
+        uint256 hookedFirst = g - gasleft();
+
+        // steady state: each later observation is a fresh ring slot
+        vm.warp(1001);
+        vm.prank(taker);
+        g = gasleft();
+        plain.moveTickTo(20);
+        uint256 plainNext = g - gasleft();
+        vm.prank(taker);
+        g = gasleft();
+        hooked.moveTickTo(20);
+        uint256 hookedNext = g - gasleft();
+
+        console2.log("twap overhead, first sweep:", hookedFirst - plainFirst);
+        console2.log("twap overhead, steady state:", hookedNext - plainNext);
+        assertLt(hookedNext - plainNext, 60_000, "oracle should stay cheap");
     }
 
     // ------------------------------------------------------------------

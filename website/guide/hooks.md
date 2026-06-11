@@ -108,6 +108,13 @@ cumulative is exact — same-second moves collapse to the last one, as v3's
 per-block observations do. Tests verify exact averaging across moves,
 interpolation inside intervals, and lookback bounds.
 
+Measured all-in cost to takers (`testTwapHookSweepOverhead`, `--isolate`):
+**~32–35k gas per sweep** — the call hop is ~2.5k and the rest is the
+oracle's own storage (a fresh ring-buffer slot is a 20k zero→nonzero
+write; once the 256-slot ring wraps, observations become ~5k overwrites
+and the steady-state cost drops toward ~20k). On a typical 150–220k
+sweep that's a 15–20% premium for a market that prices itself.
+
 This is the foundation for anything that needs a manipulation-resistant
 price: lending against book liquidity, settlement of derivatives on book
 markets, or cross-checking another venue.
