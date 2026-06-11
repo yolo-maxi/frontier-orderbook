@@ -33,6 +33,8 @@ export function MakePanel() {
   const [fromStr, setFromStr] = useState("");
   const [toStr, setToStr] = useState("");
   const [sizeStr, setSizeStr] = useState("");
+  const [totalStr, setTotalStr] = useState("");
+  const [editingTotal, setEditingTotal] = useState(false);
   const [frontLoaded, setFrontLoaded] = useState(false);
   const [allowance, setAllowance] = useState<bigint | null>(null);
 
@@ -64,6 +66,18 @@ export function MakePanel() {
   };
 
   const sizePerLevel = parseAmount(sizeStr);
+
+  // arrow keys nudge any numeric field; shift = 10x increment
+  const onArrow =
+    (value: string, set: (s: string) => void, inc: number, dp: number) =>
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      e.preventDefault();
+      const x = Number(value || "0");
+      if (!Number.isFinite(x)) return;
+      const d = (e.key === "ArrowUp" ? 1 : -1) * inc * (e.shiftKey ? 10 : 1);
+      set(Math.max(0, x + d).toFixed(dp));
+    };
 
   const plan: Plan | null = useMemo(() => {
     if (cur === null) return null;
@@ -122,6 +136,33 @@ export function MakePanel() {
     }
     return { lower, upper, n, liquidity, slope, cost, error };
   }, [cur, fromStr, toStr, sizeStr, side, spacing, frontLoaded, sizePerLevel?.toString()]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // size/level <-> total: cost is linear in size per level on every path
+  // (flat, front-loaded, bid), so either field derives the other
+  const totalForSize = plan && plan.cost > 0n ? plan.cost : null;
+  const sizeFromTotal = (tStr: string): string | null => {
+    if (plan === null || plan.n <= 0) return null;
+    const t = parseAmount(tStr);
+    if (t === null) return null;
+    const nB = BigInt(plan.n);
+    let size: bigint;
+    if (side === "ask") {
+      size = t / nB; // shaped cost == size*n too (1.5..0.5 averages to 1)
+    } else {
+      const tickSum = nB * BigInt(plan.lower) + (BigInt(spacing) * nB * (nB - 1n)) / 2n;
+      const rateSum = nB * E18 + tickSum * E15;
+      if (rateSum <= 0n) return null;
+      size = (t * E18) / rateSum;
+    }
+    return (Number(size) / 1e18).toString();
+  };
+
+  // keep the non-edited field in sync
+  useEffect(() => {
+    if (editingTotal) return;
+    setTotalStr(totalForSize !== null ? (Number(totalForSize) / 1e18).toFixed(side === "ask" ? 4 : 2) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalForSize?.toString(), editingTotal, side]);
 
   // publish the configured ladder to the chart as a live preview
   useEffect(() => {
@@ -235,6 +276,7 @@ export function MakePanel() {
             placeholder="0.00"
             value={fromStr}
             onChange={(e) => setFromStr(e.target.value)}
+            onKeyDown={onArrow(fromStr, setFromStr, 0.01, 3)}
           />
         </label>
         <label className="field">
@@ -245,25 +287,48 @@ export function MakePanel() {
             placeholder="0.00"
             value={toStr}
             onChange={(e) => setToStr(e.target.value)}
+            onKeyDown={onArrow(toStr, setToStr, 0.01, 3)}
           />
         </label>
       </div>
 
-      <label className="field">
-        <span className="field-label">
-          Size per level <span className="dim">(WETH)</span>
-          <span className="field-bal num">
-            bal {fmtAmount(payBalance, side === "ask" ? 4 : 2)} {paySymbol}
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">Size per level <span className="dim">(WETH)</span></span>
+          <input
+            className="input num"
+            inputMode="decimal"
+            placeholder="0.0"
+            value={sizeStr}
+            onChange={(e) => setSizeStr(e.target.value)}
+            onKeyDown={onArrow(sizeStr, setSizeStr, 0.01, 4)}
+          />
+        </label>
+        <label className="field">
+          <span className="field-label">
+            Total <span className="dim">({paySymbol})</span>
+            <span className="field-bal num">bal {fmtAmount(payBalance, side === "ask" ? 4 : 2)}</span>
           </span>
-        </span>
-        <input
-          className="input num"
-          inputMode="decimal"
-          placeholder="0.0"
-          value={sizeStr}
-          onChange={(e) => setSizeStr(e.target.value)}
-        />
-      </label>
+          <input
+            className="input num"
+            inputMode="decimal"
+            placeholder="0.0"
+            value={totalStr}
+            onFocus={() => setEditingTotal(true)}
+            onBlur={() => setEditingTotal(false)}
+            onChange={(e) => {
+              setTotalStr(e.target.value);
+              const s = sizeFromTotal(e.target.value);
+              if (s !== null) setSizeStr(s);
+            }}
+            onKeyDown={onArrow(totalStr, (v) => {
+              setTotalStr(v);
+              const s = sizeFromTotal(v);
+              if (s !== null) setSizeStr(s);
+            }, side === "ask" ? 0.01 : 10, side === "ask" ? 4 : 2)}
+          />
+        </label>
+      </div>
 
       {side === "ask" && (
         <label className="check">

@@ -1653,3 +1653,39 @@ body {
   color: #e6e8ea;
   box-shadow: 0 1px 0 #f0b90b;
 }
+
+/* ---- trade mode toggle + position editors + claim-all ---- */
+.mode-row {
+  display: flex;
+  gap: 6px;
+}
+.mode-btn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.mode-btn:hover { color: #aab0bb; }
+.mode-on {
+  color: #f0b90b;
+  border-color: rgba(240, 185, 11, 0.45);
+  background: rgba(240, 185, 11, 0.06);
+}
+.claim-all { margin-bottom: 10px; }
+.pos-editor {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pos-editor-title { font-size: 10.5px; }
+.pos-editor .field-row { display: flex; gap: 6px; }
+.pos-editor .input { min-width: 0; flex: 1; padding: 4px 8px; font-size: 12px; }

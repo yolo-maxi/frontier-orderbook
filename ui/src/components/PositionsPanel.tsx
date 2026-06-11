@@ -1,9 +1,24 @@
+import { useState } from "react";
+import { encodeFunctionData } from "viem";
 import { useApp } from "../state/app";
 import { bookAbi } from "../abi/book";
-import { fmtAmount, fmtPrice, tickToPrice } from "../lib/format";
+import { alignTick, fmtAmount, fmtPrice, parseAmount, priceToTick, tickToPrice } from "../lib/format";
+
+interface Editor {
+  id: string; // position id as string
+  mode: "move" | "recycle";
+  from: string;
+  to: string;
+  size: string;
+}
 
 export function PositionsPanel() {
-  const { cfg, wallet, positions, sendTx, busy, refresh } = useApp();
+  const { cfg, client, wallet, account, summary, positions, sendTx, busy, refresh } = useApp();
+  const [editor, setEditor] = useState<Editor | null>(null);
+
+  const spacing = summary?.tickSpacing ?? 1;
+  const curTick = summary?.currentTick ?? null;
+  const mid = curTick !== null ? tickToPrice(curTick) : null;
 
   const onClaim = async (id: bigint, isBid: boolean) => {
     await sendTx(`Claim #${id}`, () =>
@@ -29,6 +44,123 @@ export function PositionsPanel() {
     refresh();
   };
 
+  // ---- claim everything in one transaction via the book's multicall;
+  // older book deployments without it get sequential claims instead
+  const claimables = positions.filter((p) => p.live && p.claimable > 0n);
+  const onClaimAll = async () => {
+    if (claimables.length === 0) return;
+    const calls = claimables.map((p) =>
+      encodeFunctionData({
+        abi: bookAbi,
+        functionName: p.isBid ? "claimBid" : "claim",
+        args: [p.id],
+      }),
+    );
+    let batched = false;
+    try {
+      await client.simulateContract({
+        address: cfg.contracts.book,
+        abi: bookAbi,
+        functionName: "multicall",
+        args: [calls],
+        account: account.address,
+      });
+      batched = true;
+    } catch {
+      batched = false; // book predates multicall — fall back
+    }
+    if (batched) {
+      await sendTx(`Claim ${claimables.length} positions (1 tx)`, () =>
+        wallet.writeContract({
+          address: cfg.contracts.book,
+          abi: bookAbi,
+          functionName: "multicall",
+          args: [calls],
+        }),
+      );
+    } else {
+      for (const p of claimables) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendTx(`Claim #${p.id}`, () =>
+          wallet.writeContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: p.isBid ? "claimBid" : "claim",
+            args: [p.id],
+          }),
+        );
+      }
+    }
+    refresh();
+  };
+
+  const openMove = (p: { id: bigint; lower: number; upper: number; liquidity: bigint }) =>
+    setEditor({
+      id: p.id.toString(),
+      mode: "move",
+      from: tickToPrice(p.lower).toFixed(3),
+      to: tickToPrice(p.upper).toFixed(3),
+      size: (Number(p.liquidity) / 1e18).toString(),
+    });
+
+  const openRecycle = (p: { id: bigint; isBid: boolean; claimable: bigint }) => {
+    if (mid === null) return;
+    // recycle flips sides: a filled bid's WETH becomes an ask, a filled
+    // ask's USDC becomes a bid — prefill one level at the touch
+    const from = p.isBid ? mid + 0.01 : mid - 0.011;
+    const to = p.isBid ? mid + 0.011 : mid - 0.01;
+    const size = p.isBid
+      ? Number(p.claimable) / 1e18 // WETH directly
+      : Number(p.claimable) / 1e18 / mid; // USDC -> WETH at ~mid
+    setEditor({
+      id: p.id.toString(),
+      mode: "recycle",
+      from: from.toFixed(3),
+      to: to.toFixed(3),
+      size: size.toFixed(6),
+    });
+  };
+
+  const onEditorSubmit = async (p: { id: bigint; isBid: boolean }) => {
+    if (!editor) return;
+    const loP = Math.min(Number(editor.from), Number(editor.to));
+    const hiP = Math.max(Number(editor.from), Number(editor.to));
+    const size = parseAmount(editor.size);
+    if (!Number.isFinite(loP) || !Number.isFinite(hiP) || size === null || size === 0n) return;
+    const lower = alignTick(priceToTick(loP), spacing, false);
+    let upper = alignTick(priceToTick(hiP), spacing, true);
+    if (upper <= lower) upper = lower + spacing;
+
+    if (editor.mode === "move") {
+      await sendTx(`Move #${p.id} to ${fmtPrice(loP, 3)}–${fmtPrice(hiP, 3)}`, () =>
+        wallet.writeContract({
+          address: cfg.contracts.book,
+          abi: bookAbi,
+          functionName: p.isBid ? "requoteBid" : "requote",
+          args: [p.id, lower, upper, size],
+        }),
+      );
+    } else {
+      await sendTx(`Recycle #${p.id} into ${p.isBid ? "ask" : "bid"}`, () =>
+        p.isBid
+          ? wallet.writeContract({
+              address: cfg.contracts.book,
+              abi: bookAbi,
+              functionName: "recycleBidIntoAsk",
+              args: [p.id, lower, upper, size, 0n],
+            })
+          : wallet.writeContract({
+              address: cfg.contracts.book,
+              abi: bookAbi,
+              functionName: "recycleAskIntoBid",
+              args: [p.id, lower, upper, size],
+            }),
+      );
+    }
+    setEditor(null);
+    refresh();
+  };
+
   if (positions.length === 0) {
     return (
       <div className="positions-empty empty-state">
@@ -41,11 +173,17 @@ export function PositionsPanel() {
 
   return (
     <div className="positions">
+      {claimables.length > 1 && (
+        <button className="btn btn-wide btn-buy claim-all" disabled={busy !== null} onClick={onClaimAll}>
+          Claim all ({claimables.length} positions, 1 tx)
+        </button>
+      )}
       {positions.map((p) => {
         const lo = tickToPrice(p.lower);
         const hi = tickToPrice(p.upper);
         const claimSym = p.isBid ? "WETH" : "USDC";
         const restSym = p.isBid ? "USDC" : "WETH";
+        const ed = editor !== null && editor.id === p.id.toString() ? editor : null;
         return (
           <div className={`pos-card ${p.live ? "" : "pos-dead"}`} key={p.id.toString()}>
             <div className="pos-top">
@@ -84,7 +222,7 @@ export function PositionsPanel() {
                 </div>
               )}
             </div>
-            {p.live && (
+            {p.live && !ed && (
               <div className="pos-actions">
                 <button
                   className="btn btn-sm btn-buy"
@@ -96,10 +234,66 @@ export function PositionsPanel() {
                 <button
                   className="btn btn-sm btn-ghost"
                   disabled={busy !== null}
+                  onClick={() => openMove(p)}
+                >
+                  Move
+                </button>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  disabled={busy !== null || p.claimable === 0n}
+                  title="Claim into internal credit and quote the other side — zero token transfers"
+                  onClick={() => openRecycle(p)}
+                >
+                  Recycle
+                </button>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  disabled={busy !== null}
                   onClick={() => onCancel(p.id, p.isBid)}
                 >
                   Cancel
                 </button>
+              </div>
+            )}
+            {p.live && ed && (
+              <div className="pos-editor">
+                <div className="pos-editor-title dim">
+                  {ed.mode === "move"
+                    ? "Move quote (re-price in place, no token movement at same size)"
+                    : `Recycle fills into a new ${p.isBid ? "ask" : "bid"} (zero transfers)`}
+                </div>
+                <div className="field-row">
+                  <input
+                    className="input num"
+                    value={ed.from}
+                    onChange={(e) => setEditor({ ...ed, from: e.target.value })}
+                    placeholder="from price"
+                  />
+                  <input
+                    className="input num"
+                    value={ed.to}
+                    onChange={(e) => setEditor({ ...ed, to: e.target.value })}
+                    placeholder="to price"
+                  />
+                  <input
+                    className="input num"
+                    value={ed.size}
+                    onChange={(e) => setEditor({ ...ed, size: e.target.value })}
+                    placeholder="size/level"
+                  />
+                </div>
+                <div className="pos-actions">
+                  <button
+                    className="btn btn-sm btn-buy"
+                    disabled={busy !== null}
+                    onClick={() => onEditorSubmit(p)}
+                  >
+                    {ed.mode === "move" ? "Move" : "Recycle"}
+                  </button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setEditor(null)}>
+                    Back
+                  </button>
+                </div>
               </div>
             )}
           </div>

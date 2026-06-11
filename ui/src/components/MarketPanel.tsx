@@ -229,9 +229,30 @@ function BookChart() {
   const [width, setWidth] = useState(760);
   // Make mode: the BOOK's share of the chart expands — the price line
   // compresses to the left and the depth bars take ~45% of the width, so
-  // the maker view is about the book, not the line. Same canvas size.
+  // the maker view is about the book, not the line. Same canvas size; the
+  // divider eases leftward over ~450ms rather than snapping.
   const H = 280;
-  const GUT = makeFocus ? Math.min(Math.round(width * 0.45), 430) : GUTTER_W;
+  const targetGut = makeFocus ? Math.min(Math.round(width * 0.45), 430) : GUTTER_W;
+  const [GUT, setGut] = useState(targetGut);
+  const gutRef = useRef(targetGut);
+  useEffect(() => {
+    const from = gutRef.current;
+    const to = targetGut;
+    if (from === to) return;
+    const t0 = performance.now();
+    const dur = 450;
+    let raf = 0;
+    const stepFn = (t: number) => {
+      const k = Math.min(1, (t - t0) / dur);
+      const ease = 1 - Math.pow(1 - k, 3);
+      const v = Math.round(from + (to - from) * ease);
+      gutRef.current = v;
+      setGut(v);
+      if (k < 1) raf = requestAnimationFrame(stepFn);
+    };
+    raf = requestAnimationFrame(stepFn);
+    return () => cancelAnimationFrame(raf);
+  }, [targetGut]);
 
   useEffect(() => {
     const el = wrapRef.current;

@@ -31,6 +31,11 @@ export const bookAbi = [
         "name": "_permissions",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "_makerOps",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -113,25 +118,6 @@ export const bookAbi = [
   },
   {
     "type": "function",
-    "name": "bidFillClock",
-    "inputs": [
-      {
-        "name": "",
-        "type": "int24",
-        "internalType": "int24"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "bidLiquidity",
     "inputs": [
       {
@@ -173,7 +159,7 @@ export const bookAbi = [
     "name": "cancel",
     "inputs": [
       {
-        "name": "positionId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -197,7 +183,7 @@ export const bookAbi = [
     "name": "cancelBid",
     "inputs": [
       {
-        "name": "positionId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -221,12 +207,12 @@ export const bookAbi = [
     "name": "cancelBidWithWitness",
     "inputs": [
       {
-        "name": "positionId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "frontier",
+        "name": "",
         "type": "int24",
         "internalType": "int24"
       }
@@ -250,12 +236,12 @@ export const bookAbi = [
     "name": "cancelWithWitness",
     "inputs": [
       {
-        "name": "positionId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "frontier",
+        "name": "",
         "type": "int24",
         "internalType": "int24"
       }
@@ -650,6 +636,19 @@ export const bookAbi = [
   },
   {
     "type": "function",
+    "name": "makerOps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "moveTickTo",
     "inputs": [
       {
@@ -659,6 +658,25 @@ export const bookAbi = [
       }
     ],
     "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "multicall",
+    "inputs": [
+      {
+        "name": "data",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "results",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -748,6 +766,25 @@ export const bookAbi = [
   },
   {
     "type": "function",
+    "name": "rateAt",
+    "inputs": [
+      {
+        "name": "t",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "recycleAskIntoBid",
     "inputs": [
       {
@@ -824,22 +861,22 @@ export const bookAbi = [
     "name": "requote",
     "inputs": [
       {
-        "name": "positionId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "newLower",
+        "name": "",
         "type": "int24",
         "internalType": "int24"
       },
       {
-        "name": "newUpper",
+        "name": "",
         "type": "int24",
         "internalType": "int24"
       },
       {
-        "name": "newLiquidity",
+        "name": "",
         "type": "uint128",
         "internalType": "uint128"
       }
@@ -852,22 +889,22 @@ export const bookAbi = [
     "name": "requoteBid",
     "inputs": [
       {
-        "name": "positionId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "newLower",
+        "name": "",
         "type": "int24",
         "internalType": "int24"
       },
       {
-        "name": "newUpper",
+        "name": "",
         "type": "int24",
         "internalType": "int24"
       },
       {
-        "name": "newLiquidity",
+        "name": "",
         "type": "uint128",
         "internalType": "uint128"
       }
@@ -880,27 +917,27 @@ export const bookAbi = [
     "name": "requoteShaped",
     "inputs": [
       {
-        "name": "positionId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "newLower",
+        "name": "",
         "type": "int24",
         "internalType": "int24"
       },
       {
-        "name": "newUpper",
+        "name": "",
         "type": "int24",
         "internalType": "int24"
       },
       {
-        "name": "newLiquidity",
+        "name": "",
         "type": "uint128",
         "internalType": "uint128"
       },
       {
-        "name": "newSlope",
+        "name": "",
         "type": "int128",
         "internalType": "int128"
       }
@@ -1038,6 +1075,24 @@ export const bookAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "transferPosition",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1234,6 +1289,31 @@ export const bookAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PositionTransferred",
+    "inputs": [
+      {
+        "name": "positionId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "from",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false

@@ -154,6 +154,28 @@ abstract contract FrontierBookBase {
     }
 
     // ------------------------------------------------------------------
+    // Batching: settle a whole portfolio in one transaction. Delegatecall
+    // to self preserves msg.sender AND msg.sig (per inner call), so
+    // authorization is byte-identical to separate transactions; the
+    // savings are one 21k intrinsic + cold account/token access per
+    // extra call. No function here is payable, so msg.value reuse — the
+    // classic multicall hazard — does not apply.
+    // ------------------------------------------------------------------
+
+    function multicall(bytes[] calldata data) external returns (bytes[] memory results) {
+        results = new bytes[](data.length);
+        for (uint256 i = 0; i < data.length; i++) {
+            (bool ok, bytes memory ret) = address(this).delegatecall(data[i]);
+            if (!ok) {
+                assembly ("memory-safe") {
+                    revert(add(ret, 32), mload(ret))
+                }
+            }
+            results[i] = ret;
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Hook dispatch (skipped when the hook itself is the caller)
     // ------------------------------------------------------------------
 

@@ -3,7 +3,8 @@ import { useApp } from "../state/app";
 import { lensAbi } from "../abi/lens";
 import { erc20Abi } from "../abi/erc20";
 import { routerAbi } from "../abi/router";
-import { fmtAmount, fmtPrice, parseAmount, tickToPrice } from "../lib/format";
+import { bookAbi } from "../abi/book";
+import { alignTick, fmtAmount, fmtPrice, parseAmount, priceToTick, tickToPrice } from "../lib/format";
 
 type Side = "buy" | "sell";
 
@@ -20,20 +21,24 @@ const QUOTE_MAX_LEVELS = 500n;
 export function TradePanel() {
   const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview } = useApp();
   const [side, setSide] = useState<Side>("buy");
+  const [mode, setMode] = useState<"market" | "limit">("market");
   const [amountStr, setAmountStr] = useState("");
+  const [limitPriceStr, setLimitPriceStr] = useState("");
+  const [bookAllowance, setBookAllowance] = useState<bigint | null>(null);
   const [slippage, setSlippage] = useState(0.5);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteErr, setQuoteErr] = useState<string | null>(null);
   const [allowance, setAllowance] = useState<bigint | null>(null);
 
-  // project the quoted execution range onto the chart
+  // project the quoted execution range onto the chart (market mode)
   useEffect(() => {
+    if (mode !== "market") return;
     if (quote && quote.out > 0n) {
       setPreview({ kind: "trade", side: side === "buy" ? "ask" : "bid", endTick: quote.endTick });
     } else {
       setPreview(null);
     }
-  }, [quote, side, setPreview]);
+  }, [mode, quote, side, setPreview]);
   useEffect(() => () => setPreview(null), [setPreview]);
 
   const amountIn = parseAmount(amountStr);
@@ -44,7 +49,7 @@ export function TradePanel() {
   // ---- live quote (debounced + refreshed)
   useEffect(() => {
     let stop = false;
-    if (amountIn === null || amountIn === 0n) {
+    if (mode !== "market" || amountIn === null || amountIn === 0n) {
       setQuote(null);
       setQuoteErr(null);
       return;
@@ -88,7 +93,7 @@ export function TradePanel() {
       clearTimeout(t);
       clearInterval(iv);
     };
-  }, [client, cfg, side, amountIn?.toString()]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [client, cfg, side, mode, amountIn?.toString()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- allowance for router
   const loadAllowance = useCallback(async () => {
@@ -127,6 +132,99 @@ export function TradePanel() {
     const partial = quote.spent < amountIn;
     return { avgPrice, impact, minOut, partial, endPrice: tickToPrice(quote.endTick) };
   }, [quote, amountIn, side, mid, slippage]);
+
+  // ---- LIMIT orders: native to the book — a one-tick ladder IS a resting
+  // limit order. Post-only: a price that crosses the book is rejected with
+  // a hint to use Market (or a better price).
+  const spacing = summary?.tickSpacing ?? 1;
+  const curTick = summary?.currentTick ?? null;
+  const amountWeth = parseAmount(amountStr); // limit amounts are in WETH both sides
+  const limitPlan = useMemo(() => {
+    if (mode !== "limit" || curTick === null) return null;
+    const p = Number(limitPriceStr);
+    if (!Number.isFinite(p) || limitPriceStr === "" || p <= 0) return null;
+    if (amountWeth === null || amountWeth === 0n) return null;
+    let tick = alignTick(priceToTick(p), spacing, false);
+    let error: string | null = null;
+    if (side === "buy") {
+      // bids rest at or below the current price
+      if (tick + spacing > curTick) error = "Crosses the book — lower the price or use Market.";
+      const rate = BigInt(1e18) + BigInt(tick) * BigInt(1e15);
+      const cost = (amountWeth * rate + BigInt(1e18) - 1n) / BigInt(1e18);
+      return { tick, cost, error, fn: "depositBid" as const };
+    }
+    // asks rest above the current price
+    if (tick <= curTick) error = "Crosses the book — raise the price or use Market.";
+    return { tick, cost: amountWeth, error, fn: "deposit" as const };
+  }, [mode, curTick, limitPriceStr, amountWeth?.toString(), side, spacing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // limit orders pay the BOOK directly (market orders pay the router)
+  const loadBookAllowance = useCallback(async () => {
+    try {
+      const a = await client.readContract({
+        address: side === "buy" ? cfg.contracts.usdc : cfg.contracts.weth,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [account.address, cfg.contracts.book],
+      });
+      setBookAllowance(a);
+    } catch {
+      setBookAllowance(null);
+    }
+  }, [client, side, account, cfg]);
+  useEffect(() => {
+    if (mode === "limit") loadBookAllowance();
+  }, [mode, loadBookAllowance, busy]);
+
+  // project the resting order onto the chart while configuring
+  useEffect(() => {
+    if (mode === "limit" && limitPlan && limitPlan.error === null && amountWeth !== null && amountWeth > 0n) {
+      setPreview({
+        kind: "make",
+        side: side === "buy" ? "bid" : "ask",
+        lowerTick: limitPlan.tick,
+        upperTick: limitPlan.tick + spacing,
+        sizePerLevel: amountWeth,
+        slope: 0n,
+      });
+    } else if (mode === "limit") {
+      setPreview(null);
+    }
+  }, [mode, limitPlan, amountWeth?.toString(), side, spacing, setPreview]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onPlaceLimit = async () => {
+    if (!limitPlan || limitPlan.error !== null || amountWeth === null) return;
+    const label = `Limit ${side} ${fmtAmount(amountWeth, 4)} WETH @ ${fmtPrice(tickToPrice(limitPlan.tick), 3)}`;
+    const ok = await sendTx(label, () =>
+      wallet.writeContract({
+        address: cfg.contracts.book,
+        abi: bookAbi,
+        functionName: limitPlan.fn,
+        args: [limitPlan.tick, limitPlan.tick + spacing, amountWeth],
+      }),
+    );
+    if (ok) {
+      setAmountStr("");
+      refresh();
+    }
+  };
+
+  const limitPayToken = side === "buy" ? cfg.contracts.usdc : cfg.contracts.weth;
+  const limitPaySymbol = side === "buy" ? "USDC" : "WETH";
+  const limitNeedsApproval =
+    limitPlan !== null && limitPlan.error === null && bookAllowance !== null && bookAllowance < limitPlan.cost;
+  const limitInsufficient =
+    limitPlan !== null && limitPlan.cost > (side === "buy" ? balances.usdc : balances.weth);
+
+  const onApproveBook = () =>
+    sendTx(`Approve ${limitPaySymbol} for book`, () =>
+      wallet.writeContract({
+        address: limitPayToken,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [cfg.contracts.book, MAX_UINT],
+      }),
+    ).then(() => loadBookAllowance());
 
   const needsApproval =
     allowance !== null && amountIn !== null && amountIn > 0n && allowance < amountIn;
@@ -193,9 +291,46 @@ export function TradePanel() {
         </button>
       </div>
 
+      <div className="mode-row">
+        <button className={`mode-btn ${mode === "market" ? "mode-on" : ""}`} onClick={() => setMode("market")}>
+          Market
+        </button>
+        <button className={`mode-btn ${mode === "limit" ? "mode-on" : ""}`} onClick={() => setMode("limit")}>
+          Limit
+        </button>
+      </div>
+
+      {mode === "limit" && (
+        <label className="field">
+          <span className="field-label">
+            Limit price <span className="dim">(USDC per WETH)</span>
+            {mid !== null && (
+              <span className="field-bal num" onClick={() => setLimitPriceStr((side === "buy" ? mid - 0.01 : mid + 0.01).toFixed(3))}>
+                mid {fmtPrice(mid, 3)}
+              </span>
+            )}
+          </span>
+          <input
+            className="input num"
+            inputMode="decimal"
+            placeholder="0.000"
+            value={limitPriceStr}
+            onChange={(e) => setLimitPriceStr(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+              e.preventDefault();
+              const x = Number(limitPriceStr || (mid ?? 0));
+              if (!Number.isFinite(x)) return;
+              const d = (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 0.1 : 0.01);
+              setLimitPriceStr(Math.max(0, x + d).toFixed(3));
+            }}
+          />
+        </label>
+      )}
+
       <label className="field">
         <span className="field-label">
-          Spend <span className="dim">({side === "buy" ? "USDC" : "WETH"})</span>
+          {mode === "limit" ? <>Amount <span className="dim">(WETH)</span></> : <>Spend <span className="dim">({side === "buy" ? "USDC" : "WETH"})</span></>}
           <span className="field-bal num" onClick={() => setPct(100)}>
             bal {fmtAmount(balanceIn, side === "buy" ? 2 : 4)}
           </span>
@@ -207,15 +342,46 @@ export function TradePanel() {
           value={amountStr}
           onChange={(e) => setAmountStr(e.target.value)}
         />
-        <div className="pct-row">
-          {[25, 50, 75, 100].map((p) => (
-            <button key={p} className="pct-btn" onClick={() => setPct(p)}>
-              {p}%
-            </button>
-          ))}
-        </div>
+        {mode === "market" && (
+          <div className="pct-row">
+            {[25, 50, 75, 100].map((p) => (
+              <button key={p} className="pct-btn" onClick={() => setPct(p)}>
+                {p}%
+              </button>
+            ))}
+          </div>
+        )}
       </label>
 
+      {mode === "limit" ? (
+        <div className="quote-box num">
+          <div className="qrow">
+            <span className="dim">Rests at</span>
+            <span>{limitPlan ? fmtPrice(tickToPrice(limitPlan.tick), 3) : "—"}</span>
+          </div>
+          <div className="qrow">
+            <span className="dim">You escrow</span>
+            <span>
+              {limitPlan ? fmtAmount(limitPlan.cost, side === "buy" ? 2 : 4) : "—"}{" "}
+              <span className="dim">{limitPaySymbol}</span>
+            </span>
+          </div>
+          <div className="qrow">
+            <span className="dim">On fill you get</span>
+            <span>
+              {limitPlan && amountWeth !== null
+                ? side === "buy"
+                  ? `${fmtAmount(amountWeth, 4)} WETH`
+                  : `~${fmtAmount((amountWeth * (BigInt(1e18) + BigInt(limitPlan.tick) * BigInt(1e15))) / BigInt(1e18), 2)} USDC`
+                : "—"}
+            </span>
+          </div>
+          <div className="qrow">
+            <span className="dim">Expiry</span>
+            <span>never — claim or cancel anytime</span>
+          </div>
+        </div>
+      ) : (
       <div className="quote-box num">
         <div className="qrow">
           <span className="dim">Receive (est.)</span>
@@ -257,8 +423,11 @@ export function TradePanel() {
           </span>
         </div>
       </div>
+      )}
 
-      {derived?.partial && (
+      {mode === "limit" && limitPlan?.error && <div className="note warn">{limitPlan.error}</div>}
+
+      {derived?.partial && mode === "market" && (
         <div className="note warn">
           Book depth covers only {fmtAmount(quote!.spent, 2)} of your input — the remainder
           stays in your wallet.
@@ -268,7 +437,23 @@ export function TradePanel() {
         <div className="note warn">Quote unavailable: {quoteErr}</div>
       )}
 
-      {needsApproval ? (
+      {mode === "limit" ? (
+        limitNeedsApproval && !limitInsufficient ? (
+          <button className="btn btn-wide btn-accent" disabled={busy !== null} onClick={onApproveBook}>
+            Approve {limitPaySymbol}
+          </button>
+        ) : (
+          <button
+            className={`btn btn-wide ${side === "buy" ? "btn-buy" : "btn-sell"}`}
+            disabled={busy !== null || limitPlan === null || limitPlan.error !== null || limitInsufficient}
+            onClick={onPlaceLimit}
+          >
+            {limitInsufficient
+              ? `Insufficient ${limitPaySymbol}`
+              : `Place limit ${side} @ ${limitPlan ? fmtPrice(tickToPrice(limitPlan.tick), 3) : "…"}`}
+          </button>
+        )
+      ) : needsApproval ? (
         <button
           className="btn btn-wide btn-accent"
           disabled={busy !== null || insufficient}
