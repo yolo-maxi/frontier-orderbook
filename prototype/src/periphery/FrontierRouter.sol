@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {RollingFrontierBook} from "../RollingFrontierBook.sol";
 import {FrontierBookFactory} from "../FrontierBookFactory.sol";
+import {FrontierLens} from "./FrontierLens.sol";
+import {GeoTickMath} from "../curve/GeoTickMath.sol";
 import {IERC20Minimal} from "../RangeTakeProfitBook.sol";
 
 /// @title FrontierRouter — taker periphery with aggregator-friendly entry
@@ -13,13 +15,15 @@ import {IERC20Minimal} from "../RangeTakeProfitBook.sol";
 /// affordable thin tick, refund the remainder.
 contract FrontierRouter {
     FrontierBookFactory public immutable factory;
+    FrontierLens public immutable lens;
 
     /// taker sweeps are bounded to this many ticks past the current pointer
     /// so exhausted books don't strand the pointer at grid extremes
     int24 public constant SWEEP_WINDOW = 200_000;
 
-    constructor(FrontierBookFactory _factory) {
+    constructor(FrontierBookFactory _factory, FrontierLens _lens) {
         factory = _factory;
+        lens = _lens;
     }
 
     // ------------------------------------------------------------------
@@ -40,6 +44,28 @@ contract FrontierRouter {
             buying ? _buy(book, amountIn, amountOutMin, to, deadline) : _sell(book, amountIn, amountOutMin, to, deadline);
         amounts = new uint256[](2);
         amounts[0] = paid;
+        amounts[1] = received;
+    }
+
+    /// @notice v2-shaped read quote. One divergence from v2 semantics, by
+    /// design: if the book can't absorb all of `amountIn`, `amounts[0]` is
+    /// what would actually be spent (the rest is refunded on execution) —
+    /// mirroring what `swapExactTokensForTokens` returns. Curve-aware via
+    /// the lens (linear and geometric books both quote exactly).
+    function getAmountsOut(uint256 amountIn, address[] calldata path)
+        external
+        view
+        returns (uint256[] memory amounts)
+    {
+        require(path.length == 2, "2-hop paths only");
+        RollingFrontierBook book = _bookFor(path[0], path[1]);
+        bool buying = path[0] == address(book.token1());
+        uint256 received;
+        uint256 spent;
+        if (buying) (received, spent,) = lens.quoteBuy(book, amountIn);
+        else (received, spent,) = lens.quoteSell(book, amountIn, 4096);
+        amounts = new uint256[](2);
+        amounts[0] = spent;
         amounts[1] = received;
     }
 
@@ -73,7 +99,7 @@ contract FrontierRouter {
         require(t1.transferFrom(msg.sender, address(this), amountIn), "pull failed");
         _ensureApproved(t1, address(book));
 
-        int24 target = _clampTick(int256(book.currentTick()) + SWEEP_WINDOW, book.tickSpacing());
+        int24 target = _clampTick(book, int256(book.currentTick()) + SWEEP_WINDOW, book.tickSpacing());
         (, paid, received) = book.sweepWithLimits(target, type(uint256).max, amountIn, minOut, deadline);
 
         if (received > 0) require(book.token0().transfer(to, received), "payout failed");
@@ -88,7 +114,7 @@ contract FrontierRouter {
         require(t0.transferFrom(msg.sender, address(this), amountIn), "pull failed");
         _ensureApproved(t0, address(book));
 
-        int24 target = _clampTick(int256(book.currentTick()) - SWEEP_WINDOW, book.tickSpacing());
+        int24 target = _clampTick(book, int256(book.currentTick()) - SWEEP_WINDOW, book.tickSpacing());
         (, paid, received) = book.sweepWithLimits(target, type(uint256).max, amountIn, minOut, deadline);
 
         if (received > 0) require(book.token1().transfer(to, received), "payout failed");
@@ -114,10 +140,21 @@ contract FrontierRouter {
         }
     }
 
-    function _clampTick(int256 t, int24 s) internal pure returns (int24) {
-        int256 max = (int256(8388000) / int256(s)) * int256(s);
+    /// @dev curve-aware sweep window: geometric books live on ±200k ticks
+    /// (GeoTickMath domain), the linear demo curve on [-800, 8.388M).
+    function _clampTick(RollingFrontierBook book, int256 t, int24 s) internal view returns (int24) {
+        FrontierLens.Curve memory c = lens.curveOf(book);
+        int256 max;
+        int256 min;
+        if (c.geo) {
+            max = (int256(GeoTickMath.MAX_TICK) / int256(s)) * int256(s);
+            min = -max;
+        } else {
+            max = (int256(8388000) / int256(s)) * int256(s);
+            min = -800; // linear demo curve floor (rate > 0)
+        }
         if (t > max) t = max;
-        if (t < -800) t = -800; // linear demo curve floor (rate > 0)
+        if (t < min) t = min;
         return int24(t);
     }
 }

@@ -49,8 +49,12 @@ abstract contract GeometricCurve is FrontierBookBase {
     }
 
     /// @dev sum of size * rate over levels [a, b) stepping tickSpacing.
+    /// The size == 0 short-circuit is load-bearing: the closing run of a
+    /// fully-consumed side spans from the last endpoint to the sweep
+    /// target, which may lie beyond GeoTickMath's tick domain — zero-size
+    /// spans must not evaluate P there.
     function _geoSpan(int24 a, int24 b, uint256 size, bool roundUp) internal view returns (uint256) {
-        if (b <= a) return 0;
+        if (b <= a || size == 0) return 0;
         uint256 num = size * (GeoTickMath.powX18(b) - GeoTickMath.powX18(a));
         return roundUp ? (num + geoD - 1) / geoD : num / geoD;
     }

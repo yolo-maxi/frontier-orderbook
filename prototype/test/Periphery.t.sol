@@ -29,8 +29,8 @@ contract PeripheryTest is Test {
         t0 = new MockERC20("WETH", "WETH");
         t1 = new MockERC20("USDC", "USDC");
         factory = newFactory(address(0));
-        router = new FrontierRouter(factory);
         lens = new FrontierLens();
+        router = new FrontierRouter(factory, lens);
         book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 100));
 
         t0.mint(mm, 1e30);
@@ -178,5 +178,118 @@ contract MakerKitTest is Test {
         vm.prank(alice);
         book.cancel(id); // new owner controls (and receives funds)
         assertGt(t0.balanceOf(alice), 0, "principal followed ownership");
+    }
+}
+
+import {GeometricFrontierBook} from "../src/GeometricFrontierBook.sol";
+
+/// @notice Same periphery, production curve: the lens detects geoD() and
+/// quotes geometric books with the book's exact telescoped rounding.
+contract GeoPeripheryTest is Test {
+    MockERC20 internal t0;
+    MockERC20 internal t1;
+    FrontierRouter internal router;
+    FrontierLens internal lens;
+    GeometricFrontierBook internal book;
+
+    address internal mm;
+    address internal trader;
+
+    uint128 internal constant L = 1e18;
+
+    function setUp() public {
+        mm = makeAddr("mm");
+        trader = makeAddr("trader");
+        t0 = new MockERC20("WETH", "WETH");
+        t1 = new MockERC20("USDC", "USDC");
+        FrontierBookFactory factory = newFactory(address(0));
+        lens = new FrontierLens();
+        router = new FrontierRouter(factory, lens);
+        book = GeometricFrontierBook(factory.createGeoBook(address(t0), address(t1), 1, 100));
+
+        t0.mint(mm, 1e30);
+        t1.mint(mm, 1e30);
+        vm.startPrank(mm);
+        t0.approve(address(book), type(uint256).max);
+        t1.approve(address(book), type(uint256).max);
+        book.deposit(101, 111, L);
+        book.depositBid(90, 100, L);
+        vm.stopPrank();
+
+        t0.mint(trader, 1e30);
+        t1.mint(trader, 1e30);
+        vm.startPrank(trader);
+        t0.approve(address(router), type(uint256).max);
+        t1.approve(address(router), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    function testGeoCurveDetected() public {
+        FrontierLens.Curve memory c = lens.curveOf(RollingFrontierBook(address(book)));
+        assertTrue(c.geo, "geometric book detected");
+        assertEq(c.d, book.geoD(), "denominator read");
+        FrontierLens.Curve memory lin =
+            lens.curveOf(RollingFrontierBook(address(new FrontierLens()))); // any non-book: no geoD
+        assertTrue(!lin.geo, "non-geo contract is linear-classed");
+    }
+
+    function testGeoBuyMatchesLensQuote() public {
+        // 3.7 * L: lands mid-run, forcing the budget subdivision + ceil path
+        uint256 amountIn = 37 * uint256(L) / 10;
+        (uint256 q0, uint256 q1,) = lens.quoteBuy(RollingFrontierBook(address(book)), amountIn);
+        assertGt(q0, 0, "quote fills something");
+
+        address[] memory path = new address[](2);
+        path[0] = address(t1);
+        path[1] = address(t0);
+        vm.prank(trader);
+        uint256[] memory amounts = router.swapExactTokensForTokens(amountIn, q0, path, trader, block.timestamp);
+
+        assertEq(amounts[1], q0, "execution == lens quote (token0 out)");
+        assertEq(amounts[0], q1, "spent == lens quote (token1 in)");
+    }
+
+    function testGeoBuyExhaustsBookWithRefund() public {
+        uint256 amountIn = 20 * uint256(L); // all 10 asks cost ~10.6 L
+        (uint256 q0, uint256 q1,) = lens.quoteBuy(RollingFrontierBook(address(book)), amountIn);
+        assertEq(q0, 10 * uint256(L), "all asks consumed");
+        assertLt(q1, amountIn, "partial spend quoted");
+
+        uint256 bal1 = t1.balanceOf(trader);
+        vm.prank(trader);
+        (uint256 paid, uint256 received) =
+            router.buyExactIn(RollingFrontierBook(address(book)), amountIn, q0, trader, block.timestamp);
+        assertEq(received, q0, "received == quote");
+        assertEq(paid, q1, "paid == quote");
+        assertEq(bal1 - t1.balanceOf(trader), q1, "unspent refunded");
+    }
+
+    function testGeoSellMatchesLensQuote() public {
+        // 4.5 * L: partial bid run, exercising the one-division subdivision
+        uint256 amountIn = 45 * uint256(L) / 10;
+        (uint256 q1, uint256 q0,) = lens.quoteSell(RollingFrontierBook(address(book)), amountIn, 100);
+        assertGt(q1, 0, "quote fills something");
+
+        address[] memory path = new address[](2);
+        path[0] = address(t0);
+        path[1] = address(t1);
+        vm.prank(trader);
+        uint256[] memory amounts = router.swapExactTokensForTokens(amountIn, q1, path, trader, block.timestamp);
+
+        assertEq(amounts[0], q0, "token0 spent == quote");
+        assertEq(amounts[1], q1, "token1 out == quote");
+    }
+
+    function testGeoGetAmountsOut() public {
+        uint256 amountIn = 2 * uint256(L);
+        address[] memory path = new address[](2);
+        path[0] = address(t1);
+        path[1] = address(t0);
+        uint256[] memory quoted = router.getAmountsOut(amountIn, path);
+
+        vm.prank(trader);
+        uint256[] memory amounts = router.swapExactTokensForTokens(amountIn, quoted[1], path, trader, block.timestamp);
+        assertEq(amounts[0], quoted[0], "getAmountsOut spent matches");
+        assertEq(amounts[1], quoted[1], "getAmountsOut received matches");
     }
 }

@@ -90,3 +90,29 @@ Current requirement: users claim their own trade after execution.
 This supports lazy settlement and avoids per-user work during swaps.
 
 Need to decide whether third-party batch claiming is allowed and whether batchers receive fees.
+
+## Q9. Should the TWAP oracle be core or stay a hook?
+
+The `TwapOracleHook` experiment proves the book can be its own oracle for
+~32–35k gas per sweep (trending to ~20k once its ring buffer wraps) — but
+as an opt-in hook it has a bootstrapping problem: an oracle nobody can
+rely on being attached is an oracle nobody integrates against. Either it
+is part of the exchange (every book observable, lending/derivatives can
+build on any market unconditionally) or it effectively does not exist.
+
+Arguments for core: credible neutrality of "every market has a price
+history"; integrators need a guarantee, not a per-book maybe. Arguments
+against: every taker on every book pays the premium (15–20% of a typical
+sweep) including markets nobody will ever consult; the book is tight
+against EIP-170 and the observation writes would have to fit; v4 went the
+opposite direction (moved v3's always-on oracle OUT to hooks) precisely
+to stop charging swappers for unused oracles.
+
+Middle grounds to evaluate: a factory-default hook (books get the oracle
+unless explicitly opted out — same guarantee, still no core bytes);
+lazy cardinality (1-slot oracle ~5k/sweep until someone pays to grow the
+ring, v3-style); taker-flagged observation (only sweeps that request a
+checkpoint pay).
+
+Decision for the demo: wire the hook into the deployed ETH/USDC market
+either way; the open question is about the protocol default.

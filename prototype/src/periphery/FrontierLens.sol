@@ -2,12 +2,26 @@
 pragma solidity ^0.8.24;
 
 import {RollingFrontierBook} from "../RollingFrontierBook.sol";
+import {GeoTickMath} from "../curve/GeoTickMath.sol";
 
 /// @title FrontierLens — read-only periphery for UIs, bots, and aggregators.
 /// Reconstructs book depth from the public ledgers and quotes swaps by
 /// replaying the sweep math off-chain (eth_call), without touching state.
+///
+/// CURVE-AWARE: a book is probed once per quote for `geoD()` — present on
+/// `GeometricFrontierBook` (the production 1.0001^tick curve), absent on
+/// the linear demo curve — and every span/price computation routes through
+/// the matching closed form, with the book's exact rounding (taker pays
+/// ceil, taker receives floor, per RUN, not per level). Quotes match
+/// execution to the wei on both curves.
 contract FrontierLens {
     uint256 internal constant PRICE_SCALE = 1e18;
+
+    /// resolved once per quote; `d = P(tickSpacing) - 1e18` for geometric
+    struct Curve {
+        bool geo;
+        uint256 d;
+    }
 
     struct Level {
         int24 tick;
@@ -110,6 +124,15 @@ contract FrontierLens {
         }
     }
 
+    /// @notice The book's price curve, detected from the contract itself.
+    function curveOf(RollingFrontierBook book) public view returns (Curve memory c) {
+        (bool ok, bytes memory ret) = address(book).staticcall(abi.encodeWithSignature("geoD()"));
+        if (ok && ret.length >= 32) {
+            c.d = abi.decode(ret, (uint256));
+            c.geo = c.d > 0;
+        }
+    }
+
     /// @notice Exact-input BUY quote (token1 in, token0 out): replays the
     /// endpoint-telescoped up-sweep read-only, including the mid-run budget
     /// subdivision, so the quote matches execution to the wei.
@@ -118,9 +141,10 @@ contract FrontierLens {
         view
         returns (uint256 amount0Out, uint256 amount1Spent, int24 endTick)
     {
+        Curve memory c = curveOf(book);
         int24 s = book.tickSpacing();
         int24 cur = book.currentTick();
-        int24 lastLevel = _maxTick(s) - s;
+        int24 lastLevel = _maxTick(c, s) - s;
 
         int256 B;
         int256 S;
@@ -137,11 +161,11 @@ contract FrontierLens {
             uint256 n = uint256(uint24(runEnd - e)) / uint256(uint24(s));
             if (a0 < 0) break; // defensive
 
-            (uint256 out0, uint256 cost1) = _runAmounts(e, a0, S2, n, s);
+            (uint256 out0, uint256 cost1) = _runAmounts(c, e, a0, S2, n, s);
             if (amount1Spent + cost1 > amount1In) {
-                uint256 fit = _maxAffordable(e, a0, S2, n, amount1In - amount1Spent, s);
+                uint256 fit = _maxAffordable(c, e, a0, S2, n, amount1In - amount1Spent, s);
                 if (fit > 0) {
-                    (uint256 fo0, uint256 fc1) = _runAmounts(e, a0, S2, fit, s);
+                    (uint256 fo0, uint256 fc1) = _runAmounts(c, e, a0, S2, fit, s);
                     amount0Out += fo0;
                     amount1Spent += fc1;
                     endTick = e + int24(uint24(fit)) * s;
@@ -161,37 +185,58 @@ contract FrontierLens {
     }
 
     /// @notice Exact-input SELL quote (token0 in, token1 out): replays the
-    /// per-level bid walk read-only, simulating the downward roll (deltas
-    /// accumulate walking down; gaps jump via the bid bitmap). Bounded by
-    /// maxLevels; matches execution to the wei (per-level floor payouts).
-    function quoteSell(RollingFrontierBook book, uint256 amount0In, uint256 maxLevels)
+    /// endpoint-telescoped down-sweep read-only — whole uniform runs settle
+    /// with one closed form and the book's per-run floor, so the quote
+    /// matches execution to the wei on both curves. `maxRuns` bounds the
+    /// walk by maker-order endpoints (not price levels); endTick is the
+    /// lowest filled level.
+    function quoteSell(RollingFrontierBook book, uint256 amount0In, uint256 maxRuns)
         external
         view
         returns (uint256 amount1Out, uint256 amount0Spent, int24 endTick)
     {
+        Curve memory c = curveOf(book);
         int24 s = book.tickSpacing();
         int24 cur = book.currentTick();
         endTick = cur;
-        int256 acc;
-        int24 l = _floorAligned(cur - 1, s);
-        for (uint256 i = 0; i < maxLevels; i++) {
-            acc += book.bidDelta(l);
-            if (acc <= 0) {
-                // gap (or exhausted): jump to the next set bit below
-                (int24 nxt, bool found) = _prevActiveBid(book, l - s, s);
-                if (!found) break;
-                l = nxt;
+
+        int256 B;
+        (int24 e, bool found) = _prevActiveBid(book, _floorAligned(cur - 1, s), s);
+        for (uint256 i = 0; found && i < maxRuns; i++) {
+            (int24 e2, bool found2) = _prevActiveBid(book, e - s, s);
+            int256 a0 = B + book.bidDelta(e);
+            if (a0 < 0) break; // defensive
+            if (a0 == 0 || !found2) {
+                // closing edge (or no further endpoints): nothing fillable
+                // in this run; well-formed ladders always close with a set
+                // bit, so !found2 with a0 > 0 cannot fill either
+                if (!found2) break;
+                B = a0;
+                e = e2;
                 continue;
             }
-            uint256 size = uint256(acc);
-            if (amount0Spent + size > amount0In) {
-                endTick = l + s;
+            uint256 n = uint256(uint24(e - e2)) / uint256(uint24(s));
+
+            (uint256 in0, uint256 out1) = _bidRunAmounts(c, e, a0, n, s);
+            if (amount0Spent + in0 > amount0In) {
+                // uniform run: the affordable prefix is one division
+                // (mirrors the book's park subdivision)
+                uint256 fit = (amount0In - amount0Spent) / uint256(a0);
+                if (fit > n) fit = n;
+                if (fit > 0) {
+                    (uint256 fi0, uint256 fo1) = _bidRunAmounts(c, e, a0, fit, s);
+                    amount0Spent += fi0;
+                    amount1Out += fo1;
+                    endTick = e - int24(uint24(fit)) * s + s;
+                }
                 return (amount1Out, amount0Spent, endTick);
             }
-            amount0Spent += size;
-            amount1Out += (size * _rate(l)) / PRICE_SCALE;
-            endTick = l;
-            l -= s;
+            amount0Spent += in0;
+            amount1Out += out1;
+            endTick = e2 + s;
+            B = a0;
+            e = e2;
+            found = found2;
         }
     }
 
@@ -199,17 +244,24 @@ contract FrontierLens {
     // internals (mirror the book's math/bitmap walks, read-only)
     // ------------------------------------------------------------------
 
-    function _rate(int24 t) internal pure returns (uint256) {
-        int256 r = int256(PRICE_SCALE) + int256(t) * 1e15;
-        require(r > 0, "rate underflow");
-        return uint256(r);
-    }
-
-    function _runAmounts(int24 e, int256 a0, int256 slope, uint256 n, int24 s)
+    /// @dev ask run [e, e+n*s): taker pays ceil. Mirrors the book's
+    /// `_runAmounts` override on each curve.
+    function _runAmounts(Curve memory c, int24 e, int256 a0, int256 slope, uint256 n, int24 s)
         internal
         pure
         returns (uint256 out0, uint256 cost1)
     {
+        if (c.geo) {
+            // geometric books enforce uniform ladders (slope == 0); the
+            // a0 == 0 short-circuit also keeps powX18 inside its domain on
+            // the open-ended tail run past the last endpoint
+            if (slope != 0 || a0 <= 0) return (0, 0);
+            out0 = uint256(a0) * n;
+            uint256 num =
+                uint256(a0) * (GeoTickMath.powX18(e + int24(uint24(n)) * s) - GeoTickMath.powX18(e));
+            cost1 = (num + c.d - 1) / c.d;
+            return (out0, cost1);
+        }
         int256 ni = int256(n);
         int256 sumK = (ni * (ni - 1)) / 2;
         int256 sumK2 = ((ni - 1) * ni * (2 * ni - 1)) / 6;
@@ -222,7 +274,33 @@ contract FrontierLens {
         cost1 = (uint256(val) + PRICE_SCALE - 1) / PRICE_SCALE;
     }
 
-    function _maxAffordable(int24 e, int256 a0, int256 slope, uint256 n, uint256 budget, int24 s)
+    /// @dev bid run e, e-s, ..., e-(n-1)*s (descending, uniform): taker
+    /// receives floor. Mirrors the book's `_bidRunAmounts` on each curve.
+    function _bidRunAmounts(Curve memory c, int24 e, int256 a0, uint256 n, int24 s)
+        internal
+        pure
+        returns (uint256 in0, uint256 out1)
+    {
+        if (c.geo) {
+            if (a0 <= 0) return (0, 0);
+            in0 = uint256(a0) * n;
+            uint256 num =
+                uint256(a0) * (GeoTickMath.powX18(e + s) - GeoTickMath.powX18(e - int24(uint24(n - 1)) * s));
+            out1 = num / c.d;
+            return (in0, out1);
+        }
+        int256 ni = int256(n);
+        int256 sumK = (ni * (ni - 1)) / 2;
+        int256 tot0 = a0 * ni;
+        int256 c0 = int256(PRICE_SCALE) + int256(e) * 1e15;
+        int256 c1 = int256(s) * 1e15;
+        int256 val = a0 * c0 * ni - a0 * c1 * sumK; // levels descend from e
+        if (tot0 < 0 || val < 0) return (0, 0);
+        in0 = uint256(tot0);
+        out1 = uint256(val) / PRICE_SCALE;
+    }
+
+    function _maxAffordable(Curve memory c, int24 e, int256 a0, int256 slope, uint256 n, uint256 budget, int24 s)
         internal
         pure
         returns (uint256 m)
@@ -231,8 +309,8 @@ contract FrontierLens {
         uint256 hi = n;
         while (lo < hi) {
             uint256 mid = (lo + hi + 1) / 2;
-            (, uint256 c) = _runAmounts(e, a0, slope, mid, s);
-            if (c <= budget) lo = mid;
+            (, uint256 cost) = _runAmounts(c, e, a0, slope, mid, s);
+            if (cost <= budget) lo = mid;
             else hi = mid - 1;
         }
         return lo;
@@ -356,7 +434,8 @@ contract FrontierLens {
         return q * s;
     }
 
-    function _maxTick(int24 s) internal pure returns (int24) {
-        return (int24(8388000) / s) * s;
+    function _maxTick(Curve memory c, int24 s) internal pure returns (int24) {
+        int24 cap = c.geo ? GeoTickMath.MAX_TICK : int24(8388000);
+        return (cap / s) * s;
     }
 }
