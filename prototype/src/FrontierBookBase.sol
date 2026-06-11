@@ -47,6 +47,14 @@ abstract contract FrontierBookBase {
     // skip empty price regions in O(1) per 256 intervals instead of one SLOAD
     // per interval (which would brick sweeps across wide gaps)
     mapping(int16 => uint256) public tickBitmap;
+    // SECOND LEVEL: one bit per fine-bitmap WORD (bit set <=> that word is
+    // nonzero), so gap-walks cost one SLOAD per 65,536 fine ticks and fine
+    // words are read only where endpoints actually exist. Maintenance is
+    // exact and O(1): the word write that empties/populates a fine word is
+    // the moment its top bit flips (no lazy dirty bits, no false positives).
+    // This is what makes FINE tick spacing under a COARSE maker grid cheap —
+    // see NOTES-partial-fills.md.
+    mapping(int16 => uint256) public tickBitmapTop;
     // ASK-side fill records: ONE entry per liquidity-moving up-sweep instead
     // of a clock stamp per level ("endpoint sweeps"). Entries keep clocks
     // strictly increasing and highs strictly decreasing (dominated entries
@@ -70,6 +78,8 @@ abstract contract FrontierBookBase {
     // (shapes mirror mechanically; kept ask-side for now).
     mapping(int24 => int256) public bidDelta; // +B at bid frontiers (interval lower), -B at lower-s
     mapping(int16 => uint256) public bidBitmap;
+    // second level of the bid bitmap (see tickBitmapTop)
+    mapping(int16 => uint256) public bidBitmapTop;
 
     // Mirror of the high-water stack for DOWN-sweeps: one record per
     // liquidity-moving down-sweep instead of a clock stamp per boundary.
@@ -262,7 +272,7 @@ abstract contract FrontierBookBase {
         }
     }
 
-    /// @dev Bid mirror of _writeDelta, maintaining the bid bitmap.
+    /// @dev Bid mirror of _writeDelta, maintaining the bid bitmap (+ top).
     function _writeBidDelta(int24 t, int256 newVal) internal {
         int256 old = bidDelta[t];
         if (old == newVal) return;
@@ -271,13 +281,31 @@ abstract contract FrontierBookBase {
             int24 c = t / tickSpacing;
             int16 wordPos = int16(c >> 8);
             uint8 bitPos = uint8(uint24(c));
-            if (newVal != 0) bidBitmap[wordPos] |= (uint256(1) << bitPos);
-            else bidBitmap[wordPos] &= ~(uint256(1) << bitPos);
+            uint256 word = bidBitmap[wordPos];
+            uint256 mask = uint256(1) << bitPos;
+            if (newVal != 0) {
+                bidBitmap[wordPos] = word | mask;
+                if (word == 0) _syncTopBit(bidBitmapTop, wordPos, true);
+            } else {
+                uint256 nw = word & ~mask;
+                bidBitmap[wordPos] = nw;
+                if (nw == 0) _syncTopBit(bidBitmapTop, wordPos, false);
+            }
         }
     }
 
+    /// @dev Flip a second-level bit. Called exactly when the underlying fine
+    /// word transitions empty<->nonempty, so top bits are always exact.
+    function _syncTopBit(mapping(int16 => uint256) storage top, int16 wordPos, bool set) internal {
+        int16 topPos = int16(wordPos >> 8);
+        uint8 bitPos = uint8(uint16(wordPos));
+        uint256 mask = uint256(1) << bitPos;
+        if (set) top[topPos] |= mask;
+        else top[topPos] &= ~mask;
+    }
+
     /// @dev Largest spacing-aligned t in [minT, fromT] with nonzero bidDelta,
-    /// scanning whole bitmap words downward.
+    /// walking downward with top-bitmap jumps (mirror of _nextActive).
     function _prevActive(int24 fromT, int24 minT) internal view returns (int24, bool) {
         if (fromT < minT) return (0, false);
         int24 c = fromT / tickSpacing;
@@ -292,7 +320,30 @@ abstract contract FrontierBookBase {
                 if (cFound < cMin) return (0, false);
                 return (cFound * tickSpacing, true);
             }
-            c = (int24(wordPos) * 256) - 1;
+            (int24 prevWord, bool ok) = _prevDirtyWord(bidBitmapTop, int24(wordPos) - 1, cMin >> 8);
+            if (!ok) return (0, false);
+            c = prevWord * 256 + 255;
+        }
+        return (0, false);
+    }
+
+    /// @dev Largest fine-word index in [minW, fromW] whose top bit is set.
+    function _prevDirtyWord(mapping(int16 => uint256) storage top, int24 fromW, int24 minW)
+        private
+        view
+        returns (int24, bool)
+    {
+        int24 w = fromW;
+        while (w >= minW) {
+            int16 topPos = int16(w >> 8);
+            uint8 bitPos = uint8(uint24(w));
+            uint256 word = top[topPos] << (255 - bitPos);
+            if (word != 0) {
+                int24 found = w - int24(uint24(255 - _msb(word)));
+                if (found < minW) return (0, false);
+                return (found, true);
+            }
+            w = (int24(topPos) * 256) - 1;
         }
         return (0, false);
     }
@@ -456,14 +507,24 @@ abstract contract FrontierBookBase {
         uint256 word = tickBitmap[wordPos];
         uint256 mask = uint256(1) << bitPos;
         if (set) {
-            if (word & mask == 0) tickBitmap[wordPos] = word | mask;
+            if (word & mask == 0) {
+                tickBitmap[wordPos] = word | mask;
+                if (word == 0) _syncTopBit(tickBitmapTop, wordPos, true);
+            }
         } else {
-            if (word & mask != 0) tickBitmap[wordPos] = word & ~mask;
+            if (word & mask != 0) {
+                uint256 nw = word & ~mask;
+                tickBitmap[wordPos] = nw;
+                if (nw == 0) _syncTopBit(tickBitmapTop, wordPos, false);
+            }
         }
     }
 
-    /// @dev Smallest spacing-aligned t in [fromT, maxT] with nonzero delta,
-    /// scanning whole bitmap words.
+    /// @dev Smallest spacing-aligned t in [fromT, maxT] with nonzero delta.
+    /// Reads the starting fine word, then jumps via the top bitmap straight
+    /// to the next NONZERO fine word — empty gaps cost one top-word SLOAD
+    /// per 65,536 fine ticks, and fine words are only read where endpoints
+    /// exist.
     function _nextActive(int24 fromT, int24 maxT) internal view returns (int24, bool) {
         if (fromT > maxT) return (0, false);
         int24 c = fromT / tickSpacing;
@@ -477,7 +538,31 @@ abstract contract FrontierBookBase {
                 if (cFound > cMax) return (0, false);
                 return (cFound * tickSpacing, true);
             }
-            c = (int24(wordPos) + 1) * 256;
+            (int24 nextWord, bool ok) = _nextDirtyWord(tickBitmapTop, int24(wordPos) + 1, cMax >> 8);
+            if (!ok) return (0, false);
+            c = nextWord * 256;
+        }
+        return (0, false);
+    }
+
+    /// @dev Smallest fine-word index in [fromW, maxW] whose top bit is set
+    /// (i.e. whose fine word is nonzero). Same word/bit walk, one level up.
+    function _nextDirtyWord(mapping(int16 => uint256) storage top, int24 fromW, int24 maxW)
+        private
+        view
+        returns (int24, bool)
+    {
+        int24 w = fromW;
+        while (w <= maxW) {
+            int16 topPos = int16(w >> 8);
+            uint8 bitPos = uint8(uint24(w));
+            uint256 word = top[topPos] >> bitPos;
+            if (word != 0) {
+                int24 found = w + int24(uint24(_lsb(word)));
+                if (found > maxW) return (0, false);
+                return (found, true);
+            }
+            w = (int24(topPos) + 1) * 256;
         }
         return (0, false);
     }

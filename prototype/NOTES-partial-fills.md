@@ -46,11 +46,21 @@ Invariants (all test-pinned in `test/FrontierPartialFills.t.sol`):
 
 Costs / accepted tradeoffs:
 
-- Bitmap density: sweeps read one tick-bitmap word per 256 FINE ticks of
-  empty gap (~2.1k gas cold each). With fine=1 vs coarse=1000 that is up to
-  1000x more word-reads across wide dead zones. Real books quote near the
-  price so gaps are short; if it ever bites, add a second-level bitmap
-  (word-of-words covers 65,536 fine ticks) — contained, standard.
+- Bitmap density: SOLVED by a two-level bitmap (Fran's "dirty coarse bit"
+  intuition, made exact). `tickBitmapTop`/`bidBitmapTop` hold one bit per
+  fine-bitmap word; maintenance is O(1) and exact because the fine-word
+  write already knows when the word becomes (non)empty — no lazy dirty
+  bits, no false positives. Gap walks read one top word per 65,536 fine
+  ticks and descend into fine words only where endpoints exist: a sweep
+  across a 99,000-fine-tick dead zone costs 161.5k gas all-in (fill
+  included) vs ~850k single-level. Deposit worst case gains exactly one
+  cold top-word write (+22.1k, only when endpoints straddle a 65,536-tick
+  top boundary); gas tests pin both steps. Note the structural reason the
+  fine bitmap must still exist UNDER the top level: a dirty flag alone
+  cannot price a run — the sweep needs the sub-tick endpoint's exact
+  position (e.g. 1234). Fran's related observation holds and bounds where
+  sub-tick bits appear: off-grid keys are only ever park-materialized
+  FRONTIERS (range fronts); uppers are always grid-aligned.
 - Placement near the watermark: while price rests at 1234, fresh makers can
   enter at 2000+ only; the remainder [1234, 2000) belongs to existing
   cohorts until price retreats below 1000. This is policy in the hook, not

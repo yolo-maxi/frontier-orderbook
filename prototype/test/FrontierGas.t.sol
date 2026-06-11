@@ -37,10 +37,13 @@ contract FrontierGasTest is Test {
     // ------------------------------------------------------------------
 
     function testDepositGasFlatVsWidth() public {
-        // Note: a deposit whose endpoints share one 256-interval bitmap word
-        // (width <~ 256 * spacing) saves one cold word-write (~22k) — a
-        // two-value step, not width scaling. Flatness is asserted across the
-        // multi-word regime, where cost must be bit-identical.
+        // Note: the bitmap is TWO-LEVEL (fine words + one top bit per fine
+        // word), so deposit cost steps with the number of words touched at
+        // each level — at most 2 + 2, never with width. Endpoints sharing a
+        // fine word (width <~ 256 * spacing) save one cold word-write
+        // (~22k); endpoints sharing a TOP word (width <~ 65,536 * spacing)
+        // save one cold top-word write. Flatness is asserted within each
+        // regime, where cost must be bit-identical.
         uint24[4] memory widths = [uint24(10), 1000, 10000, 100000];
         uint256[4] memory gasUsed;
         for (uint256 c = 0; c < widths.length; c++) {
@@ -54,16 +57,19 @@ contract FrontierGasTest is Test {
         }
         // calldata bytes differ across widths (16 gas per nonzero byte), so
         // allow a tiny absolute tolerance instead of demanding bit-equality
-        assertApproxEqAbs(gasUsed[1], gasUsed[3], 50, "deposit must be O(1) in width (multi-word regime)");
-        assertLe(gasUsed[1] - gasUsed[0], 25_000, "single-word discount is one cold word write");
+        assertApproxEqAbs(gasUsed[1], gasUsed[2], 50, "deposit must be O(1) in width (two-fine-word regime)");
+        assertLe(gasUsed[1] - gasUsed[0], 25_000, "single-fine-word discount is one cold word write");
+        assertLe(gasUsed[3] - gasUsed[1], 25_000, "single-top-word discount is one cold word write");
     }
 
-    /// @dev Proof for the +22k deposit step: cost tracks the number of
-    /// BITMAP WORDS the endpoints touch (1 vs 2), not the range width. A
-    /// 10-level deposit placed so lower/upper straddle a 256-interval word
-    /// boundary costs the same as a 100,000-level deposit; a 10-level
-    /// deposit inside one word saves exactly one cold zero->nonzero word
-    /// write (~22.1k).
+    /// @dev Proof for the +22k deposit steps: cost tracks the number of
+    /// BITMAP WORDS the endpoints touch at each level, not the range width.
+    /// A 10-level deposit straddling a 256-interval fine-word boundary pays
+    /// one more cold fine-word write than one inside a single word; a
+    /// 100,000-level deposit additionally straddles a TOP-word boundary
+    /// (one fine word per 256 intervals, one top bit per fine word) and
+    /// pays exactly one more cold top-word write. Each step is a cold
+    /// zero->nonzero SSTORE (~22.1k); width itself never appears.
     function testDepositStepIsBitmapWordsNotWidth() public {
         _fresh(9);
         address u = _user(0);
@@ -89,8 +95,8 @@ contract FrontierGasTest is Test {
         console2.log("deposit width 10, one bitmap word:", sameWord);
         console2.log("deposit width 10, straddling two words:", straddle);
         console2.log("deposit width 100000, two words:", wide);
-        assertApproxEqAbs(straddle, wide, 200, "two-word width-10 == two-word width-100k");
-        assertApproxEqAbs(straddle - sameWord, 22_100, 500, "step == one cold zero->nonzero word write");
+        assertApproxEqAbs(straddle - sameWord, 22_100, 500, "fine step == one cold zero->nonzero word write");
+        assertApproxEqAbs(wide - straddle, 22_100, 500, "top step == one cold zero->nonzero word write");
     }
 
     function testClaimGasFlatVsWidth() public {

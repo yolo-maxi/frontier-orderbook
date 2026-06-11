@@ -174,7 +174,11 @@ contract GeoBookTest is Test {
             vm.stopPrank();
             console2.log("geometric sweep gas (levels):", levels[c], gasUsed[c]);
         }
+        // with the two-level bitmap the wide sweep can even be CHEAPER than
+        // the narrow one (gap navigation is ~O(1)), so bound the absolute
+        // difference rather than assuming cost grows with fineness
+        uint256 diff = gasUsed[1] > gasUsed[0] ? gasUsed[1] - gasUsed[0] : gasUsed[0] - gasUsed[1];
         uint256 wordBudget = (uint256(levels[1] - levels[0]) / 256 + 2) * 2600;
-        assertLt(gasUsed[1] - gasUsed[0], wordBudget, "still word-bounded under the geometric curve");
+        assertLt(diff, wordBudget, "still word-bounded under the geometric curve");
     }
 }

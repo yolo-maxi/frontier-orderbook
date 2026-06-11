@@ -278,6 +278,26 @@ contract FrontierPartialFillsTest is Test {
     }
 
     // ------------------------------------------------------------------
+    // the cost that made fine spacing scary — killed by the two-level
+    // bitmap: gap navigation reads one TOP word per 65,536 fine ticks and
+    // descends into a fine word only where endpoints actually exist
+    // ------------------------------------------------------------------
+
+    function testWideEmptyGapSweepIsCoarseCost() public {
+        dep(mmA, 99000, 100000, 10); // far above price; ~99k empty fine ticks below
+
+        vm.prank(taker);
+        uint256 g = gasleft();
+        book.sweepWithLimits(100000, MAX, MAX, 0, block.timestamp);
+        uint256 used = g - gasleft();
+
+        // single-level fine bitmap would walk ~387 cold words (~800k gas);
+        // two-level: ~2 top words + 2 fine words + the fill itself
+        assertLt(used, 200_000, "gap walk no longer scales with fine ticks");
+        assertEq(book.currentTick(), 100000, "filled the far ladder");
+    }
+
+    // ------------------------------------------------------------------
     // bid-side mirror: down-sweep parks mid-interval in a coarse bid
     // ------------------------------------------------------------------
 
