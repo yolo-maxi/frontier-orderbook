@@ -49,6 +49,9 @@ export interface Fill {
   priceLo: number;
   priceHi: number;
   size0: bigint; // token0 units
+  value1: bigint; // token1 notional, computed with the book's closed form
+  levels: number; // price levels crossed in this run
+  block: bigint;
 }
 
 export interface MakerEvent {
@@ -57,10 +60,15 @@ export interface MakerEvent {
   kind: "place" | "requote" | "cancel" | "claim";
   side: "ask" | "bid" | null; // inferred from range vs current tick (null when unknown)
   positionId: bigint;
+  maker: string | null; // owner address (Deposit events carry it)
   priceLo: number | null;
   priceHi: number | null;
+  levels: number | null;
   size0: bigint | null; // per-level liquidity for place/requote
+  total0: bigint | null; // size0 * levels (flat)
   payout: bigint | null; // proceeds for claim/cancel
+  refund: bigint | null; // returned principal on cancel
+  block: bigint;
 }
 
 export interface PricePoint {
@@ -139,6 +147,28 @@ export function useApp(): AppData {
 }
 
 // ---------------------------------------------------------------- events
+
+const E18 = 10n ** 18n;
+const E15 = 10n ** 15n;
+
+/** token1 value of an ASCENDING ask run [e, e+n*s), taker pays ceil. */
+function askRunValue1(e: number, a0: bigint, slope: bigint, n: bigint, s: number): bigint {
+  const sumK = (n * (n - 1n)) / 2n;
+  const sumK2 = ((n - 1n) * n * (2n * n - 1n)) / 6n;
+  const c0 = E18 + BigInt(e) * E15;
+  const c1 = BigInt(s) * E15;
+  const val = a0 * c0 * n + (a0 * c1 + slope * c0) * sumK + slope * c1 * sumK2;
+  return val <= 0n ? 0n : (val + E18 - 1n) / E18;
+}
+
+/** token1 value of a DESCENDING bid run from e, n levels, taker receives floor. */
+function bidRunValue1(e: number, a0: bigint, n: bigint, s: number): bigint {
+  const sumK = (n * (n - 1n)) / 2n;
+  const c0 = E18 + BigInt(e) * E15;
+  const c1 = BigInt(s) * E15;
+  const val = a0 * c0 * n - a0 * c1 * sumK;
+  return val <= 0n ? 0n : val / E18;
+}
 
 const runFilledEvent = getAbiItem({ abi: bookAbi, name: "RunFilled" });
 const intervalFilledEvent = getAbiItem({ abi: bookAbi, name: "IntervalFilled" });
@@ -350,25 +380,37 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
           curTick === null ? null : lower > curTick ? "ask" : upper <= curTick + spacing ? "bid" : null;
         for (const log of logs) {
           if (log.eventName === "Deposit" || log.eventName === "Requote") {
-            const a = log.args as { positionId?: bigint; lower?: number; upper?: number; liquidity?: bigint };
+            const a = log.args as {
+              positionId?: bigint;
+              owner?: string;
+              lower?: number;
+              upper?: number;
+              liquidity?: bigint;
+            };
             if (a.positionId === undefined || a.lower === undefined || a.upper === undefined) continue;
             const lo = Number(a.lower);
             const hi = Number(a.upper);
+            const lv = Math.max(1, Math.round((hi - lo) / spacing));
             makers.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
               kind: log.eventName === "Deposit" ? "place" : "requote",
               side: sideOf(lo, hi),
               positionId: a.positionId,
+              maker: a.owner ?? null,
               priceLo: tickToPrice(lo),
               priceHi: tickToPrice(hi),
+              levels: lv,
               size0: a.liquidity ?? null,
+              total0: a.liquidity !== undefined ? a.liquidity * BigInt(lv) : null,
               payout: null,
+              refund: null,
+              block: log.blockNumber ?? 0n,
             });
             continue;
           }
           if (log.eventName === "Cancel" || log.eventName === "Claim") {
-            const a = log.args as { positionId?: bigint; proceeds1?: bigint };
+            const a = log.args as { positionId?: bigint; proceeds1?: bigint; principal0?: bigint };
             if (a.positionId === undefined) continue;
             makers.push({
               key: `${log.blockNumber}-${log.logIndex}`,
@@ -376,10 +418,15 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
               kind: log.eventName === "Cancel" ? "cancel" : "claim",
               side: null,
               positionId: a.positionId,
+              maker: null,
               priceLo: null,
               priceHi: null,
+              levels: null,
               size0: null,
+              total0: null,
               payout: a.proceeds1 ?? null,
+              refund: a.principal0 ?? null,
+              block: log.blockNumber ?? 0n,
             });
             continue;
           }
@@ -400,6 +447,9 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             const slope = a.slopePerLevel ?? 0n;
             let size = start * n + (slope * n * (n - 1n)) / 2n;
             if (size < 0n) size = 0n;
+            const value1 = isBuy
+              ? askRunValue1(lo, start, slope, n, spacing)
+              : bidRunValue1(lo, start, n, spacing);
             parsed.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
@@ -407,9 +457,12 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
               priceLo: tickToPrice(isBuy ? lo : hi + spacing),
               priceHi: tickToPrice(isBuy ? hi : lo + spacing),
               size0: size,
+              value1,
+              levels: Number(n),
+              block: log.blockNumber ?? 0n,
             });
           } else {
-            const a = log.args as { lowerTick?: number; liquidity?: bigint };
+            const a = log.args as { lowerTick?: number; liquidity?: bigint; proceeds1?: bigint };
             if (a.lowerTick === undefined) continue;
             const lo = Number(a.lowerTick);
             parsed.push({
@@ -419,6 +472,9 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
               priceLo: tickToPrice(lo),
               priceHi: tickToPrice(lo + spacing),
               size0: a.liquidity ?? 0n,
+              value1: a.proceeds1 ?? 0n,
+              levels: 1,
+              block: log.blockNumber ?? 0n,
             });
           }
         }

@@ -85,11 +85,14 @@ export function MarketPanel() {
         </div>
         {feedTab === "trades" ? (
           <>
-            <div className="fills-head num">
+            <div className="fills-head num grid-trades">
               <span>Time</span>
               <span>Side</span>
+              <span className="ta-r">Avg Px</span>
               <span>Price Range</span>
               <span className="ta-r">Size (WETH)</span>
+              <span className="ta-r">Value (USDC)</span>
+              <span className="ta-r">Lvls</span>
             </div>
             <div className="fills-body">
               {fills.length === 0 && (
@@ -98,10 +101,13 @@ export function MarketPanel() {
                 </div>
               )}
               {fills.map((f) => (
-                <div className="fill-row num feed-in" key={f.key}>
+                <div className="fill-row num feed-in grid-trades" key={f.key}>
                   <span className="dim">{fmtTime(f.time)}</span>
                   <span className={f.side === "buy" ? "up" : "down"}>
                     {f.side === "buy" ? "BUY" : "SELL"}
+                  </span>
+                  <span className={`ta-r ${f.side === "buy" ? "up" : "down"}`}>
+                    {f.size0 > 0n ? fmtPrice(Number(f.value1) / Math.max(Number(f.size0), 1), 3) : "—"}
                   </span>
                   <span>
                     {fmtPrice(f.priceLo, 3)}
@@ -109,17 +115,22 @@ export function MarketPanel() {
                     {fmtPrice(f.priceHi, 3)}
                   </span>
                   <span className="ta-r">{fmtAmount(f.size0, 4)}</span>
+                  <span className="ta-r">{fmtAmount(f.value1, 2)}</span>
+                  <span className="ta-r dim">{f.levels}</span>
                 </div>
               ))}
             </div>
           </>
         ) : (
           <>
-            <div className="fills-head num">
+            <div className="fills-head num grid-makers">
               <span>Time</span>
               <span>Action</span>
-              <span>Range / Position</span>
-              <span className="ta-r">Size / Payout</span>
+              <span className="ta-r">#</span>
+              <span>Range</span>
+              <span className="ta-r">Size × Lvls</span>
+              <span className="ta-r">Total (WETH)</span>
+              <span className="ta-r">Payout</span>
             </div>
             <div className="fills-body">
               {makerEvents.length === 0 && (
@@ -128,26 +139,43 @@ export function MarketPanel() {
                 </div>
               )}
               {makerEvents.map((e) => (
-                <div className="fill-row num feed-in" key={e.key}>
+                <div className="fill-row num feed-in grid-makers" key={e.key} title={e.maker ?? undefined}>
                   <span className="dim">{fmtTime(e.time)}</span>
                   <span className={makerActionCls(e)}>{makerActionLabel(e)}</span>
+                  <span className="ta-r dim">{e.positionId.toString()}</span>
                   <span>
                     {e.priceLo !== null && e.priceHi !== null ? (
                       <>
                         {fmtPrice(e.priceLo, 3)}
                         <span className="dim"> → </span>
                         {fmtPrice(e.priceHi, 3)}
+                        {e.maker && (
+                          <span className="dim maker-addr"> · {e.maker.slice(0, 6)}…{e.maker.slice(-4)}</span>
+                        )}
                       </>
                     ) : (
-                      <span className="dim">#{e.positionId.toString()}</span>
+                      <span className="dim">—</span>
                     )}
                   </span>
                   <span className="ta-r">
-                    {e.size0 !== null
-                      ? `${fmtAmount(e.size0, 4)}/lvl`
-                      : e.payout !== null
-                        ? fmtAmount(e.payout, 4)
-                        : "—"}
+                    {e.size0 !== null && e.levels !== null ? (
+                      <>
+                        {fmtAmount(e.size0, 4)} <span className="dim">× {e.levels}</span>
+                      </>
+                    ) : (
+                      <span className="dim">—</span>
+                    )}
+                  </span>
+                  <span className="ta-r">{e.total0 !== null ? fmtAmount(e.total0, 4) : <span className="dim">—</span>}</span>
+                  <span className="ta-r">
+                    {e.payout !== null && (e.payout > 0n || e.refund === null) ? (
+                      <span className="up">{fmtAmount(e.payout, 4)}</span>
+                    ) : null}
+                    {e.refund !== null && e.refund > 0n ? (
+                      <span className="dim"> +{fmtAmount(e.refund, 4)} rfnd</span>
+                    ) : e.payout === null ? (
+                      <span className="dim">—</span>
+                    ) : null}
                   </span>
                 </div>
               ))}

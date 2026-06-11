@@ -1689,3 +1689,14 @@ body {
 .pos-editor-title { font-size: 10.5px; }
 .pos-editor .field-row { display: flex; gap: 6px; }
 .pos-editor .input { min-width: 0; flex: 1; padding: 4px 8px; font-size: 12px; }
+
+/* ---- enriched feed tables ---- */
+.fills-head.grid-trades,
+.fill-row.grid-trades {
+  grid-template-columns: 58px 44px 76px minmax(0, 1fr) 92px 96px 40px;
+}
+.fills-head.grid-makers,
+.fill-row.grid-makers {
+  grid-template-columns: 58px 92px 36px minmax(0, 1fr) 110px 96px 110px;
+}
+.maker-addr { font-size: 10px; }
