@@ -5,7 +5,12 @@ import {RollingFrontierBook} from "../../src/RollingFrontierBook.sol";
 import {FrontierMakerOps} from "../../src/FrontierMakerOps.sol";
 import {GeometricFrontierBook, GeometricMakerOps} from "../../src/GeometricFrontierBook.sol";
 import {FrontierBookFactory} from "../../src/FrontierBookFactory.sol";
-import {RollingBookDeployer, MakerOpsDeployer} from "../../src/FrontierDeployers.sol";
+import {
+    RollingBookDeployer,
+    MakerOpsDeployer,
+    GeometricBookDeployer,
+    GeometricOpsDeployer
+} from "../../src/FrontierDeployers.sol";
 
 /// @notice Test-side stand-in for the factory's two-step deploy: every book
 /// needs a FrontierMakerOps companion with matching immutables (see
@@ -31,5 +36,7 @@ function newGeoBook(
 }
 
 function newFactory(address registry) returns (FrontierBookFactory) {
-    return new FrontierBookFactory(registry, new RollingBookDeployer(), new MakerOpsDeployer());
+    return new FrontierBookFactory(
+        registry, new RollingBookDeployer(), new MakerOpsDeployer(), new GeometricBookDeployer(), new GeometricOpsDeployer()
+    );
 }

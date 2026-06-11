@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {GeometricFrontierBook} from "../src/GeometricFrontierBook.sol";
+import {GeoTickMath} from "../src/curve/GeoTickMath.sol";
 import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
 import {newBook, newFactory} from "./utils/BookFab.sol";
 
@@ -218,5 +220,54 @@ contract FrontierVenueTest is Test {
         uint256 g = gasleft();
         factory.createBook(address(a), address(b), 5, 0);
         console2.log("book deployment gas:", g - gasleft());
+    }
+
+    function testFactoryGeometricBooks() public {
+        FrontierBookFactory factory = newFactory(address(0));
+        MockERC20 a = new MockERC20("A", "A");
+        MockERC20 b = new MockERC20("B", "B");
+
+        GeometricFrontierBook geo = GeometricFrontierBook(factory.createGeoBook(address(a), address(b), 1, 0));
+        assertEq(factory.bookCount(), 1, "registered");
+        assertEq(factory.defaultBook(address(a), address(b)), address(geo), "pair default");
+        assertGt(geo.geoD(), 0, "geometric curve bound");
+
+        a.mint(bob, 1e30);
+        b.mint(taker, 1e30);
+        vm.prank(bob);
+        a.approve(address(geo), type(uint256).max);
+        vm.prank(taker);
+        b.approve(address(geo), type(uint256).max);
+
+        // the geometric variant really is wired in: shaped ladders refused
+        vm.prank(bob);
+        vm.expectRevert(bytes("geometric: uniform only"));
+        geo.depositShaped(1, 4, L, 1);
+
+        // end-to-end fill settles to the telescoped geometric value
+        vm.prank(bob);
+        uint256 id = geo.deposit(1, 4, L);
+        vm.prank(taker);
+        geo.moveTickTo(4);
+        vm.prank(bob);
+        uint256 proceeds = geo.claim(id);
+        uint256 expect = (uint256(L) * (GeoTickMath.powX18(4) - GeoTickMath.powX18(1))) / geo.geoD();
+        assertApproxEqAbs(proceeds, expect, 2, "telescoped settlement");
+        assertEq(a.balanceOf(address(geo)), 0, "no stranded principal");
+
+        // maker-ops companion memoized per config AND per curve
+        GeometricFrontierBook geo2 = GeometricFrontierBook(factory.createGeoBook(address(a), address(b), 1, 50));
+        assertEq(geo2.makerOps(), geo.makerOps(), "geo companion reused");
+        RollingFrontierBook lin = RollingFrontierBook(factory.createBook(address(a), address(b), 1, 0));
+        assertTrue(lin.makerOps() != geo.makerOps(), "curves never share a companion");
+        assertEq(factory.bookCount(), 3, "all curves registered");
+
+        // delegatecalled geometric companion serves a factory-made book
+        vm.startPrank(bob);
+        a.approve(address(geo2), type(uint256).max);
+        uint256 id2 = geo2.deposit(51, 54, L);
+        geo2.cancel(id2);
+        vm.stopPrank();
+        assertEq(a.balanceOf(address(geo2)), 0, "cancel refunds via companion");
     }
 }
