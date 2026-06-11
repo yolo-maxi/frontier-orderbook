@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Frontier',
-  description: 'A thin-tick on-chain CLOB with compressed settlement',
+  description: 'The order book is back onchain — a thin-tick CLOB with compressed settlement',
   base: '/docs/',
   appearance: 'force-dark',
   themeConfig: {
@@ -36,6 +36,7 @@ export default defineConfig({
       },
       { text: 'Live Demo Guide', link: '/guide/demo' },
       { text: 'Roadmap & Caveats', link: '/roadmap' },
+      { text: 'Brand', link: '/brand' },
     ],
     outline: [2, 3],
   },
