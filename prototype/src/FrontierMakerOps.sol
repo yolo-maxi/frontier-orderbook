@@ -58,6 +58,13 @@ contract FrontierMakerOps is FrontierBookBase {
         require(_highSince(p.depositClock) < p.lower + tickSpacing, "partially filled");
         _checkRange(newLower, newUpper);
         _checkShape(newLower, newUpper, newLiquidity, newSlope);
+        // a requote is a re-placement: placement-policy hooks must see it,
+        // or they could be bypassed by deposit-then-requote
+        _callHook(
+            FrontierHookFlags.BEFORE_DEPOSIT_FLAG,
+            abi.encodeCall(IFrontierHooks.beforeDeposit, (msg.sender, newLower, newUpper, newLiquidity, newSlope, false)),
+            IFrontierHooks.beforeDeposit.selector
+        );
 
         // remove old endpoint entries (order unfilled: frontier == lower),
         // place new ones
@@ -95,6 +102,11 @@ contract FrontierMakerOps is FrontierBookBase {
         require(newLower < newUpper, "empty range");
         require(newLower % tickSpacing == 0 && newUpper % tickSpacing == 0, "unaligned");
         require(newUpper <= _currentTick, "range not below price");
+        _callHook(
+            FrontierHookFlags.BEFORE_DEPOSIT_FLAG,
+            abi.encodeCall(IFrontierHooks.beforeDeposit, (msg.sender, newLower, newUpper, newLiquidity, 0, true)),
+            IFrontierHooks.beforeDeposit.selector
+        );
 
         _writeBidDelta(p.upper - tickSpacing, bidDelta[p.upper - tickSpacing] - int256(uint256(p.liquidity)));
         _writeBidDelta(p.lower - tickSpacing, bidDelta[p.lower - tickSpacing] + int256(uint256(p.liquidity)));

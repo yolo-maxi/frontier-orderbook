@@ -1,3 +1,21 @@
+# Experiment: Sub-Tick Partial Fills (solved — coarse maker grid)
+
+**Resolution (2026-06-11):** the parked problem below is solved by inverting
+the framing. Keep the book's tick grid FINE (taker/fill granularity), and
+make coarseness a *maker placement policy* enforced by a `beforeDeposit`
+hook (`MakerGridHook`). A taker parking mid-interval leaves the surviving
+liquidity as a frontier delta *at that fine tick* — the watermark, encoded
+positionally. New liquidity into a half-consumed coarse interval is simply a
+second frontier at the grid boundary below; takers consume the two cohorts
+in price order, each priced separately by the same telescoped sweep. The
+mixed-cohort accounting that killed the original design never arises,
+because no two cohorts ever share a fractional state — remaining fractions
+live in *where* each delta sits. Zero new core state; one patch (requotes
+now dispatch the placement hook); nine pinning tests in
+`FrontierPartialFills.t.sol`.
+
+The original experiment record:
+
 # Experiment: Sub-Tick Partial Fills (parked)
 
 **Question:** can a level be partially consumed — price settling mid-tick,
