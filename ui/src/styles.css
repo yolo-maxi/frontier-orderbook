@@ -102,7 +102,35 @@ body {
   overflow: hidden;
 }
 
+.grid-make {
+  grid-template-columns: 380px minmax(0, 1fr) 344px !important;
+}
+.book-row-hl {
+  box-shadow: inset 2px 0 0 #f0b90b;
+}
+.book-row-hl::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: #f0b90b;
+  opacity: 0.85;
+}
+.book-preview-chip {
+  margin-left: auto;
+  font-size: 10px;
+  color: #f0b90b;
+  border: 1px solid rgba(240, 185, 11, 0.35);
+  background: rgba(240, 185, 11, 0.07);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
 .grid {
+  transition: grid-template-columns 0.25s ease;
   flex: 1;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr) 344px;
@@ -124,6 +152,9 @@ body {
 }
 
 .panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 10px 14px 8px;
   font-size: 11px;
   font-weight: 600;

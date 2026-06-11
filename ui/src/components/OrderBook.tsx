@@ -34,7 +34,21 @@ function bucketize(
 }
 
 export function OrderBook() {
-  const { summary, depth } = useApp();
+  const { summary, depth, preview } = useApp();
+  // price range of the ladder being configured in Make (if any)
+  const previewRange =
+    preview?.kind === "make" && preview.lowerTick !== undefined && preview.upperTick !== undefined
+      ? {
+          side: preview.side,
+          pLo: tickToPrice(preview.lowerTick),
+          pHi: tickToPrice(preview.upperTick),
+        }
+      : null;
+  const inPreview = (side: "ask" | "bid", bucketLo: number, step: number) =>
+    previewRange !== null &&
+    previewRange.side === side &&
+    bucketLo + step > previewRange.pLo &&
+    bucketLo < previewRange.pHi;
   const midDirRef = useRef<{ prev: number | null; dir: 1 | -1 | 0 }>({ prev: null, dir: 0 });
 
   const model = useMemo(() => {
@@ -117,6 +131,11 @@ export function OrderBook() {
     <section className="panel book-panel">
       <div className="panel-title">
         Order Book <span className="dim title-note">bucket ${fmtPrice(step, 3)}</span>
+        {previewRange && (
+          <span className="book-preview-chip num">
+            your {previewRange.side} ladder {fmtPrice(previewRange.pLo, 3)}–{fmtPrice(previewRange.pHi, 3)}
+          </span>
+        )}
       </div>
       <div className="book-head num">
         <span>Price (USDC)</span>
@@ -127,7 +146,7 @@ export function OrderBook() {
         <div className="book-side book-asks">
           {askBuckets.length === 0 && <div className="empty-state">no asks in window</div>}
           {[...askBuckets].reverse().map((b) => (
-            <div className="book-row" key={`a${b.price}`}>
+            <div className={`book-row ${inPreview("ask", b.price, step) ? "book-row-hl" : ""}`} key={`a${b.price}`}>
               <div
                 className="book-bar bar-ask"
                 style={{ width: `${Math.min(100, (b.cum / maxCum) * 100)}%` }}
@@ -156,7 +175,7 @@ export function OrderBook() {
         <div className="book-side book-bids">
           {bidBuckets.length === 0 && <div className="empty-state">no bids in window</div>}
           {bidBuckets.map((b) => (
-            <div className="book-row" key={`b${b.price}`}>
+            <div className={`book-row ${inPreview("bid", b.price, step) ? "book-row-hl" : ""}`} key={`b${b.price}`}>
               <div
                 className="book-bar bar-bid"
                 style={{ width: `${Math.min(100, (b.cum / maxCum) * 100)}%` }}

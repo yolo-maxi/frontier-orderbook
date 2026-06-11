@@ -109,6 +109,9 @@ interface AppData {
   busy: string | null;
   preview: ChartPreview | null;
   setPreview: (p: ChartPreview | null) => void;
+  /** Make tab is active: the book portion of the screen expands. */
+  makeFocus: boolean;
+  setMakeFocus: (b: boolean) => void;
   sendTx: (label: string, fn: () => Promise<`0x${string}`>) => Promise<boolean>;
   faucet: () => Promise<void>;
   refresh: () => void;
@@ -188,6 +191,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [toasts, setToasts] = useState<TxToast[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [preview, setPreview] = useState<ChartPreview | null>(null);
+  const [makeFocus, setMakeFocus] = useState(false);
   const [nonce, setNonce] = useState(0); // manual refresh trigger
 
   const summaryRef = useRef<BookSummary | null>(null);
@@ -585,6 +589,8 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     configured,
     preview,
     setPreview,
+    makeFocus,
+    setMakeFocus,
     client,
     wallet,
     account,

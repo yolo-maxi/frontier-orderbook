@@ -101,7 +101,6 @@ export function MarketPanel() {
   );
 }
 
-const H = 280;
 const AXIS_W = 62;
 const GUTTER_W = 150;
 const PAD = { t: 14, b: 20, l: 12 };
@@ -167,9 +166,13 @@ function positionBands(positions: PositionRow[]): Band[] {
  *  - the execution range of a live Trade quote, as a bracket to its end price
  */
 function BookChart() {
-  const { priceHistory, depth, summary, positions, preview } = useApp();
+  const { priceHistory, depth, summary, positions, preview, makeFocus } = useApp();
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(760);
+  // Make mode: the book's share of the chart expands — taller plot, a
+  // gutter wide enough that the preview ladder reads as a shape
+  const H = makeFocus ? 400 : 280;
+  const GUT = makeFocus ? 280 : GUTTER_W;
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -185,7 +188,7 @@ function BookChart() {
   const model = useMemo(() => {
     if (priceHistory.length < 2 || !summary) return null;
     const W = width;
-    const plotX1 = W - AXIS_W - GUTTER_W;
+    const plotX1 = W - AXIS_W - GUT;
     const gutX0 = plotX1 + 6;
     const gutX1 = W - AXIS_W - 4;
 
@@ -269,6 +272,35 @@ function BookChart() {
     const gw = gutX1 - gutX0;
     const barW = (v: number) => Math.min(gw, (v / maxBucket) * gw);
 
+    // ----- make-preview, per LEVEL: bucket sums flatten a narrow ladder
+    // into a blob; rendering each level (width = local density in bucket
+    // units, so it stays comparable to the book bars) makes the ladder's
+    // SHAPE visible — a flat ladder is a rectangle, a front-loaded one a
+    // wedge tapering away from the touch
+    const prevLevels: { y: number; h: number; w: number }[] = [];
+    if (
+      preview?.kind === "make" &&
+      preview.lowerTick !== undefined &&
+      preview.upperTick !== undefined &&
+      preview.sizePerLevel !== undefined
+    ) {
+      const L0 = toF(preview.sizePerLevel);
+      const slope = toF(preview.slope ?? 0n);
+      const nLv = preview.upperTick - preview.lowerTick;
+      const step = Math.max(1, Math.ceil(nLv / 120));
+      const bucketSpan = (max - min) / BUCKETS;
+      for (let k = 0; k < nLv; k += step) {
+        const pA = tickToPrice(preview.lowerTick + k);
+        const pB = tickToPrice(preview.lowerTick + Math.min(k + step, nLv));
+        if (pB < min || pA >= max) continue;
+        const yTop = sy(pB);
+        const yBot = sy(pA);
+        const levelSpan = Math.max(pB - pA, 1e-9);
+        const density = ((L0 + slope * k) * step * bucketSpan) / levelSpan;
+        prevLevels.push({ y: yTop, h: Math.max(1, yBot - yTop), w: barW(density) });
+      }
+    }
+
     // ----- overlays
     const bands = allBands.filter((b) => b.pHi > min && b.pLo < max);
     const offAbove = allBands.filter((b) => b.pLo >= max);
@@ -283,11 +315,11 @@ function BookChart() {
       W, plotX1, gutX0, gutX1, min, max, sy,
       d, area, up,
       lastX: xs[xs.length - 1], lastY: sy(lastPt.price), lastPrice: lastPt.price,
-      askB, bidB, prevB, bh, barW,
+      askB, bidB, prevB, prevLevels, bh, barW,
       bands, offAbove, offBelow, grid, mid,
       midY: sy(mid),
     };
-  }, [priceHistory, depth, summary, positions, preview, width]);
+  }, [priceHistory, depth, summary, positions, preview, width, GUT, H]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!model) {
     return (
@@ -387,22 +419,23 @@ function BookChart() {
             >
               NEW {preview.side.toUpperCase()} LADDER
             </text>
-            {m.prevB.map((v, i) =>
-              v > 0 ? (
-                <rect
-                  key={i}
-                  x={m.gutX1 - m.barW(v)}
-                  y={PAD.t + i * m.bh + 0.5}
-                  width={m.barW(v)}
-                  height={Math.max(1, m.bh - 1)}
-                  fill="#f0b90b"
-                  fillOpacity="0.22"
-                  stroke="#f0b90b"
-                  strokeOpacity="0.55"
-                  strokeWidth="0.6"
-                />
-              ) : null
-            )}
+            {m.prevLevels.map((lv, i) => (
+              <rect
+                key={i}
+                x={m.gutX1 - lv.w}
+                y={lv.y}
+                width={lv.w}
+                height={lv.h}
+                fill="#f0b90b"
+                fillOpacity="0.26"
+                stroke="#f0b90b"
+                strokeOpacity="0.6"
+                strokeWidth="0.5"
+              />
+            ))}
+            {/* range edge markers across the gutter */}
+            <line x1={m.gutX0} x2={m.gutX1} y1={clampY(m.sy(tickToPrice(preview.upperTick)))} y2={clampY(m.sy(tickToPrice(preview.upperTick)))} stroke="#f0b90b" strokeOpacity="0.8" strokeWidth="1" strokeDasharray="2 2" />
+            <line x1={m.gutX0} x2={m.gutX1} y1={clampY(m.sy(tickToPrice(preview.lowerTick)))} y2={clampY(m.sy(tickToPrice(preview.lowerTick)))} stroke="#f0b90b" strokeOpacity="0.8" strokeWidth="1" strokeDasharray="2 2" />
           </g>
         )}
 

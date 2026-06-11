@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TradePanel } from "./TradePanel";
 import { MakePanel } from "./MakePanel";
 import { PositionsPanel } from "./PositionsPanel";
@@ -8,7 +8,12 @@ type Tab = "trade" | "make" | "positions";
 
 export function SidePanel() {
   const [tab, setTab] = useState<Tab>("trade");
-  const { positions } = useApp();
+  const { positions, setMakeFocus } = useApp();
+  // Make mode expands the book portion of the screen
+  useEffect(() => {
+    setMakeFocus(tab === "make");
+    return () => setMakeFocus(false);
+  }, [tab, setMakeFocus]);
   const liveCount = positions.filter((p) => p.live).length;
 
   return (
