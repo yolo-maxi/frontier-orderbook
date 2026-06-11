@@ -51,6 +51,18 @@ export interface Fill {
   size0: bigint; // token0 units
 }
 
+export interface MakerEvent {
+  key: string;
+  time: number; // ms
+  kind: "place" | "requote" | "cancel" | "claim";
+  side: "ask" | "bid" | null; // inferred from range vs current tick (null when unknown)
+  positionId: bigint;
+  priceLo: number | null;
+  priceHi: number | null;
+  size0: bigint | null; // per-level liquidity for place/requote
+  payout: bigint | null; // proceeds for claim/cancel
+}
+
 export interface PricePoint {
   t: number;
   price: number;
@@ -101,6 +113,7 @@ interface AppData {
   summary: BookSummary | null;
   depth: DepthLevel[];
   fills: Fill[];
+  makerEvents: MakerEvent[];
   priceHistory: PricePoint[];
   balances: Balances;
   positions: PositionRow[];
@@ -130,6 +143,9 @@ export function useApp(): AppData {
 const runFilledEvent = getAbiItem({ abi: bookAbi, name: "RunFilled" });
 const intervalFilledEvent = getAbiItem({ abi: bookAbi, name: "IntervalFilled" });
 const depositEvent = getAbiItem({ abi: bookAbi, name: "Deposit" });
+const requoteEvent = getAbiItem({ abi: bookAbi, name: "Requote" });
+const cancelEvent = getAbiItem({ abi: bookAbi, name: "Cancel" });
+const claimEvent = getAbiItem({ abi: bookAbi, name: "Claim" });
 
 const DEPTH_WINDOW = 8000; // ticks each side (shrinks adaptively if the node's eth_call gas cap is tight)
 const MIN_DEPTH_WINDOW = 500;
@@ -184,6 +200,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [summary, setSummary] = useState<BookSummary | null>(null);
   const [depth, setDepth] = useState<DepthLevel[]>([]);
   const [fills, setFills] = useState<Fill[]>([]);
+  const [makerEvents, setMakerEvents] = useState<MakerEvent[]>([]);
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n });
   const [positions, setPositions] = useState<PositionRow[]>([]);
@@ -315,7 +332,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
         }
         const logs = await client.getLogs({
           address: cfg.contracts.book,
-          events: [runFilledEvent, intervalFilledEvent],
+          events: [runFilledEvent, intervalFilledEvent, depositEvent, requoteEvent, cancelEvent, claimEvent],
           fromBlock: from,
           toBlock: latest,
         });
@@ -327,7 +344,45 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
         const spacing = summaryRef.current?.tickSpacing ?? 1;
         const now = Date.now();
         const parsed: Fill[] = [];
+        const makers: MakerEvent[] = [];
+        const curTick = summaryRef.current?.currentTick ?? null;
+        const sideOf = (lower: number, upper: number): "ask" | "bid" | null =>
+          curTick === null ? null : lower > curTick ? "ask" : upper <= curTick + spacing ? "bid" : null;
         for (const log of logs) {
+          if (log.eventName === "Deposit" || log.eventName === "Requote") {
+            const a = log.args as { positionId?: bigint; lower?: number; upper?: number; liquidity?: bigint };
+            if (a.positionId === undefined || a.lower === undefined || a.upper === undefined) continue;
+            const lo = Number(a.lower);
+            const hi = Number(a.upper);
+            makers.push({
+              key: `${log.blockNumber}-${log.logIndex}`,
+              time: now,
+              kind: log.eventName === "Deposit" ? "place" : "requote",
+              side: sideOf(lo, hi),
+              positionId: a.positionId,
+              priceLo: tickToPrice(lo),
+              priceHi: tickToPrice(hi),
+              size0: a.liquidity ?? null,
+              payout: null,
+            });
+            continue;
+          }
+          if (log.eventName === "Cancel" || log.eventName === "Claim") {
+            const a = log.args as { positionId?: bigint; proceeds1?: bigint };
+            if (a.positionId === undefined) continue;
+            makers.push({
+              key: `${log.blockNumber}-${log.logIndex}`,
+              time: now,
+              kind: log.eventName === "Cancel" ? "cancel" : "claim",
+              side: null,
+              positionId: a.positionId,
+              priceLo: null,
+              priceHi: null,
+              size0: null,
+              payout: a.proceeds1 ?? null,
+            });
+            continue;
+          }
           if (log.eventName === "RunFilled") {
             const a = log.args as {
               fromLevel?: number;
@@ -369,6 +424,9 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
         }
         if (parsed.length > 0) {
           setFills((f) => [...parsed.reverse(), ...f].slice(0, MAX_FILLS));
+        }
+        if (makers.length > 0) {
+          setMakerEvents((m) => [...makers.reverse(), ...m].slice(0, MAX_FILLS));
         }
         noteOk();
       } catch (e) {
@@ -597,6 +655,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     summary,
     depth,
     fills,
+    makerEvents,
     priceHistory,
     balances,
     positions,

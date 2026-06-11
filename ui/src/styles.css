@@ -102,9 +102,6 @@ body {
   overflow: hidden;
 }
 
-.grid-make {
-  grid-template-columns: 380px minmax(0, 1fr) 344px !important;
-}
 .book-row-hl {
   box-shadow: inset 2px 0 0 #f0b90b;
 }
@@ -1601,4 +1598,58 @@ body {
   fill: rgba(255, 255, 255, 0.04);
   stroke: rgba(255, 255, 255, 0.1);
   stroke-width: 1;
+}
+
+/* ---- live-update animations: nothing disappears without a trace ---- */
+.book-bar {
+  transition: width 0.35s ease;
+}
+@keyframes ghost-out {
+  from { opacity: 0.7; }
+  to { opacity: 0; }
+}
+.book-row-ghost {
+  pointer-events: none;
+  animation: ghost-out 0.7s ease forwards;
+}
+.book-row-ghost span {
+  color: #6b7280;
+  text-decoration: line-through;
+  text-decoration-color: rgba(107, 114, 128, 0.6);
+}
+@keyframes cell-flash-up {
+  from { background: rgba(46, 189, 133, 0.26); }
+  to { background: transparent; }
+}
+@keyframes cell-flash-down {
+  from { background: rgba(246, 70, 93, 0.26); }
+  to { background: transparent; }
+}
+.cell-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.cell-flash.up { animation: cell-flash-up 0.7s ease forwards; }
+.cell-flash.down { animation: cell-flash-down 0.7s ease forwards; }
+@keyframes feed-in {
+  from { opacity: 0; transform: translateY(-7px); background: rgba(240, 185, 11, 0.08); }
+  to { opacity: 1; transform: none; background: transparent; }
+}
+.feed-in { animation: feed-in 0.45s ease; }
+
+/* ---- feed tabs (Recent Fills / Maker Activity) ---- */
+.feed-tabs { gap: 12px; }
+.feed-tab {
+  all: unset;
+  cursor: pointer;
+  color: #6b7280;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.feed-tab:hover { color: #aab0bb; }
+.feed-tab-on {
+  color: #e6e8ea;
+  box-shadow: 0 1px 0 #f0b90b;
 }

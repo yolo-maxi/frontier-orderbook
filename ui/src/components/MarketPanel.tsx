@@ -3,7 +3,8 @@ import { useApp, type PositionRow } from "../state/app";
 import { fmtAmount, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
 
 export function MarketPanel() {
-  const { summary, priceHistory, fills } = useApp();
+  const { summary, priceHistory, fills, makerEvents } = useApp();
+  const [feedTab, setFeedTab] = useState<"trades" | "makers">("trades");
 
   const last = summary ? tickToPrice(summary.currentTick) : null;
   const sessionOpen = priceHistory.length > 0 ? priceHistory[0].price : null;
@@ -68,34 +69,91 @@ export function MarketPanel() {
         <BookChart />
       </div>
       <div className="panel fills-panel">
-        <div className="panel-title">Recent Fills</div>
-        <div className="fills-head num">
-          <span>Time</span>
-          <span>Side</span>
-          <span>Price Range</span>
-          <span className="ta-r">Size (WETH)</span>
+        <div className="panel-title feed-tabs">
+          <button
+            className={`feed-tab ${feedTab === "trades" ? "feed-tab-on" : ""}`}
+            onClick={() => setFeedTab("trades")}
+          >
+            Recent Fills
+          </button>
+          <button
+            className={`feed-tab ${feedTab === "makers" ? "feed-tab-on" : ""}`}
+            onClick={() => setFeedTab("makers")}
+          >
+            Maker Activity
+          </button>
         </div>
-        <div className="fills-body">
-          {fills.length === 0 && (
-            <div className="empty-state">
-              no fills observed yet — fills stream in as takers cross the book
+        {feedTab === "trades" ? (
+          <>
+            <div className="fills-head num">
+              <span>Time</span>
+              <span>Side</span>
+              <span>Price Range</span>
+              <span className="ta-r">Size (WETH)</span>
             </div>
-          )}
-          {fills.map((f) => (
-            <div className="fill-row num" key={f.key}>
-              <span className="dim">{fmtTime(f.time)}</span>
-              <span className={f.side === "buy" ? "up" : "down"}>
-                {f.side === "buy" ? "BUY" : "SELL"}
-              </span>
-              <span>
-                {fmtPrice(f.priceLo, 3)}
-                <span className="dim"> → </span>
-                {fmtPrice(f.priceHi, 3)}
-              </span>
-              <span className="ta-r">{fmtAmount(f.size0, 4)}</span>
+            <div className="fills-body">
+              {fills.length === 0 && (
+                <div className="empty-state">
+                  no fills observed yet — fills stream in as takers cross the book
+                </div>
+              )}
+              {fills.map((f) => (
+                <div className="fill-row num feed-in" key={f.key}>
+                  <span className="dim">{fmtTime(f.time)}</span>
+                  <span className={f.side === "buy" ? "up" : "down"}>
+                    {f.side === "buy" ? "BUY" : "SELL"}
+                  </span>
+                  <span>
+                    {fmtPrice(f.priceLo, 3)}
+                    <span className="dim"> → </span>
+                    {fmtPrice(f.priceHi, 3)}
+                  </span>
+                  <span className="ta-r">{fmtAmount(f.size0, 4)}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        ) : (
+          <>
+            <div className="fills-head num">
+              <span>Time</span>
+              <span>Action</span>
+              <span>Range / Position</span>
+              <span className="ta-r">Size / Payout</span>
+            </div>
+            <div className="fills-body">
+              {makerEvents.length === 0 && (
+                <div className="empty-state">
+                  no maker activity yet — quotes, requotes, cancels and claims land here
+                </div>
+              )}
+              {makerEvents.map((e) => (
+                <div className="fill-row num feed-in" key={e.key}>
+                  <span className="dim">{fmtTime(e.time)}</span>
+                  <span className={makerActionCls(e)}>{makerActionLabel(e)}</span>
+                  <span>
+                    {e.priceLo !== null && e.priceHi !== null ? (
+                      <>
+                        {fmtPrice(e.priceLo, 3)}
+                        <span className="dim"> → </span>
+                        {fmtPrice(e.priceHi, 3)}
+                      </>
+                    ) : (
+                      <span className="dim">#{e.positionId.toString()}</span>
+                    )}
+                  </span>
+                  <span className="ta-r">
+                    {e.size0 !== null
+                      ? `${fmtAmount(e.size0, 4)}/lvl`
+                      : e.payout !== null
+                        ? fmtAmount(e.payout, 4)
+                        : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </section>
   );
@@ -169,10 +227,11 @@ function BookChart() {
   const { priceHistory, depth, summary, positions, preview, makeFocus } = useApp();
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(760);
-  // Make mode: the book's share of the chart expands — taller plot, a
-  // gutter wide enough that the preview ladder reads as a shape
-  const H = makeFocus ? 400 : 280;
-  const GUT = makeFocus ? 280 : GUTTER_W;
+  // Make mode: the BOOK's share of the chart expands — the price line
+  // compresses to the left and the depth bars take ~45% of the width, so
+  // the maker view is about the book, not the line. Same canvas size.
+  const H = 280;
+  const GUT = makeFocus ? Math.min(Math.round(width * 0.45), 430) : GUTTER_W;
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -211,14 +270,13 @@ function BookChart() {
       min = Math.min(min, tickToPrice(preview.endTick));
       max = Math.max(max, tickToPrice(preview.endTick));
     }
-    // pull NEARBY open positions into view (within 0.5% of mid); far ones
-    // are signposted with edge chips instead of flattening the chart
+    // your open positions are ALWAYS in view: the Y domain stretches to
+    // cover every band (a far ladder compresses the price line — that is
+    // the correct trade: you can't manage what you can't see)
     const allBands = positionBands(positions);
     for (const b of allBands) {
-      if (b.pLo < mid * 1.005 && b.pHi > mid * 0.995) {
-        min = Math.min(min, b.pLo);
-        max = Math.max(max, b.pHi);
-      }
+      min = Math.min(min, b.pLo);
+      max = Math.max(max, b.pHi);
     }
     const pad = Math.max((max - min) * 0.1, mid * 0.0003);
     min -= pad;
@@ -489,4 +547,25 @@ function BookChart() {
       </svg>
     </div>
   );
+}
+
+function makerActionLabel(e: { kind: string; side: "ask" | "bid" | null }): string {
+  const side = e.side ? ` ${e.side.toUpperCase()}` : "";
+  switch (e.kind) {
+    case "place":
+      return `PLACE${side}`;
+    case "requote":
+      return `REQUOTE${side}`;
+    case "cancel":
+      return "CANCEL";
+    default:
+      return "CLAIM";
+  }
+}
+
+function makerActionCls(e: { kind: string; side: "ask" | "bid" | null }): string {
+  if (e.kind === "place" || e.kind === "requote") {
+    return e.side === "ask" ? "down" : e.side === "bid" ? "up" : "dim";
+  }
+  return e.kind === "claim" ? "up" : "dim";
 }

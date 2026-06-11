@@ -71,7 +71,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { cfg, configured, rpcError, makeFocus } = useApp();
+  const { cfg, configured, rpcError } = useApp();
 
   return (
     <div className="app">
@@ -98,7 +98,7 @@ function Shell() {
           </div>
         </main>
       ) : (
-        <main className={`grid ${makeFocus ? "grid-make" : ""}`}>
+        <main className="grid">
           <OrderBook />
           <MarketPanel />
           <SidePanel />

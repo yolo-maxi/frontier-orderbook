@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useReducer, useRef } from "react";
 import { useApp } from "../state/app";
 import { fmtPrice, niceStep, stepDecimals, tickToPrice } from "../lib/format";
 import { formatUnits } from "viem";
@@ -50,6 +50,18 @@ export function OrderBook() {
     bucketLo + step > previewRange.pLo &&
     bucketLo < previewRange.pHi;
   const midDirRef = useRef<{ prev: number | null; dir: 1 | -1 | 0 }>({ prev: null, dir: 0 });
+  const stepRef = useRef<number | null>(null);
+  // rows that vanished keep fading for a beat; rows that changed flash
+  const ghostsRef = useRef<{ ask: Map<number, Ghost>; bid: Map<number, Ghost> }>({
+    ask: new Map(),
+    bid: new Map(),
+  });
+  const flashesRef = useRef<{ ask: Map<number, CellFlash>; bid: Map<number, CellFlash> }>({
+    ask: new Map(),
+    bid: new Map(),
+  });
+  const prevBucketsRef = useRef<{ ask: Map<number, number>; bid: Map<number, number>; step: number } | null>(null);
+  const [, bump] = useReducer((x: number) => x + 1, 0);
 
   const model = useMemo(() => {
     if (!summary) return null;
@@ -68,7 +80,16 @@ export function OrderBook() {
         ? Math.max(...xs.map((x) => x.price)) - Math.min(...xs.map((x) => x.price))
         : 0;
     const span = Math.max(sideSpan(asks), sideSpan(bids));
-    const step = niceStep(span / BUCKETS_PER_SIDE);
+    // hysteresis: niceStep flaps between adjacent 1-2-5 levels as the span
+    // drifts, re-bucketing the whole book in one frame ("everything
+    // disappeared"). Keep the previous step until the raw one is decisively
+    // (>2.5x) away.
+    let step = niceStep(span / BUCKETS_PER_SIDE);
+    const prevStep = stepRef.current;
+    if (prevStep !== null && step !== prevStep && step > prevStep / 2.5 && step < prevStep * 2.5) {
+      step = prevStep;
+    }
+    stepRef.current = step;
     const dp = stepDecimals(step);
     const askBuckets = bucketize(asks, step, "ask");
     const bidBuckets = bucketize(bids, step, "bid");
@@ -87,6 +108,46 @@ export function OrderBook() {
         : null;
     return { askBuckets, bidBuckets, maxCum, mid, spread, dp, step };
   }, [summary, depth]);
+
+  useEffect(() => {
+    if (!model) return;
+    const now = Date.now();
+    const cur = {
+      ask: new Map(model.askBuckets.map((b) => [b.price, b.size])),
+      bid: new Map(model.bidBuckets.map((b) => [b.price, b.size])),
+    };
+    const prev = prevBucketsRef.current;
+    if (prev && prev.step === model.step) {
+      for (const side of ["ask", "bid"] as const) {
+        for (const [price, size] of prev[side]) {
+          if (!cur[side].has(price)) ghostsRef.current[side].set(price, { price, size, ts: now });
+        }
+        for (const [price, size] of cur[side]) {
+          ghostsRef.current[side].delete(price);
+          const old = prev[side].get(price);
+          if (old !== undefined && Math.abs(size - old) > Math.abs(old) * 1e-4) {
+            flashesRef.current[side].set(price, { dir: size > old ? "up" : "down", ts: now });
+          }
+        }
+      }
+    } else {
+      // bucket grid changed wholesale: ghosts would be misleading
+      ghostsRef.current.ask.clear();
+      ghostsRef.current.bid.clear();
+    }
+    prevBucketsRef.current = { ...cur, step: model.step };
+    bump();
+    const t = setTimeout(() => {
+      const cutoff = Date.now() - GHOST_MS;
+      for (const side of ["ask", "bid"] as const) {
+        for (const [k, g] of ghostsRef.current[side]) if (g.ts < cutoff) ghostsRef.current[side].delete(k);
+        for (const [k, f] of flashesRef.current[side]) if (f.ts < cutoff) flashesRef.current[side].delete(k);
+      }
+      bump();
+    }, GHOST_MS + 60);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model]);
 
   if (!model) {
     return (
@@ -145,17 +206,26 @@ export function OrderBook() {
       <div className="book-body">
         <div className="book-side book-asks">
           {askBuckets.length === 0 && <div className="empty-state">no asks in window</div>}
-          {[...askBuckets].reverse().map((b) => (
-            <div className={`book-row ${inPreview("ask", b.price, step) ? "book-row-hl" : ""}`} key={`a${b.price}`}>
-              <div
-                className="book-bar bar-ask"
-                style={{ width: `${Math.min(100, (b.cum / maxCum) * 100)}%` }}
-              />
-              <span className="px ask num">{fmtPrice(b.price, dp)}</span>
-              <span className="num">{fmtSize(b.size, sizeDp)}</span>
-              <span className="num dim">{fmtSize(b.cum, sizeDp)}</span>
-            </div>
-          ))}
+          {mergeGhosts(askBuckets, ghostsRef.current.ask, "ask").map((b) =>
+            b.ghost ? (
+              <div className="book-row book-row-ghost" key={`ga${b.price}`}>
+                <span className="px num">{fmtPrice(b.price, dp)}</span>
+                <span className="num">{fmtSize(b.size, sizeDp)}</span>
+                <span className="num dim">—</span>
+              </div>
+            ) : (
+              <div className={`book-row ${inPreview("ask", b.price, step) ? "book-row-hl" : ""}`} key={`a${b.price}`}>
+                {flashOverlay(flashesRef.current.ask.get(b.price))}
+                <div
+                  className="book-bar bar-ask"
+                  style={{ width: `${Math.min(100, (b.cum / maxCum) * 100)}%` }}
+                />
+                <span className="px ask num">{fmtPrice(b.price, dp)}</span>
+                <span className="num">{fmtSize(b.size, sizeDp)}</span>
+                <span className="num dim">{fmtSize(b.cum, sizeDp)}</span>
+              </div>
+            ),
+          )}
         </div>
         <div className="book-mid num">
           <span
@@ -174,17 +244,26 @@ export function OrderBook() {
         </div>
         <div className="book-side book-bids">
           {bidBuckets.length === 0 && <div className="empty-state">no bids in window</div>}
-          {bidBuckets.map((b) => (
-            <div className={`book-row ${inPreview("bid", b.price, step) ? "book-row-hl" : ""}`} key={`b${b.price}`}>
-              <div
-                className="book-bar bar-bid"
-                style={{ width: `${Math.min(100, (b.cum / maxCum) * 100)}%` }}
-              />
-              <span className="px bid num">{fmtPrice(b.price, dp)}</span>
-              <span className="num">{fmtSize(b.size, sizeDp)}</span>
-              <span className="num dim">{fmtSize(b.cum, sizeDp)}</span>
-            </div>
-          ))}
+          {mergeGhosts(bidBuckets, ghostsRef.current.bid, "bid").map((b) =>
+            b.ghost ? (
+              <div className="book-row book-row-ghost" key={`gb${b.price}`}>
+                <span className="px num">{fmtPrice(b.price, dp)}</span>
+                <span className="num">{fmtSize(b.size, sizeDp)}</span>
+                <span className="num dim">—</span>
+              </div>
+            ) : (
+              <div className={`book-row ${inPreview("bid", b.price, step) ? "book-row-hl" : ""}`} key={`b${b.price}`}>
+                {flashOverlay(flashesRef.current.bid.get(b.price))}
+                <div
+                  className="book-bar bar-bid"
+                  style={{ width: `${Math.min(100, (b.cum / maxCum) * 100)}%` }}
+                />
+                <span className="px bid num">{fmtPrice(b.price, dp)}</span>
+                <span className="num">{fmtSize(b.size, sizeDp)}</span>
+                <span className="num dim">{fmtSize(b.cum, sizeDp)}</span>
+              </div>
+            ),
+          )}
         </div>
       </div>
     </section>
@@ -209,4 +288,36 @@ function fmtSize(n: number, dp: number): string {
     minimumFractionDigits: dp,
     maximumFractionDigits: dp,
   });
+}
+
+const GHOST_MS = 700;
+
+interface Ghost {
+  price: number;
+  size: number;
+  ts: number;
+}
+
+interface CellFlash {
+  dir: "up" | "down";
+  ts: number;
+}
+
+type RowItem = (Bucket & { ghost: false }) | { price: number; size: number; cum: number; ghost: true };
+
+function mergeGhosts(buckets: Bucket[], ghosts: Map<number, Ghost>, side: "ask" | "bid"): RowItem[] {
+  const now = Date.now();
+  const live: RowItem[] = buckets.map((b) => ({ ...b, ghost: false as const }));
+  for (const g of ghosts.values()) {
+    if (now - g.ts >= GHOST_MS) continue;
+    live.push({ price: g.price, size: g.size, cum: 0, ghost: true as const });
+  }
+  live.sort((a, b) => (side === "ask" ? a.price - b.price : b.price - a.price));
+  // asks render reversed (highest at the top of the ask stack)
+  return side === "ask" ? live.reverse() : live;
+}
+
+function flashOverlay(f: CellFlash | undefined) {
+  if (!f || Date.now() - f.ts >= GHOST_MS) return null;
+  return <span className={`cell-flash ${f.dir}`} key={f.ts} />;
 }
