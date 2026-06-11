@@ -144,7 +144,11 @@ export function TradePanel() {
 
   const onSwap = async () => {
     if (amountIn === null || derived === null) return;
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+    // deadline must be CHAIN-relative: the devnet's instamine block time
+    // runs ahead of wall clocks, so Date.now()-based deadlines arrive
+    // already expired
+    const { timestamp } = await client.getBlock({ blockTag: "latest" });
+    const deadline = timestamp + 600n;
     const ok = await sendTx(
       side === "buy" ? "Market buy WETH" : "Market sell WETH",
       () =>

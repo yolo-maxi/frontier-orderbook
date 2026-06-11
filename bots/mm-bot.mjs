@@ -3,7 +3,7 @@
 // while fast-path requotes are signed by a separate OPERATOR key holding
 // selector-scoped grants in the PermissionRegistry. Fills force the slow
 // path (settle via owner: cancel -> repost), exactly like a real desk.
-import { deployment, pub, wallet, bookAbi, erc20Abi, registryAbi, priceToTick, tickToPrice, ethUsd, log } from './lib.mjs';
+import { deployment, pub, wallet, bookAbi, erc20Abi, registryAbi, priceToTick, tickToPrice, ethUsd, log, chainDeadline } from './lib.mjs';
 import { toFunctionSelector } from 'viem';
 
 const OWNER_PK = process.env.MM_OWNER_PK || '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
@@ -48,7 +48,7 @@ async function settleAndRepost(targetTick, offset) {
   for (let i = 0; i < 40; i++) {
     const cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: 'currentTick' }));
     if (Math.abs(cur - targetTick) <= offset) break;
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 120);
+    const deadline = await chainDeadline(120);
     try {
       await write(owner, book, bookAbi, 'sweepWithLimits', [targetTick, 200n, 2n ** 200n, 0n, deadline]);
     } catch (e) {

@@ -14,6 +14,11 @@ export const chain = defineChain({
 });
 
 export const pub = createPublicClient({ chain, transport: http() });
+
+// deadline relative to CHAIN time: the devnet's instamine block timestamps
+// run ahead of wall clocks, so Date.now()-based deadlines arrive expired
+export const chainDeadline = async (secs = 120) =>
+  (await pub.getBlock()).timestamp + BigInt(secs);
 export const wallet = (pk) => {
   const account = privateKeyToAccount(pk);
   return { account, client: createWalletClient({ account, chain, transport: http() }) };
