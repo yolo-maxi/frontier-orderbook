@@ -20,6 +20,14 @@ features:
     details: When the market trades through your prices, your proceeds are simply yours. Claim now, claim later — nothing expires, nothing needs a keeper.
   - title: Safe automation
     details: Let a bot manage your quotes without ever holding your funds. Grants are per-action and expirable; payouts only ever go to you.
+  - title: Costs you can price before you trade
+    details: Every operation is benchmarked as a real transaction. Pick your network — Ethereum, Base, Gnosis — and see what a trade costs in dollars before you make it.
+    link: /guide/gas
+    linkText: Price it on your chain
+  - title: A platform, not just a venue
+    details: v4-style hooks turn any book into a gated market, its own TWAP oracle, a circuit-breaker venue, or a maker-rewards program — implemented and tested, not hypothetical.
+    link: /guide/hooks
+    linkText: See the experiments
 ---
 
 ## Try it now
@@ -37,4 +45,5 @@ The market you'll see is live: bots quote ETH-USDC around the real
 Coinbase price at a ±0.1% spread, and a flow bot trades against them.
 
 *Want to know how it works under the hood? Start with
-[The Mechanism](/guide/mechanism), or see [the numbers](/guide/gas).*
+[The Mechanism](/guide/mechanism), price every operation on your chain in
+[Gas](/guide/gas), or see what books can become in [Hooks](/guide/hooks).*
