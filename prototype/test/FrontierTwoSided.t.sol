@@ -204,6 +204,23 @@ contract FrontierTwoSidedTest is Test {
         assertEq(book.claimable(ask), floorSpan1(103, 106, L), "asks unchanged by down-sweep");
     }
 
+    function testBidConsumedUsesLowWaterNotAskHighWater() public {
+        vm.prank(mm);
+        uint256 bid = book.depositBid(80, 90, L);
+        vm.prank(mm2);
+        book.deposit(101, 102, L);
+
+        vm.prank(buyer);
+        book.moveTickTo(102);
+
+        assertFalse(book.isConsumedFor(bid, 80), "unrelated up-sweep must not consume bid");
+        assertEq(book.bidClaimable(bid), 0, "bid remains untouched");
+
+        vm.prank(seller);
+        book.moveTickTo(80);
+        assertTrue(book.isConsumedFor(bid, 80), "down-sweep consumes bid");
+    }
+
     function testNoCrossingDeposits() public {
         vm.prank(mm);
         vm.expectRevert(bytes("range not above price"));

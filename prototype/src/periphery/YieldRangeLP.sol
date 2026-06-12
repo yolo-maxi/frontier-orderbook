@@ -144,7 +144,7 @@ contract YieldRangeLP {
             uint256 cost;
             while (n < levelsPerSide) {
                 int24 lvl = upper - int24(n + 1) * s;
-                uint256 levelCost = (uint256(sizePerLevel) * book.rateAt(lvl) + 1e18 - 1) / 1e18;
+                uint256 levelCost = book.quoteBidPrincipal(lvl, lvl + s, sizePerLevel);
                 if (cost + levelCost > budget) break;
                 cost += levelCost;
                 n++;
@@ -183,14 +183,12 @@ contract YieldRangeLP {
     }
 
     function _bal(address token) internal view returns (uint256) {
-        (bool ok, bytes memory ret) =
-            token.staticcall(abi.encodeWithSignature("balanceOf(address)", address(this)));
+        (bool ok, bytes memory ret) = token.staticcall(abi.encodeWithSignature("balanceOf(address)", address(this)));
         return ok ? abi.decode(ret, (uint256)) : 0;
     }
 
     function _approveMax(address token, address spender) internal {
-        (bool ok,) =
-            token.call(abi.encodeWithSignature("approve(address,uint256)", spender, type(uint256).max));
+        (bool ok,) = token.call(abi.encodeWithSignature("approve(address,uint256)", spender, type(uint256).max));
         require(ok, "approve failed");
     }
 

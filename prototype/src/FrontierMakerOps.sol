@@ -23,15 +23,29 @@ contract FrontierMakerOps is FrontierBookBase {
     {}
 
     /// @notice Transfer position ownership (claims/refunds follow the new
-    /// owner). Makes positions composable assets: periphery contracts can
-    /// build positions and hand them to users; wrappers can tokenize them.
+    /// owner). Unwithdrawn internal credits already claimed from this
+    /// position move with it; if the current owner already spent or withdrew
+    /// those credits, transfer is blocked to avoid value detachment.
     function transferPosition(uint256 positionId, address to) external {
         Position storage p = positions[positionId];
         require(p.live, "not live");
         _authOwner(p.owner);
         require(to != address(0), "zero owner");
+        address from = p.owner;
+        uint256 credit0 = internalCredit0ByPosition[positionId];
+        uint256 credit1 = internalCredit1ByPosition[positionId];
+        if (credit0 > 0) {
+            require(internalBalance0[from] >= credit0, "internal credit spent");
+            internalBalance0[from] -= credit0;
+            internalBalance0[to] += credit0;
+        }
+        if (credit1 > 0) {
+            require(internalBalance1[from] >= credit1, "internal credit spent");
+            internalBalance1[from] -= credit1;
+            internalBalance1[to] += credit1;
+        }
         p.owner = to;
-        emit PositionTransferred(positionId, msg.sender, to);
+        emit PositionTransferred(positionId, from, to);
     }
 
     /// @notice O(1) re-price for quoters: move a completely UNFILLED order to
@@ -62,7 +76,9 @@ contract FrontierMakerOps is FrontierBookBase {
         // or they could be bypassed by deposit-then-requote
         _callHook(
             FrontierHookFlags.BEFORE_DEPOSIT_FLAG,
-            abi.encodeCall(IFrontierHooks.beforeDeposit, (msg.sender, newLower, newUpper, newLiquidity, newSlope, false)),
+            abi.encodeCall(
+                IFrontierHooks.beforeDeposit, (msg.sender, newLower, newUpper, newLiquidity, newSlope, false)
+            ),
             IFrontierHooks.beforeDeposit.selector
         );
 
@@ -99,9 +115,7 @@ contract FrontierMakerOps is FrontierBookBase {
         require(newLiquidity > 0, "zero liquidity");
         // completely unfilled <=> topmost level not filled since deposit
         require(_lowSince(p.depositClock) > p.upper - tickSpacing, "partially filled");
-        require(newLower < newUpper, "empty range");
-        require(newLower % tickSpacing == 0 && newUpper % tickSpacing == 0, "unaligned");
-        require(newUpper <= _currentTick, "range not below price");
+        _checkBidRange(newLower, newUpper);
         _callHook(
             FrontierHookFlags.BEFORE_DEPOSIT_FLAG,
             abi.encodeCall(IFrontierHooks.beforeDeposit, (msg.sender, newLower, newUpper, newLiquidity, 0, true)),

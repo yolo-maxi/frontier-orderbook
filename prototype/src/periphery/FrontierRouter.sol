@@ -40,8 +40,9 @@ contract FrontierRouter {
         require(path.length == 2, "2-hop paths only");
         RollingFrontierBook book = _bookFor(path[0], path[1]);
         bool buying = path[0] == address(book.token1()); // token1 in -> token0 out
-        (uint256 paid, uint256 received) =
-            buying ? _buy(book, amountIn, amountOutMin, to, deadline) : _sell(book, amountIn, amountOutMin, to, deadline);
+        (uint256 paid, uint256 received) = buying
+            ? _buy(book, amountIn, amountOutMin, to, deadline)
+            : _sell(book, amountIn, amountOutMin, to, deadline);
         amounts = new uint256[](2);
         amounts[0] = paid;
         amounts[1] = received;
@@ -52,11 +53,7 @@ contract FrontierRouter {
     /// what would actually be spent (the rest is refunded on execution) —
     /// mirroring what `swapExactTokensForTokens` returns. Curve-aware via
     /// the lens (linear and geometric books both quote exactly).
-    function getAmountsOut(uint256 amountIn, address[] calldata path)
-        external
-        view
-        returns (uint256[] memory amounts)
-    {
+    function getAmountsOut(uint256 amountIn, address[] calldata path) external view returns (uint256[] memory amounts) {
         require(path.length == 2, "2-hop paths only");
         RollingFrontierBook book = _bookFor(path[0], path[1]);
         bool buying = path[0] == address(book.token1());
@@ -96,7 +93,7 @@ contract FrontierRouter {
         returns (uint256 paid, uint256 received)
     {
         IERC20Minimal t1 = book.token1();
-        require(t1.transferFrom(msg.sender, address(this), amountIn), "pull failed");
+        _pullExact(t1, msg.sender, amountIn);
         _ensureApproved(t1, address(book));
 
         int24 target = _clampTick(book, int256(book.currentTick()) + SWEEP_WINDOW, book.tickSpacing());
@@ -111,7 +108,7 @@ contract FrontierRouter {
         returns (uint256 paid, uint256 received)
     {
         IERC20Minimal t0 = book.token0();
-        require(t0.transferFrom(msg.sender, address(this), amountIn), "pull failed");
+        _pullExact(t0, msg.sender, amountIn);
         _ensureApproved(t0, address(book));
 
         int24 target = _clampTick(book, int256(book.currentTick()) - SWEEP_WINDOW, book.tickSpacing());
@@ -138,6 +135,12 @@ contract FrontierRouter {
                 address(token).call(abi.encodeWithSignature("approve(address,uint256)", spender, type(uint256).max));
             require(ok2, "approve failed");
         }
+    }
+
+    function _pullExact(IERC20Minimal token, address payer, uint256 amount) internal {
+        uint256 beforeBal = token.balanceOf(address(this));
+        require(token.transferFrom(payer, address(this), amount), "pull failed");
+        require(token.balanceOf(address(this)) - beforeBal == amount, "non-exact transfer");
     }
 
     /// @dev curve-aware sweep window: geometric books live on ±200k ticks

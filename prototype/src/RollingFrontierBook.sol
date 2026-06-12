@@ -177,6 +177,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         proceeds1 = _spanAmt1(p, p.claimedUpper, frontier);
         p.claimedUpper = frontier;
         internalBalance1[p.owner] += proceeds1;
+        internalCredit1ByPosition[positionId] += proceeds1;
         emit InternalCredit(p.owner, 0, proceeds1);
         emit Claim(positionId, proceeds1);
     }
@@ -194,9 +195,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     function _depositBid(int24 lower, int24 upper, uint128 liquidity) internal returns (uint256 positionId) {
         require(liquidity > 0, "zero liquidity");
-        require(lower < upper, "empty range");
-        require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
-        require(upper <= _currentTick, "range not below price");
+        _checkBidRange(lower, upper);
         _callHook(
             FrontierHookFlags.BEFORE_DEPOSIT_FLAG,
             abi.encodeCall(IFrontierHooks.beforeDeposit, (msg.sender, lower, upper, liquidity, 0, true)),
@@ -274,10 +273,10 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         }
         if (!toInternal) return claimBidTo(positionId, frontier);
 
-        proceeds0 =
-            uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
+        proceeds0 = uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
         p.claimedUpper = frontier;
         internalBalance0[p.owner] += proceeds0;
+        internalCredit0ByPosition[positionId] += proceeds0;
         emit InternalCredit(p.owner, proceeds0, 0);
         emit Claim(positionId, proceeds0);
     }
@@ -407,6 +406,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         require(block.timestamp <= deadline, "expired");
         int24 oldTick = _currentTick;
         if (target == oldTick) return (oldTick, 0, 0);
+        _checkSweepTarget(target);
         _callHook(
             FrontierHookFlags.BEFORE_SWEEP_FLAG,
             abi.encodeCall(IFrontierHooks.beforeSweep, (msg.sender, oldTick, target)),
@@ -416,13 +416,13 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
             (reached, paid, received) = _sweepUp(oldTick, target, maxFills, maxPay);
             _currentTick = reached;
             require(received >= minOut, "insufficient output");
-            if (paid > 0) require(token1.transferFrom(msg.sender, address(this), paid), "fill payment failed");
+            if (paid > 0) _transferInExact(token1, msg.sender, paid, "non-exact token1 transfer");
             if (received > 0) require(token0.transfer(msg.sender, received), "fill payout failed");
         } else {
             (reached, paid, received) = _sweepDown(oldTick, target, maxFills, maxPay);
             _currentTick = reached;
             require(received >= minOut, "insufficient output");
-            if (paid > 0) require(token0.transferFrom(msg.sender, address(this), paid), "fill payment failed");
+            if (paid > 0) _transferInExact(token0, msg.sender, paid, "non-exact token0 transfer");
             if (received > 0) require(token1.transfer(msg.sender, received), "fill payout failed");
         }
         _callHook(
@@ -515,9 +515,16 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @dev Budget/step-limit exhausted at endpoint `e`: fill the affordable
     /// prefix of the run and park before the first unfilled level.
-    function _parkUp(UpSweep memory S, int24 e, int256 a0, int256 S2, uint256 n, uint256 maxSteps, uint256 maxPay, int24 oldTick)
-        internal
-    {
+    function _parkUp(
+        UpSweep memory S,
+        int24 e,
+        int256 a0,
+        int256 S2,
+        uint256 n,
+        uint256 maxSteps,
+        uint256 maxPay,
+        int24 oldTick
+    ) internal {
         uint256 fit = 0;
         if (S.steps != maxSteps && maxPay > S.owed1) {
             fit = _maxAffordable(e, a0, S2, n, maxPay - S.owed1);
@@ -638,9 +645,15 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// @dev Budget/step-limit exhausted at endpoint `e`: fill the affordable
     /// prefix of the run (uniform cost => subdivision is one division) and
     /// park just above the first unfilled level.
-    function _parkDown(DownSweep memory S, int24 e, int256 a0, uint256 n, uint256 maxSteps, uint256 maxPay, int24 oldTick)
-        internal
-    {
+    function _parkDown(
+        DownSweep memory S,
+        int24 e,
+        int256 a0,
+        uint256 n,
+        uint256 maxSteps,
+        uint256 maxPay,
+        int24 oldTick
+    ) internal {
         uint256 fit = 0;
         if (S.steps != maxSteps && maxPay > S.owed0 && a0 > 0) {
             fit = (maxPay - S.owed0) / uint256(a0);
@@ -700,13 +713,30 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         return uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
     }
 
-    /// @notice token1 still backing a bid's unfilled levels (floor).
+    /// @notice Floor-rounded token1 still backing a bid's unfilled levels.
+    /// @dev Use bidEscrowed when an exact ceil-rounded escrow view is needed.
     function bidRefundable(uint256 positionId) external view returns (uint256) {
         Position storage p = positions[positionId];
         if (!p.live || !p.isBid) return 0;
         int24 frontier = _bidFrontier(p);
         if (frontier <= p.lower) return 0;
         return _uniformSpanValue(p.lower, frontier, p.liquidity, false);
+    }
+
+    /// @notice Exact token1 escrow required for a fresh bid over [lower, upper).
+    function quoteBidPrincipal(int24 lower, int24 upper, uint128 liquidity) external view returns (uint256) {
+        require(liquidity > 0, "zero liquidity");
+        _checkBidRange(lower, upper);
+        return _uniformSpanValue(lower, upper, liquidity, true);
+    }
+
+    /// @notice Ceil-rounded token1 still backing a bid's unfilled levels.
+    function bidEscrowed(uint256 positionId) external view returns (uint256) {
+        Position storage p = positions[positionId];
+        if (!p.live || !p.isBid) return 0;
+        int24 frontier = _bidFrontier(p);
+        if (frontier <= p.lower) return 0;
+        return _uniformSpanValue(p.lower, frontier, p.liquidity, true);
     }
 
     /// @notice The book's price curve at a tick (X18 token1 per token0).
@@ -716,6 +746,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     function isConsumedFor(uint256 positionId, int24 lowerTick) external view returns (bool) {
         Position storage p = positions[positionId];
+        if (p.isBid) return _lowSince(p.depositClock) <= lowerTick;
         return _highSince(p.depositClock) >= lowerTick + tickSpacing;
     }
 

@@ -12,7 +12,7 @@ import {ECDSA} from "./utils/ECDSA.sol";
 ///   length 0 = not granted / revoked
 ///   bytes[0:4] = uint32 expiry (type(uint32).max = permanent)
 ///   length 4 = full target approval
-///   length >4 = expiry followed by concatenated bytes4 selectors
+///   length >4 = concatenated (uint32 expiry, bytes4 selector) entries sorted by selector
 contract PermissionRegistry is IPermissionRegistry, EIP712 {
     uint48 internal constant PERMANENT = type(uint48).max;
     uint32 internal constant STORED_PERMANENT = type(uint32).max;
@@ -238,13 +238,12 @@ contract PermissionRegistry is IPermissionRegistry, EIP712 {
             return;
         }
 
-        bytes memory auth = new bytes(4 + length * 4);
-        _writeExpiry(auth, expiry);
+        bytes memory auth = new bytes(length * 8);
         bytes4 previous;
         for (uint256 i; i < length; ++i) {
             bytes4 selector = selectors[i];
             if (selector == bytes4(0) || selector <= previous) revert InvalidSelector();
-            _writeSelector(auth, i, selector);
+            _writeSelectorEntry(auth, i, expiry, selector);
             previous = selector;
             emit PermissionSet(user, operator, target, selector, true, _externalExpiry(expiry));
         }
@@ -266,20 +265,20 @@ contract PermissionRegistry is IPermissionRegistry, EIP712 {
 
         if (auth.length == 0 || auth.length == 4) {
             bytes memory fresh = new bytes(8);
-            _writeExpiry(fresh, expiry);
-            _writeSelector(fresh, 0, selector);
+            _writeSelectorEntry(fresh, 0, expiry, selector);
             permissions[user][operator][target] = fresh;
             emit PermissionSet(user, operator, target, selector, true, _externalExpiry(expiry));
             return;
         }
 
-        uint256 selectorCount = (auth.length - 4) / 4;
+        uint256 selectorCount = auth.length / 8;
         uint256 insertAt = selectorCount;
         bool found;
         for (uint256 i; i < selectorCount; ++i) {
             bytes4 current = _readSelector(auth, i);
             if (current == selector) {
                 found = true;
+                insertAt = i;
                 break;
             }
             if (selector < current) {
@@ -289,20 +288,21 @@ contract PermissionRegistry is IPermissionRegistry, EIP712 {
         }
 
         if (found) {
-            _writeExpiry(auth, expiry);
+            _writeSelectorEntryExpiry(auth, insertAt, expiry);
             permissions[user][operator][target] = auth;
             emit PermissionSet(user, operator, target, selector, true, _externalExpiry(expiry));
             return;
         }
 
-        bytes memory updated = new bytes(auth.length + 4);
-        _writeExpiry(updated, expiry);
+        bytes memory updated = new bytes(auth.length + 8);
         for (uint256 i; i < selectorCount + 1; ++i) {
-            bytes4 value;
-            if (i < insertAt) value = _readSelector(auth, i);
-            else if (i == insertAt) value = selector;
-            else value = _readSelector(auth, i - 1);
-            _writeSelector(updated, i, value);
+            if (i < insertAt) {
+                _writeSelectorEntry(updated, i, _readSelectorEntryExpiry(auth, i), _readSelector(auth, i));
+            } else if (i == insertAt) {
+                _writeSelectorEntry(updated, i, expiry, selector);
+            } else {
+                _writeSelectorEntry(updated, i, _readSelectorEntryExpiry(auth, i - 1), _readSelector(auth, i - 1));
+            }
         }
         permissions[user][operator][target] = updated;
         emit PermissionSet(user, operator, target, selector, true, _externalExpiry(expiry));
@@ -316,7 +316,7 @@ contract PermissionRegistry is IPermissionRegistry, EIP712 {
             return;
         }
 
-        uint256 selectorCount = (auth.length - 4) / 4;
+        uint256 selectorCount = auth.length / 8;
         uint256 removeAt = selectorCount;
         for (uint256 i; i < selectorCount; ++i) {
             if (_readSelector(auth, i) == selector) {
@@ -334,11 +334,10 @@ contract PermissionRegistry is IPermissionRegistry, EIP712 {
             return;
         }
 
-        bytes memory updated = new bytes(auth.length - 4);
-        _writeExpiry(updated, _readExpiry(auth));
+        bytes memory updated = new bytes(auth.length - 8);
         for (uint256 i; i < selectorCount - 1; ++i) {
-            bytes4 value = _readSelector(auth, i < removeAt ? i : i + 1);
-            _writeSelector(updated, i, value);
+            uint256 source = i < removeAt ? i : i + 1;
+            _writeSelectorEntry(updated, i, _readSelectorEntryExpiry(auth, source), _readSelector(auth, source));
         }
         permissions[user][operator][target] = updated;
         emit PermissionSet(user, operator, target, selector, false, 0);
@@ -351,37 +350,26 @@ contract PermissionRegistry is IPermissionRegistry, EIP712 {
     {
         uint256 length = auth.length;
         if (length == 0) return (false, 0, false);
-        if (length < 4 || (length - 4) % 4 != 0) return (false, 0, false);
-
-        if (length <= 31) {
-            bytes32 word;
-            assembly {
-                word := sload(auth.slot)
-            }
-            expiry = uint32(bytes4(word));
-            if (expiry == 0) return (false, expiry, false);
-            if (length == 4) return (true, expiry, true);
-
-            uint256 selectorCount = (length - 4) / 4;
-            for (uint256 i; i < selectorCount; ++i) {
-                bytes4 current = bytes4(word << ((i + 1) * 32));
-                if (current == selector) return (true, expiry, true);
-                if (current > selector) break;
-            }
-            return (false, expiry, false);
-        }
+        if (length != 4 && length % 8 != 0) return (false, 0, false);
 
         bytes memory authMemory = auth;
-        expiry = _readExpiry(authMemory);
-        if (expiry == 0) return (false, expiry, false);
+        if (length == 4) {
+            expiry = _readExpiry(authMemory);
+            if (expiry == 0) return (false, expiry, false);
+            return (true, expiry, true);
+        }
 
-        uint256 selectorCount = (length - 4) / 4;
+        uint256 selectorCount = length / 8;
         for (uint256 i; i < selectorCount; ++i) {
             bytes4 current = _readSelector(authMemory, i);
-            if (current == selector) return (true, expiry, true);
+            if (current == selector) {
+                expiry = _readSelectorEntryExpiry(authMemory, i);
+                if (expiry == 0) return (false, expiry, false);
+                return (true, expiry, true);
+            }
             if (current > selector) break;
         }
-        return (false, expiry, false);
+        return (false, 0, false);
     }
 
     function _validate(address user, address operator, address target, bytes4 selector) internal pure {
@@ -424,14 +412,32 @@ contract PermissionRegistry is IPermissionRegistry, EIP712 {
     }
 
     function _readSelector(bytes memory auth, uint256 index) internal pure returns (bytes4 selector) {
-        uint256 offset = 36 + index * 4;
+        uint256 offset = 36 + index * 8;
         assembly {
             selector := mload(add(auth, offset))
         }
     }
 
-    function _writeSelector(bytes memory auth, uint256 index, bytes4 selector) internal pure {
-        uint256 offset = 36 + index * 4;
+    function _readSelectorEntryExpiry(bytes memory auth, uint256 index) internal pure returns (uint32 expiry) {
+        uint256 offset = 32 + index * 8;
+        assembly {
+            expiry := shr(224, mload(add(auth, offset)))
+        }
+    }
+
+    function _writeSelectorEntryExpiry(bytes memory auth, uint256 index, uint32 expiry) internal pure {
+        uint256 offset = 32 + index * 8;
+        assembly {
+            let ptr := add(auth, offset)
+            let word := mload(ptr)
+            word := or(shl(224, expiry), and(word, 0x00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff))
+            mstore(ptr, word)
+        }
+    }
+
+    function _writeSelectorEntry(bytes memory auth, uint256 index, uint32 expiry, bytes4 selector) internal pure {
+        _writeSelectorEntryExpiry(auth, index, expiry);
+        uint256 offset = 36 + index * 8;
         assembly {
             let ptr := add(auth, offset)
             let word := mload(ptr)

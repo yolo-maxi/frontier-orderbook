@@ -45,12 +45,10 @@ contract RangeLP {
         owner = _owner;
         token0 = _book.token0();
         token1 = _book.token1();
-        (bool ok0,) = address(token0).call(
-            abi.encodeWithSignature("approve(address,uint256)", address(_book), type(uint256).max)
-        );
-        (bool ok1,) = address(token1).call(
-            abi.encodeWithSignature("approve(address,uint256)", address(_book), type(uint256).max)
-        );
+        (bool ok0,) =
+            address(token0).call(abi.encodeWithSignature("approve(address,uint256)", address(_book), type(uint256).max));
+        (bool ok1,) =
+            address(token1).call(abi.encodeWithSignature("approve(address,uint256)", address(_book), type(uint256).max));
         require(ok0 && ok1, "approve failed");
     }
 
@@ -130,7 +128,7 @@ contract RangeLP {
             uint256 cost;
             while (n < levelsPerSide) {
                 int24 lvl = upper - int24(n + 1) * s;
-                uint256 levelCost = (uint256(sizePerLevel) * _rate(lvl) + 1e18 - 1) / 1e18;
+                uint256 levelCost = book.quoteBidPrincipal(lvl, lvl + s, sizePerLevel);
                 if (cost + levelCost > budget) break;
                 cost += levelCost;
                 n++;
@@ -139,12 +137,6 @@ contract RangeLP {
                 bidId = book.depositBid(upper - int24(n) * s, upper, sizePerLevel);
             }
         }
-    }
-
-    function _rate(int24 t) internal pure returns (uint256) {
-        int256 r = int256(1e18) + int256(t) * 1e15;
-        require(r > 0, "rate underflow");
-        return uint256(r);
     }
 
     function _alignUp(int24 x, int24 s) internal pure returns (int24) {

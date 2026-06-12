@@ -39,6 +39,26 @@ abstract contract GeometricCurve is FrontierBookBase {
         geoD = GeoTickMath.powX18(_tickSpacing) - 1e18;
     }
 
+    function _checkRange(int24 lower, int24 upper) internal view virtual override {
+        super._checkRange(lower, upper);
+        _checkGeoDomain(lower);
+        _checkGeoDomain(upper);
+    }
+
+    function _checkBidRange(int24 lower, int24 upper) internal view virtual override {
+        super._checkBidRange(lower, upper);
+        _checkGeoDomain(lower);
+        _checkGeoDomain(upper);
+    }
+
+    function _checkSweepTarget(int24 target) internal view virtual override {
+        _checkGeoDomain(target);
+    }
+
+    function _checkGeoDomain(int24 tick) internal pure {
+        require(tick >= -GeoTickMath.MAX_TICK && tick <= GeoTickMath.MAX_TICK, "geometric: tick out of range");
+    }
+
     function _checkShape(int24 lower, int24 upper, uint128 l0, int128 m) internal view virtual override {
         require(m == 0, "geometric: uniform only");
         super._checkShape(lower, upper, l0, m);
@@ -115,7 +135,12 @@ contract GeometricFrontierBook is RollingFrontierBook, GeometricCurve {
     )
         RollingFrontierBook(_token0, _token1, _tickSpacing, _initialTick, _hooks, _permissions, _makerOps)
         GeometricCurve(_tickSpacing)
-    {}
+    {
+        require(
+            _initialTick >= -GeoTickMath.MAX_TICK && _initialTick <= GeoTickMath.MAX_TICK,
+            "geometric: tick out of range"
+        );
+    }
 
     // solc 6480 diamond-join boilerplate; every body dispatches to
     // GeometricCurve via super.
@@ -125,6 +150,18 @@ contract GeometricFrontierBook is RollingFrontierBook, GeometricCurve {
         override(FrontierBookBase, GeometricCurve)
     {
         super._checkShape(lower, upper, l0, m);
+    }
+
+    function _checkRange(int24 lower, int24 upper) internal view override(FrontierBookBase, GeometricCurve) {
+        super._checkRange(lower, upper);
+    }
+
+    function _checkBidRange(int24 lower, int24 upper) internal view override(FrontierBookBase, GeometricCurve) {
+        super._checkBidRange(lower, upper);
+    }
+
+    function _checkSweepTarget(int24 target) internal view override(FrontierBookBase, GeometricCurve) {
+        super._checkSweepTarget(target);
     }
 
     function _rate(int24 t) internal pure override(FrontierBookBase, GeometricCurve) returns (uint256) {
@@ -184,6 +221,18 @@ contract GeometricMakerOps is FrontierMakerOps, GeometricCurve {
         override(FrontierBookBase, GeometricCurve)
     {
         super._checkShape(lower, upper, l0, m);
+    }
+
+    function _checkRange(int24 lower, int24 upper) internal view override(FrontierBookBase, GeometricCurve) {
+        super._checkRange(lower, upper);
+    }
+
+    function _checkBidRange(int24 lower, int24 upper) internal view override(FrontierBookBase, GeometricCurve) {
+        super._checkBidRange(lower, upper);
+    }
+
+    function _checkSweepTarget(int24 target) internal view override(FrontierBookBase, GeometricCurve) {
+        super._checkSweepTarget(target);
     }
 
     function _rate(int24 t) internal pure override(FrontierBookBase, GeometricCurve) returns (uint256) {

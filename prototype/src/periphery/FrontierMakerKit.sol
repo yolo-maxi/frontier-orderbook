@@ -21,10 +21,7 @@ contract FrontierMakerKit {
     /// @notice Place a whole quoting curve in one tx. Pulls exact totals from
     /// the caller, deposits each segment in the caller's name via
     /// transferFrom-funded book deposits, returns the position ids.
-    function placeCurve(RollingFrontierBook book, Segment[] calldata segments)
-        external
-        returns (uint256[] memory ids)
-    {
+    function placeCurve(RollingFrontierBook book, Segment[] calldata segments) external returns (uint256[] memory ids) {
         ids = new uint256[](segments.length);
         IERC20Minimal t0 = book.token0();
         IERC20Minimal t1 = book.token1();
@@ -32,12 +29,12 @@ contract FrontierMakerKit {
             Segment calldata seg = segments[i];
             if (seg.isBid) {
                 uint256 cost = _bidCost(book, seg);
-                require(t1.transferFrom(msg.sender, address(this), cost), "pull1 failed");
+                _pullExact(t1, msg.sender, cost, "pull1 failed");
                 _approve(address(t1), address(book));
                 ids[i] = book.depositBid(seg.lower, seg.upper, seg.size);
             } else {
                 uint256 cost = _askCost(book, seg);
-                require(t0.transferFrom(msg.sender, address(this), cost), "pull0 failed");
+                _pullExact(t0, msg.sender, cost, "pull0 failed");
                 _approve(address(t0), address(book));
                 ids[i] = seg.slope == 0
                     ? book.deposit(seg.lower, seg.upper, seg.size)
@@ -56,15 +53,17 @@ contract FrontierMakerKit {
     }
 
     function _bidCost(RollingFrontierBook book, Segment calldata seg) internal view returns (uint256 cost) {
-        int24 s = book.tickSpacing();
-        for (int24 t = seg.lower; t < seg.upper; t += s) {
-            int256 r = int256(1e18) + int256(t) * 1e15;
-            cost += (uint256(seg.size) * uint256(r) + 1e18 - 1) / 1e18;
-        }
+        return book.quoteBidPrincipal(seg.lower, seg.upper, seg.size);
     }
 
     function _approve(address token, address spender) internal {
         (bool ok,) = token.call(abi.encodeWithSignature("approve(address,uint256)", spender, type(uint256).max));
         require(ok, "approve failed");
+    }
+
+    function _pullExact(IERC20Minimal token, address payer, uint256 amount, string memory err) internal {
+        uint256 beforeBal = token.balanceOf(address(this));
+        require(token.transferFrom(payer, address(this), amount), err);
+        require(token.balanceOf(address(this)) - beforeBal == amount, "non-exact transfer");
     }
 }

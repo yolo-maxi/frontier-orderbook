@@ -55,6 +55,7 @@ abstract contract FrontierBookBase {
     // This is what makes FINE tick spacing under a COARSE maker grid cheap —
     // see NOTES-partial-fills.md.
     mapping(int16 => uint256) public tickBitmapTop;
+
     // ASK-side fill records: ONE entry per liquidity-moving up-sweep instead
     // of a clock stamp per level ("endpoint sweeps"). Entries keep clocks
     // strictly increasing and highs strictly decreasing (dominated entries
@@ -112,6 +113,8 @@ abstract contract FrontierBookBase {
     }
 
     mapping(uint256 => Position) public positions;
+    mapping(uint256 => uint256) internal internalCredit0ByPosition;
+    mapping(uint256 => uint256) internal internalCredit1ByPosition;
 
     // Internal balance ledger: proceeds/refunds can be credited here instead
     // of transferred out, and every deposit path spends credit FIRST, pulling
@@ -200,11 +203,19 @@ abstract contract FrontierBookBase {
     // Shared internals
     // ------------------------------------------------------------------
 
-    function _checkRange(int24 lower, int24 upper) internal view {
+    function _checkRange(int24 lower, int24 upper) internal view virtual {
         require(lower < upper, "empty range");
         require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
         require(lower > _currentTick, "range not above price");
     }
+
+    function _checkBidRange(int24 lower, int24 upper) internal view virtual {
+        require(lower < upper, "empty range");
+        require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
+        require(upper <= _currentTick, "range not below price");
+    }
+
+    function _checkSweepTarget(int24) internal view virtual {}
 
     function _levels(int24 lower, int24 upper) internal view returns (uint24) {
         return uint24(upper - lower) / uint24(tickSpacing);
@@ -441,12 +452,7 @@ abstract contract FrontierBookBase {
     /// @dev token0 collected and token1 paid out (floor, contract-favorable)
     /// for a uniform descending run of `n` levels starting at level `e` with
     /// per-level size `a0`. Rate linear in tick => arithmetic series.
-    function _bidRunAmounts(int24 e, int256 a0, uint256 n)
-        internal
-        view
-        virtual
-        returns (uint256 in0, uint256 out1)
-    {
+    function _bidRunAmounts(int24 e, int256 a0, uint256 n) internal view virtual returns (uint256 in0, uint256 out1) {
         int256 ni = int256(n);
         int256 sumK = (ni * (ni - 1)) / 2;
         int256 tot0 = a0 * ni;
@@ -467,7 +473,7 @@ abstract contract FrontierBookBase {
             return;
         }
         if (credit > 0) internalBalance0[payer] = 0;
-        require(token0.transferFrom(payer, address(this), amount - credit), "transfer in failed");
+        _transferInExact(token0, payer, amount - credit, "non-exact token0 transfer");
     }
 
     /// @dev Mirror for token1.
@@ -478,7 +484,14 @@ abstract contract FrontierBookBase {
             return;
         }
         if (credit > 0) internalBalance1[payer] = 0;
-        require(token1.transferFrom(payer, address(this), amount - credit), "transfer in failed");
+        _transferInExact(token1, payer, amount - credit, "non-exact token1 transfer");
+    }
+
+    function _transferInExact(IERC20Minimal token, address payer, uint256 amount, string memory err) internal {
+        if (amount == 0) return;
+        uint256 beforeBal = token.balanceOf(address(this));
+        require(token.transferFrom(payer, address(this), amount), "transfer in failed");
+        require(token.balanceOf(address(this)) - beforeBal == amount, err);
     }
 
     /// @dev Single write paths for the ask ledgers, keeping the bitmap in

@@ -95,6 +95,32 @@ contract PermissionsTest is Test {
         book.requote(id, 30, 33, L); // expired
     }
 
+    function testRefreshingOneSelectorDoesNotExtendSiblingExpiry() public {
+        uint48 shortExpiry = uint48(block.timestamp + 1 hours);
+        uint48 longExpiry = uint48(block.timestamp + 365 days);
+
+        vm.startPrank(mm);
+        registry.grantWithExpiry(bot, address(book), book.claim.selector, shortExpiry);
+        registry.grantWithExpiry(bot, address(book), book.cancel.selector, longExpiry);
+        registry.grantWithExpiry(bot, address(book), book.cancel.selector, longExpiry + 1 days);
+        vm.stopPrank();
+
+        assertEq(
+            registry.permissionExpiry(mm, bot, address(book), book.claim.selector),
+            shortExpiry,
+            "claim expiry stays independent"
+        );
+        assertEq(
+            registry.permissionExpiry(mm, bot, address(book), book.cancel.selector),
+            longExpiry + 1 days,
+            "cancel refresh only updates cancel"
+        );
+
+        vm.warp(block.timestamp + 2 hours);
+        assertFalse(registry.isAuthorizedCall(mm, bot, address(book), book.claim.selector), "claim expired");
+        assertTrue(registry.isAuthorizedCall(mm, bot, address(book), book.cancel.selector), "cancel still live");
+    }
+
     function testFullTargetGrantCoversEverything() public {
         vm.prank(mm);
         uint256 id = book.deposit(10, 12, L);

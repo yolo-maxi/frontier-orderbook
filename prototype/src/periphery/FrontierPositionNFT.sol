@@ -62,15 +62,12 @@ contract FrontierPositionNFT {
     // Ways in
     // ------------------------------------------------------------------
 
-    function mintAsk(int24 lower, int24 upper, uint128 liquidity, int128 slope)
-        external
-        returns (uint256 tokenId)
-    {
+    function mintAsk(int24 lower, int24 upper, uint128 liquidity, int128 slope) external returns (uint256 tokenId) {
         uint24 n = uint24(upper - lower) / uint24(book.tickSpacing());
         int256 principal = int256(uint256(liquidity)) * int256(uint256(uint24(n)))
             + (int256(slope) * int256(uint256(uint24(n))) * (int256(uint256(uint24(n))) - 1)) / 2;
         require(principal >= 0, "bad shape");
-        require(book.token0().transferFrom(msg.sender, address(this), uint256(principal)), "pull0 failed");
+        _pullExact(book.token0(), msg.sender, uint256(principal), "pull0 failed");
         uint256 positionId =
             slope == 0 ? book.deposit(lower, upper, liquidity) : book.depositShaped(lower, upper, liquidity, slope);
         tokenId = _mintFor(positionId, msg.sender);
@@ -80,7 +77,7 @@ contract FrontierPositionNFT {
         uint256 before = IERC20Aux(address(book.token1())).balanceOf(address(this));
         // the bid principal is curve-dependent; pull a ceiling then refund
         uint256 estimate = _bidPrincipal(lower, upper, liquidity);
-        require(book.token1().transferFrom(msg.sender, address(this), estimate), "pull1 failed");
+        _pullExact(book.token1(), msg.sender, estimate, "pull1 failed");
         uint256 positionId = book.depositBid(lower, upper, liquidity);
         uint256 spent = before + estimate - IERC20Aux(address(book.token1())).balanceOf(address(this));
         if (estimate > spent) {
@@ -233,17 +230,18 @@ contract FrontierPositionNFT {
     }
 
     function _bidPrincipal(int24 lower, int24 upper, uint128 liquidity) internal view returns (uint256 cost) {
-        int24 s = book.tickSpacing();
-        for (int24 t = lower; t < upper; t += s) {
-            // mirrors the book's per-level ceil at the linear curve; for
-            // geometric books the pull-then-refund in mintBid absorbs the gap
-            cost += (uint256(liquidity) * book.rateAt(t) + 1e18 - 1) / 1e18;
-        }
+        return book.quoteBidPrincipal(lower, upper, liquidity);
     }
 
     function _approveMax(address token, address spender) internal {
         (bool ok, bytes memory ret) =
             token.call(abi.encodeWithSelector(IERC20Aux.approve.selector, spender, type(uint256).max));
         require(ok && (ret.length == 0 || abi.decode(ret, (bool))), "approve failed");
+    }
+
+    function _pullExact(IERC20Minimal token, address payer, uint256 amount, string memory err) internal {
+        uint256 beforeBal = token.balanceOf(address(this));
+        require(token.transferFrom(payer, address(this), amount), err);
+        require(token.balanceOf(address(this)) - beforeBal == amount, "non-exact transfer");
     }
 }

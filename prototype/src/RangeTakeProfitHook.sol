@@ -350,7 +350,10 @@ contract RangeTakeProfitHook is IRangeOrderBook, IUnlockCallback {
     function _payToPool(Currency currency, address payer, uint256 amount) internal {
         if (amount == 0) return;
         manager.sync(currency);
-        require(IERC20Minimal(Currency.unwrap(currency)).transferFrom(payer, address(manager), amount), "pay failed");
+        IERC20Minimal token = IERC20Minimal(Currency.unwrap(currency));
+        uint256 beforeBal = token.balanceOf(address(manager));
+        require(token.transferFrom(payer, address(manager), amount), "pay failed");
+        require(token.balanceOf(address(manager)) - beforeBal == amount, "non-exact pool payment");
         manager.settle();
     }
 
@@ -457,7 +460,10 @@ contract MarketSwapper is IUnlockCallback {
 
     function _payToPool(Currency currency, address payer, uint256 amount) internal {
         manager.sync(currency);
-        require(IERC20Minimal(Currency.unwrap(currency)).transferFrom(payer, address(manager), amount), "pay failed");
+        IERC20Minimal token = IERC20Minimal(Currency.unwrap(currency));
+        uint256 beforeBal = token.balanceOf(address(manager));
+        require(token.transferFrom(payer, address(manager), amount), "pay failed");
+        require(token.balanceOf(address(manager)) - beforeBal == amount, "non-exact pool payment");
         manager.settle();
     }
 }

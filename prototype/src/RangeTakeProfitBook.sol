@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {IRangeOrderBook} from "./IRangeOrderBook.sol";
 
 interface IERC20Minimal {
+    function balanceOf(address account) external view returns (uint256);
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
@@ -102,7 +103,7 @@ contract RangeTakeProfitBook is IRangeOrderBook {
             live: true
         });
 
-        require(token0.transferFrom(msg.sender, address(this), amount0), "transfer in failed");
+        _transferInExact(token0, msg.sender, amount0, "non-exact token0 transfer");
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
     }
 
@@ -169,7 +170,7 @@ contract RangeTakeProfitBook is IRangeOrderBook {
             emit IntervalFilled(lower, liq, proceeds1, clock);
         }
 
-        if (owed1 > 0) require(token1.transferFrom(msg.sender, address(this), owed1), "fill payment failed");
+        if (owed1 > 0) _transferInExact(token1, msg.sender, owed1, "non-exact token1 transfer");
         if (owed0 > 0) require(token0.transfer(msg.sender, owed0), "fill payout failed");
     }
 
@@ -233,5 +234,11 @@ contract RangeTakeProfitBook is IRangeOrderBook {
         int24 b = (tick / tickSpacing) * tickSpacing;
         if (b <= tick) b += tickSpacing;
         return b;
+    }
+
+    function _transferInExact(IERC20Minimal token, address payer, uint256 amount, string memory err) internal {
+        uint256 beforeBal = token.balanceOf(address(this));
+        require(token.transferFrom(payer, address(this), amount), "transfer in failed");
+        require(token.balanceOf(address(this)) - beforeBal == amount, err);
     }
 }
