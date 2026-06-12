@@ -33,6 +33,9 @@ abstract contract FrontierBookBase {
     int24 internal _currentTick;
     uint64 public fillClock;
     uint256 public nextPositionId = 1;
+    address public makerFeeAdmin;
+    address public makerFeeRecipient;
+    uint16 public makerFeeBps;
 
     // signed: +L at live frontiers, -L at order uppers; rolls self-cancel
     mapping(int24 => int256) public frontierDelta;
@@ -47,6 +50,7 @@ abstract contract FrontierBookBase {
     // skip empty price regions in O(1) per 256 intervals instead of one SLOAD
     // per interval (which would brick sweeps across wide gaps)
     mapping(int16 => uint256) public tickBitmap;
+
     // ASK-side fill records: ONE entry per liquidity-moving up-sweep instead
     // of a clock stamp per level ("endpoint sweeps"). Entries keep clocks
     // strictly increasing and highs strictly decreasing (dominated entries
@@ -95,6 +99,9 @@ abstract contract FrontierBookBase {
         uint128 liquidity; // size at `lower` (L0)
         int128 slope; // per-level size increment; size at level j = L0 + slope*j
         uint64 depositClock;
+        // Coarse passive-resting epoch. One-hour epochs fit in uint32 for
+        // ~490k years; precision beyond that is not useful for sticky-liquidity rebates.
+        uint32 restingEpoch;
         // asks: proceeds paid for [lower, cursor); bids: paid for [cursor, upper)
         int24 claimedUpper;
         bool live;
@@ -119,8 +126,25 @@ abstract contract FrontierBookBase {
     event PositionTransferred(uint256 indexed positionId, address indexed from, address indexed to);
     event InternalCredit(address indexed user, uint256 amount0, uint256 amount1);
     event InternalWithdraw(address indexed user, uint256 amount0, uint256 amount1);
+    event MakerFeeConfigSet(address indexed recipient, uint16 feeBps);
+    event MakerFeeCharged(
+        uint256 indexed positionId,
+        address indexed recipient,
+        bool indexed isBid,
+        uint256 gross,
+        uint256 fee,
+        uint16 rebateBps
+    );
 
     uint256 internal constant PRICE_SCALE = 1e18;
+    uint256 public constant BPS = 10_000;
+    uint256 public constant EPOCH_SECONDS = 1 hours;
+    uint16 public constant SHORT_REST_REBATE_BPS = 2_500;
+    uint16 public constant MEDIUM_REST_REBATE_BPS = 5_000;
+    uint16 public constant LONG_REST_REBATE_BPS = 10_000;
+    uint32 public constant SHORT_REST_EPOCHS = 1;
+    uint32 public constant MEDIUM_REST_EPOCHS = 4;
+    uint32 public constant LONG_REST_EPOCHS = 24;
 
     constructor(
         address _token0,
@@ -128,15 +152,95 @@ abstract contract FrontierBookBase {
         int24 _tickSpacing,
         int24 _initialTick,
         address _hooks,
-        address _permissions
+        address _permissions,
+        address _makerFeeAdmin,
+        address _makerFeeRecipient,
+        uint16 _makerFeeBps
     ) {
         require(_tickSpacing > 0, "bad spacing");
+        require(_makerFeeBps <= BPS, "fee too high");
+        require(_makerFeeBps == 0 || _makerFeeRecipient != address(0), "fee recipient zero");
         token0 = IERC20Minimal(_token0);
         token1 = IERC20Minimal(_token1);
         tickSpacing = _tickSpacing;
         _currentTick = _initialTick;
         hooks = IFrontierHooks(_hooks);
         permissions = IPermissionRegistry(_permissions);
+        makerFeeAdmin = _makerFeeAdmin;
+        makerFeeRecipient = _makerFeeRecipient;
+        makerFeeBps = _makerFeeBps;
+    }
+
+    function setMakerFeeConfig(address recipient, uint16 feeBps) external {
+        require(msg.sender == makerFeeAdmin, "not fee admin");
+        require(feeBps <= BPS, "fee too high");
+        require(feeBps == 0 || recipient != address(0), "fee recipient zero");
+        makerFeeRecipient = recipient;
+        makerFeeBps = feeBps;
+        emit MakerFeeConfigSet(recipient, feeBps);
+    }
+
+    function ageRebateBps(uint256 positionId) public view returns (uint16) {
+        Position storage p = positions[positionId];
+        if (!p.live) return 0;
+        return _rebateBps(_currentEpoch() - p.restingEpoch);
+    }
+
+    function _currentEpoch() internal view returns (uint32) {
+        return uint32(block.timestamp / EPOCH_SECONDS);
+    }
+
+    function _rebateBps(uint32 ageEpochs) internal pure returns (uint16) {
+        if (ageEpochs >= LONG_REST_EPOCHS) return LONG_REST_REBATE_BPS;
+        if (ageEpochs >= MEDIUM_REST_EPOCHS) return MEDIUM_REST_REBATE_BPS;
+        if (ageEpochs >= SHORT_REST_EPOCHS) return SHORT_REST_REBATE_BPS;
+        return 0;
+    }
+
+    function _makerFee(uint256 gross, uint32 restingEpoch) internal view returns (uint256 fee, uint16 rebateBps) {
+        uint16 feeBps = makerFeeBps;
+        if (gross == 0 || feeBps == 0) return (0, _rebateBps(_currentEpoch() - restingEpoch));
+        rebateBps = _rebateBps(_currentEpoch() - restingEpoch);
+        uint256 baseFee = (gross * feeBps) / BPS;
+        fee = (baseFee * (BPS - rebateBps)) / BPS;
+    }
+
+    function _settleClaim1(uint256 positionId, Position storage p, uint256 gross, bool toInternal)
+        internal
+        returns (uint256 net)
+    {
+        (uint256 fee, uint16 rebateBps) = _makerFee(gross, p.restingEpoch);
+        net = gross - fee;
+        address recipient = makerFeeRecipient;
+        if (fee > 0) require(token1.transfer(recipient, fee), "fee transfer failed");
+        if (net > 0) {
+            if (toInternal) {
+                internalBalance1[p.owner] += net;
+                emit InternalCredit(p.owner, 0, net);
+            } else {
+                require(token1.transfer(p.owner, net), "transfer out failed");
+            }
+        }
+        if (gross > 0 || fee > 0) emit MakerFeeCharged(positionId, recipient, false, gross, fee, rebateBps);
+    }
+
+    function _settleClaim0(uint256 positionId, Position storage p, uint256 gross, bool toInternal)
+        internal
+        returns (uint256 net)
+    {
+        (uint256 fee, uint16 rebateBps) = _makerFee(gross, p.restingEpoch);
+        net = gross - fee;
+        address recipient = makerFeeRecipient;
+        if (fee > 0) require(token0.transfer(recipient, fee), "fee transfer failed");
+        if (net > 0) {
+            if (toInternal) {
+                internalBalance0[p.owner] += net;
+                emit InternalCredit(p.owner, net, 0);
+            } else {
+                require(token0.transfer(p.owner, net), "transfer out failed");
+            }
+        }
+        if (gross > 0 || fee > 0) emit MakerFeeCharged(positionId, recipient, true, gross, fee, rebateBps);
     }
 
     // ------------------------------------------------------------------

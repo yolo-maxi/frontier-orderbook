@@ -20,7 +20,35 @@ function newBook(address token0, address token1, int24 tickSpacing, int24 startT
     returns (RollingFrontierBook)
 {
     FrontierMakerOps ops = new FrontierMakerOps(token0, token1, tickSpacing, hooks, permissions);
-    return new RollingFrontierBook(token0, token1, tickSpacing, startTick, hooks, permissions, address(ops));
+    return new RollingFrontierBook(
+        token0, token1, tickSpacing, startTick, hooks, permissions, address(ops), address(0), address(0), 0
+    );
+}
+
+function newBookWithMakerFees(
+    address token0,
+    address token1,
+    int24 tickSpacing,
+    int24 startTick,
+    address hooks,
+    address permissions,
+    address makerFeeAdmin,
+    address makerFeeRecipient,
+    uint16 makerFeeBps
+) returns (RollingFrontierBook) {
+    FrontierMakerOps ops = new FrontierMakerOps(token0, token1, tickSpacing, hooks, permissions);
+    return new RollingFrontierBook(
+        token0,
+        token1,
+        tickSpacing,
+        startTick,
+        hooks,
+        permissions,
+        address(ops),
+        makerFeeAdmin,
+        makerFeeRecipient,
+        makerFeeBps
+    );
 }
 
 function newGeoBook(
@@ -32,11 +60,17 @@ function newGeoBook(
     address permissions
 ) returns (GeometricFrontierBook) {
     GeometricMakerOps ops = new GeometricMakerOps(token0, token1, tickSpacing, hooks, permissions);
-    return new GeometricFrontierBook(token0, token1, tickSpacing, startTick, hooks, permissions, address(ops));
+    return new GeometricFrontierBook(
+        token0, token1, tickSpacing, startTick, hooks, permissions, address(ops), address(0), address(0), 0
+    );
 }
 
 function newFactory(address registry) returns (FrontierBookFactory) {
     return new FrontierBookFactory(
-        registry, new RollingBookDeployer(), new MakerOpsDeployer(), new GeometricBookDeployer(), new GeometricOpsDeployer()
+        registry,
+        new RollingBookDeployer(),
+        new MakerOpsDeployer(),
+        new GeometricBookDeployer(),
+        new GeometricOpsDeployer()
     );
 }

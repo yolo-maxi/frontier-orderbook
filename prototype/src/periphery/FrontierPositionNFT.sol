@@ -92,7 +92,7 @@ contract FrontierPositionNFT {
     /// @notice Adopt an existing position. Requires a registry grant of
     /// `transferPosition` (this contract, the book) from the owner.
     function wrap(uint256 positionId) external returns (uint256 tokenId) {
-        (address owner,,,,,,, bool live,) = book.positions(positionId);
+        (address owner,,,,,,,, bool live,) = book.positions(positionId);
         require(live, "not live");
         require(owner == msg.sender, "not position owner");
         book.transferPosition(positionId, address(this));

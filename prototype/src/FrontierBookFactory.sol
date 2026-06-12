@@ -96,21 +96,57 @@ contract FrontierBookFactory {
         public
         returns (address book)
     {
-        return _create(Curve.Linear, token0, token1, tickSpacing, startTick, hooks);
+        return _create(Curve.Linear, token0, token1, tickSpacing, startTick, hooks, msg.sender, address(0), 0);
     }
 
     function createGeoBookWithHooks(address token0, address token1, int24 tickSpacing, int24 startTick, address hooks)
         public
         returns (address book)
     {
-        return _create(Curve.Geometric, token0, token1, tickSpacing, startTick, hooks);
+        return _create(Curve.Geometric, token0, token1, tickSpacing, startTick, hooks, msg.sender, address(0), 0);
     }
 
-    function _create(Curve curve, address token0, address token1, int24 tickSpacing, int24 startTick, address hooks)
-        internal
-        returns (address book)
-    {
+    function createBookWithMakerFees(
+        address token0,
+        address token1,
+        int24 tickSpacing,
+        int24 startTick,
+        address hooks,
+        address makerFeeRecipient,
+        uint16 makerFeeBps
+    ) external returns (address book) {
+        return _create(
+            Curve.Linear, token0, token1, tickSpacing, startTick, hooks, msg.sender, makerFeeRecipient, makerFeeBps
+        );
+    }
+
+    function createGeoBookWithMakerFees(
+        address token0,
+        address token1,
+        int24 tickSpacing,
+        int24 startTick,
+        address hooks,
+        address makerFeeRecipient,
+        uint16 makerFeeBps
+    ) external returns (address book) {
+        return _create(
+            Curve.Geometric, token0, token1, tickSpacing, startTick, hooks, msg.sender, makerFeeRecipient, makerFeeBps
+        );
+    }
+
+    function _create(
+        Curve curve,
+        address token0,
+        address token1,
+        int24 tickSpacing,
+        int24 startTick,
+        address hooks,
+        address makerFeeAdmin,
+        address makerFeeRecipient,
+        uint16 makerFeeBps
+    ) internal returns (address book) {
         require(token0 != token1 && token0 != address(0) && token1 != address(0), "bad tokens");
+        require(makerFeeBps == 0 || makerFeeRecipient != address(0), "fee recipient zero");
         bytes32 opsKey = keccak256(abi.encode(token0, token1, tickSpacing, hooks, curve));
         address ops = makerOpsFor[opsKey];
         if (ops == address(0)) {
@@ -120,8 +156,30 @@ contract FrontierBookFactory {
             makerOpsFor[opsKey] = ops;
         }
         book = curve == Curve.Geometric
-            ? geoBookDeployer.deploy(token0, token1, tickSpacing, startTick, hooks, permissionRegistry, ops)
-            : bookDeployer.deploy(token0, token1, tickSpacing, startTick, hooks, permissionRegistry, ops);
+            ? geoBookDeployer.deploy(
+                token0,
+                token1,
+                tickSpacing,
+                startTick,
+                hooks,
+                permissionRegistry,
+                ops,
+                makerFeeAdmin,
+                makerFeeRecipient,
+                makerFeeBps
+            )
+            : bookDeployer.deploy(
+                token0,
+                token1,
+                tickSpacing,
+                startTick,
+                hooks,
+                permissionRegistry,
+                ops,
+                makerFeeAdmin,
+                makerFeeRecipient,
+                makerFeeBps
+            );
         books.push(book);
         if (getBook[token0][token1][tickSpacing] == address(0)) {
             getBook[token0][token1][tickSpacing] = book;

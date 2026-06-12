@@ -20,9 +20,25 @@ contract RollingBookDeployer {
         int24 startTick,
         address hooks,
         address permissions,
-        address makerOps
+        address makerOps,
+        address makerFeeAdmin,
+        address makerFeeRecipient,
+        uint16 makerFeeBps
     ) external returns (address) {
-        return address(new RollingFrontierBook(token0, token1, tickSpacing, startTick, hooks, permissions, makerOps));
+        return address(
+            new RollingFrontierBook(
+                token0,
+                token1,
+                tickSpacing,
+                startTick,
+                hooks,
+                permissions,
+                makerOps,
+                makerFeeAdmin,
+                makerFeeRecipient,
+                makerFeeBps
+            )
+        );
     }
 }
 
@@ -59,12 +75,26 @@ contract GeometricBookDeployer {
         int24 startTick,
         address hooks,
         address permissions,
-        address makerOps
+        address makerOps,
+        address makerFeeAdmin,
+        address makerFeeRecipient,
+        uint16 makerFeeBps
     ) external returns (address book) {
         bytes memory init = bytes.concat(
             _read(chunk0),
             _read(chunk1),
-            abi.encode(token0, token1, tickSpacing, startTick, hooks, permissions, makerOps)
+            abi.encode(
+                token0,
+                token1,
+                tickSpacing,
+                startTick,
+                hooks,
+                permissions,
+                makerOps,
+                makerFeeAdmin,
+                makerFeeRecipient,
+                makerFeeBps
+            )
         );
         assembly ("memory-safe") {
             book := create(0, add(init, 0x20), mload(init))

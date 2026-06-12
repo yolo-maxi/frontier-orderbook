@@ -111,9 +111,23 @@ contract GeometricFrontierBook is RollingFrontierBook, GeometricCurve {
         int24 _initialTick,
         address _hooks,
         address _permissions,
-        address _makerOps
+        address _makerOps,
+        address _makerFeeAdmin,
+        address _makerFeeRecipient,
+        uint16 _makerFeeBps
     )
-        RollingFrontierBook(_token0, _token1, _tickSpacing, _initialTick, _hooks, _permissions, _makerOps)
+        RollingFrontierBook(
+            _token0,
+            _token1,
+            _tickSpacing,
+            _initialTick,
+            _hooks,
+            _permissions,
+            _makerOps,
+            _makerFeeAdmin,
+            _makerFeeRecipient,
+            _makerFeeBps
+        )
         GeometricCurve(_tickSpacing)
     {}
 

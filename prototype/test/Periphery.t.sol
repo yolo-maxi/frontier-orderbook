@@ -157,7 +157,7 @@ contract MakerKitTest is Test {
         assertEq(book.bidLiquidity(95), 2e18, "bid segment live");
         // positions belong to the CALLER, not the kit
         for (uint256 i = 0; i < 3; i++) {
-            (address owner,,,,,,,,) = book.positions(ids[i]);
+            (address owner,,,,,,,,,) = book.positions(ids[i]);
             assertEq(owner, mm, "caller owns the position");
         }
         // and the caller can manage them directly

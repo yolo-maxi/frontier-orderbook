@@ -70,8 +70,23 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         int24 _initialTick,
         address _hooks,
         address _permissions,
-        address _makerOps
-    ) FrontierBookBase(_token0, _token1, _tickSpacing, _initialTick, _hooks, _permissions) {
+        address _makerOps,
+        address _makerFeeAdmin,
+        address _makerFeeRecipient,
+        uint16 _makerFeeBps
+    )
+        FrontierBookBase(
+            _token0,
+            _token1,
+            _tickSpacing,
+            _initialTick,
+            _hooks,
+            _permissions,
+            _makerFeeAdmin,
+            _makerFeeRecipient,
+            _makerFeeBps
+        )
+    {
         makerOps = _makerOps;
     }
 
@@ -111,6 +126,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
             liquidity: liquidity,
             slope: slope,
             depositClock: fillClock,
+            restingEpoch: _currentEpoch(),
             claimedUpper: lower,
             live: true,
             isBid: false
@@ -142,7 +158,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         proceeds1 = _spanAmt1(p, p.claimedUpper, target);
         p.claimedUpper = target;
 
-        if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
+        proceeds1 = _settleClaim1(positionId, p, proceeds1, false);
         emit Claim(positionId, proceeds1);
         _callHook(
             FrontierHookFlags.AFTER_CLAIM_FLAG,
@@ -176,8 +192,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
         proceeds1 = _spanAmt1(p, p.claimedUpper, frontier);
         p.claimedUpper = frontier;
-        internalBalance1[p.owner] += proceeds1;
-        emit InternalCredit(p.owner, 0, proceeds1);
+        proceeds1 = _settleClaim1(positionId, p, proceeds1, true);
         emit Claim(positionId, proceeds1);
     }
 
@@ -213,6 +228,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
             liquidity: liquidity,
             slope: 0,
             depositClock: fillClock,
+            restingEpoch: _currentEpoch(),
             claimedUpper: upper, // bid cursor descends from upper
             live: true,
             isBid: true
@@ -242,7 +258,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         proceeds0 = uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - target)) / uint256(uint24(tickSpacing)));
         p.claimedUpper = target;
 
-        if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
+        proceeds0 = _settleClaim0(positionId, p, proceeds0, false);
         emit Claim(positionId, proceeds0);
         _callHook(
             FrontierHookFlags.AFTER_CLAIM_FLAG,
@@ -277,8 +293,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         proceeds0 =
             uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
         p.claimedUpper = frontier;
-        internalBalance0[p.owner] += proceeds0;
-        emit InternalCredit(p.owner, proceeds0, 0);
+        proceeds0 = _settleClaim0(positionId, p, proceeds0, true);
         emit Claim(positionId, proceeds0);
     }
 

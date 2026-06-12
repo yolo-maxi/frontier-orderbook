@@ -19,12 +19,15 @@ import {FrontierHookFlags, IFrontierHooks} from "./hooks/IFrontierHooks.sol";
 /// deposit surface, so it is inert standalone.
 contract FrontierMakerOps is FrontierBookBase {
     constructor(address _token0, address _token1, int24 _tickSpacing, address _hooks, address _permissions)
-        FrontierBookBase(_token0, _token1, _tickSpacing, 0, _hooks, _permissions)
+        FrontierBookBase(_token0, _token1, _tickSpacing, 0, _hooks, _permissions, address(0), address(0), 0)
     {}
 
     /// @notice Transfer position ownership (claims/refunds follow the new
     /// owner). Makes positions composable assets: periphery contracts can
     /// build positions and hand them to users; wrappers can tokenize them.
+    /// Transfer preserves resting age because the quoted price/range did not
+    /// change. Markets that want anti-rental controls should gate transfers
+    /// in periphery or permissions rather than rewriting the passive-time stamp.
     function transferPosition(uint256 positionId, address to) external {
         Position storage p = positions[positionId];
         require(p.live, "not live");
@@ -72,6 +75,7 @@ contract FrontierMakerOps is FrontierBookBase {
         p.liquidity = newLiquidity;
         p.slope = newSlope;
         p.depositClock = fillClock;
+        p.restingEpoch = _currentEpoch();
         p.claimedUpper = newLower;
 
         if (newAmount0 > oldAmount0) {
@@ -107,6 +111,7 @@ contract FrontierMakerOps is FrontierBookBase {
         p.upper = newUpper;
         p.liquidity = newLiquidity;
         p.depositClock = fillClock;
+        p.restingEpoch = _currentEpoch();
         p.claimedUpper = newUpper;
 
         if (newAmount1 > oldAmount1) {
@@ -150,7 +155,7 @@ contract FrontierMakerOps is FrontierBookBase {
         // into upper and self-cancelled against its -L; nothing to remove.
         p.live = false;
 
-        if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
+        proceeds1 = _settleClaim1(positionId, p, proceeds1, false);
         if (principal0 > 0) require(token0.transfer(p.owner, principal0), "transfer out failed");
         emit Cancel(positionId, proceeds1, principal0);
         _callHook(
@@ -199,7 +204,7 @@ contract FrontierMakerOps is FrontierBookBase {
         }
         p.live = false;
 
-        if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
+        proceeds0 = _settleClaim0(positionId, p, proceeds0, false);
         if (refund1 > 0) require(token1.transfer(p.owner, refund1), "transfer out failed");
         emit Cancel(positionId, proceeds0, refund1);
         _callHook(
