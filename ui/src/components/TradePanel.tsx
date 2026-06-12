@@ -18,7 +18,13 @@ const SLIPPAGE_OPTS = [0.1, 0.5, 1.0];
 const MAX_UINT = 2n ** 256n - 1n;
 const QUOTE_MAX_LEVELS = 500n;
 
-export function TradePanel() {
+export function TradePanel({
+  assetLabel = "WETH",
+  quoteLabel = "USDC",
+}: {
+  assetLabel?: string;
+  quoteLabel?: string;
+}) {
   const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview } = useApp();
   const [side, setSide] = useState<Side>("buy");
   const [mode, setMode] = useState<"market" | "limit">("market");
@@ -194,7 +200,7 @@ export function TradePanel() {
 
   const onPlaceLimit = async () => {
     if (!limitPlan || limitPlan.error !== null || amountWeth === null) return;
-    const label = `Limit ${side} ${fmtAmount(amountWeth, 4)} WETH @ ${fmtPrice(tickToPrice(limitPlan.tick), 3)}`;
+    const label = `Limit ${side} ${fmtAmount(amountWeth, 4)} ${assetLabel} @ ${fmtPrice(tickToPrice(limitPlan.tick), 3)}`;
     const ok = await sendTx(label, () =>
       wallet.writeContract({
         address: cfg.contracts.book,
@@ -210,7 +216,7 @@ export function TradePanel() {
   };
 
   const limitPayToken = side === "buy" ? cfg.contracts.usdc : cfg.contracts.weth;
-  const limitPaySymbol = side === "buy" ? "USDC" : "WETH";
+  const limitPaySymbol = side === "buy" ? quoteLabel : assetLabel;
   const limitNeedsApproval =
     limitPlan !== null && limitPlan.error === null && bookAllowance !== null && bookAllowance < limitPlan.cost;
   const limitInsufficient =
@@ -231,7 +237,7 @@ export function TradePanel() {
   const insufficient = amountIn !== null && amountIn > balanceIn;
 
   const onApprove = () =>
-    sendTx(`Approve ${side === "buy" ? "USDC" : "WETH"}`, () =>
+    sendTx(`Approve ${side === "buy" ? quoteLabel : assetLabel}`, () =>
       wallet.writeContract({
         address: tokenIn,
         abi: erc20Abi,
@@ -248,7 +254,7 @@ export function TradePanel() {
     const { timestamp } = await client.getBlock({ blockTag: "latest" });
     const deadline = timestamp + 600n;
     const ok = await sendTx(
-      side === "buy" ? "Market buy WETH" : "Market sell WETH",
+      side === "buy" ? `Market buy ${assetLabel}` : `Market sell ${assetLabel}`,
       () =>
         wallet.writeContract({
           address: cfg.contracts.router,
@@ -278,7 +284,7 @@ export function TradePanel() {
             setAmountStr("");
           }}
         >
-          Buy WETH
+          Buy {assetLabel}
         </button>
         <button
           className={`seg-btn ${side === "sell" ? "seg-sell" : ""}`}
@@ -287,7 +293,7 @@ export function TradePanel() {
             setAmountStr("");
           }}
         >
-          Sell WETH
+          Sell {assetLabel}
         </button>
       </div>
 
@@ -303,7 +309,7 @@ export function TradePanel() {
       {mode === "limit" && (
         <label className="field">
           <span className="field-label">
-            Limit price <span className="dim">(USDC per WETH)</span>
+            Limit price <span className="dim">({quoteLabel} per {assetLabel})</span>
             {mid !== null && (
               <span className="field-bal num" onClick={() => setLimitPriceStr((side === "buy" ? mid - 0.01 : mid + 0.01).toFixed(3))}>
                 mid {fmtPrice(mid, 3)}
@@ -330,7 +336,7 @@ export function TradePanel() {
 
       <label className="field">
         <span className="field-label">
-          {mode === "limit" ? <>Amount <span className="dim">(WETH)</span></> : <>Spend <span className="dim">({side === "buy" ? "USDC" : "WETH"})</span></>}
+          {mode === "limit" ? <>Amount <span className="dim">({assetLabel})</span></> : <>Spend <span className="dim">({side === "buy" ? quoteLabel : assetLabel})</span></>}
           <span className="field-bal num" onClick={() => setPct(100)}>
             bal {fmtAmount(balanceIn, side === "buy" ? 2 : 4)}
           </span>
@@ -371,8 +377,8 @@ export function TradePanel() {
             <span>
               {limitPlan && amountWeth !== null
                 ? side === "buy"
-                  ? `${fmtAmount(amountWeth, 4)} WETH`
-                  : `~${fmtAmount((amountWeth * (BigInt(1e18) + BigInt(limitPlan.tick) * BigInt(1e15))) / BigInt(1e18), 2)} USDC`
+                  ? `${fmtAmount(amountWeth, 4)} ${assetLabel}`
+                  : `~${fmtAmount((amountWeth * (BigInt(1e18) + BigInt(limitPlan.tick) * BigInt(1e15))) / BigInt(1e18), 2)} ${quoteLabel}`
                 : "—"}
             </span>
           </div>
@@ -387,7 +393,7 @@ export function TradePanel() {
           <span className="dim">Receive (est.)</span>
           <span>
             {quote ? fmtAmount(quote.out, side === "buy" ? 5 : 2) : "—"}{" "}
-            <span className="dim">{side === "buy" ? "WETH" : "USDC"}</span>
+            <span className="dim">{side === "buy" ? assetLabel : quoteLabel}</span>
           </span>
         </div>
         <div className="qrow">
@@ -459,7 +465,7 @@ export function TradePanel() {
           disabled={busy !== null || insufficient}
           onClick={onApprove}
         >
-          Approve {side === "buy" ? "USDC" : "WETH"}
+          Approve {side === "buy" ? quoteLabel : assetLabel}
         </button>
       ) : (
         <button
@@ -476,8 +482,8 @@ export function TradePanel() {
           {insufficient
             ? "Insufficient balance"
             : side === "buy"
-              ? "Buy WETH"
-              : "Sell WETH"}
+              ? `Buy ${assetLabel}`
+              : `Sell ${assetLabel}`}
         </button>
       )}
     </div>

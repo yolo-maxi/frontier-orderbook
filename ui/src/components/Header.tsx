@@ -52,7 +52,7 @@ export function Header() {
             <TokenGlyph sym="weth" />
             <TokenGlyph sym="usdc" />
           </span>
-          WETH / USDC
+          YES / NO
         </span>
         <span className="net">
           <span className={`dot ${rpcError ? "dot-bad" : configured ? "dot-ok" : "dot-warn"}`} />

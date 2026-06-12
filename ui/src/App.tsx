@@ -3,11 +3,9 @@ import { loadConfig, type DeploymentConfig } from "./lib/config";
 import { AppProvider, useApp } from "./state/app";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
-import { OrderBook } from "./components/OrderBook";
-import { MarketPanel } from "./components/MarketPanel";
-import { SidePanel } from "./components/SidePanel";
 import { Toasts } from "./components/Toasts";
 import { Brand } from "./components/Brand";
+import { PredictionWorkspace } from "./components/PredictionWorkspace";
 
 type ConfigState =
   | { phase: "loading" }
@@ -98,11 +96,7 @@ function Shell() {
           </div>
         </main>
       ) : (
-        <main className="grid">
-          <OrderBook />
-          <MarketPanel />
-          <SidePanel />
-        </main>
+        <PredictionWorkspace />
       )}
       <Footer />
       <Toasts />
