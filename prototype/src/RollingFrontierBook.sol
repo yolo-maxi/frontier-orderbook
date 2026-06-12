@@ -95,11 +95,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         require(liquidity > 0, "zero liquidity");
         _checkRange(lower, upper);
         _checkShape(lower, upper, liquidity, slope);
-        _callHook(
-            FrontierHookFlags.BEFORE_DEPOSIT_FLAG,
-            abi.encodeCall(IFrontierHooks.beforeDeposit, (msg.sender, lower, upper, liquidity, slope, false)),
-            IFrontierHooks.beforeDeposit.selector
-        );
+        _callBeforeDepositHook(msg.sender, lower, upper, liquidity, slope, false);
 
         _addOrder(lower, upper, liquidity, slope);
 
@@ -119,11 +115,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         uint256 amount0 = _principalSpan(liquidity, slope, 0, _levels(lower, upper));
         _pull0(msg.sender, amount0);
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
-        _callHook(
-            FrontierHookFlags.AFTER_DEPOSIT_FLAG,
-            abi.encodeCall(IFrontierHooks.afterDeposit, (msg.sender, positionId, false)),
-            IFrontierHooks.afterDeposit.selector
-        );
+        _callAfterDepositHook(msg.sender, positionId, false);
     }
 
     /// @notice O(1) claim against a boundary witness: pays the span
@@ -197,11 +189,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         require(lower < upper, "empty range");
         require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
         require(upper <= _currentTick, "range not below price");
-        _callHook(
-            FrontierHookFlags.BEFORE_DEPOSIT_FLAG,
-            abi.encodeCall(IFrontierHooks.beforeDeposit, (msg.sender, lower, upper, liquidity, 0, true)),
-            IFrontierHooks.beforeDeposit.selector
-        );
+        _callBeforeDepositHook(msg.sender, lower, upper, liquidity, 0, true);
 
         _addBid(lower, upper, liquidity);
 
@@ -221,11 +209,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         uint256 amount1 = _uniformSpanValue(lower, upper, liquidity, true);
         _pull1(msg.sender, amount1);
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
-        _callHook(
-            FrontierHookFlags.AFTER_DEPOSIT_FLAG,
-            abi.encodeCall(IFrontierHooks.afterDeposit, (msg.sender, positionId, true)),
-            IFrontierHooks.afterDeposit.selector
-        );
+        _callAfterDepositHook(msg.sender, positionId, true);
     }
 
     /// @notice O(1) bid claim against a boundary witness: pays the token0 for
@@ -722,7 +706,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// @notice Aggregate live BID size (token0 units) at a level: suffix sum
     /// of bid endpoint deltas from above (mirror of activeLiquidity).
     function bidLiquidity(int24 lowerTick) external view returns (uint128) {
-        if (!_maxBoundarySet || lowerTick > _maxBoundary) return 0;
+        if (_maxBoundary == type(int24).min || lowerTick > _maxBoundary) return 0;
         int256 sum;
         for (int24 u = _maxBoundary; u >= lowerTick; u -= tickSpacing) {
             sum += bidDelta[u];
@@ -736,7 +720,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// cancels it iff upper <= t — i.e. exactly orders with
     /// frontier <= t < upper.
     function activeLiquidity(int24 lowerTick) external view returns (uint128) {
-        if (!_minBoundarySet || lowerTick < _minBoundary) return 0;
+        if (_minBoundary == type(int24).max || lowerTick < _minBoundary) return 0;
         int256 sum;
         int256 slope;
         for (int24 u = _minBoundary; u <= lowerTick; u += tickSpacing) {

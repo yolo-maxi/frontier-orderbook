@@ -83,10 +83,8 @@ abstract contract FrontierBookBase {
     LowWater[] internal _lowWaters;
 
     // lowest/highest boundaries ever used; only for the O(width) view scans
-    int24 internal _minBoundary;
-    bool internal _minBoundarySet;
-    int24 internal _maxBoundary;
-    bool internal _maxBoundarySet;
+    int24 internal _minBoundary = type(int24).max;
+    int24 internal _maxBoundary = type(int24).min;
 
     struct Position {
         address owner;
@@ -186,6 +184,33 @@ abstract contract FrontierBookBase {
         require(ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == expected, "hook rejected");
     }
 
+    function _callBeforeDepositHook(
+        address owner,
+        int24 lower,
+        int24 upper,
+        uint128 liquidity,
+        int128 slope,
+        bool isBid
+    ) internal {
+        address h = address(hooks);
+        if (h == address(0) || !h.hasFlag(FrontierHookFlags.BEFORE_DEPOSIT_FLAG) || msg.sender == h) return;
+        (bool ok, bytes memory ret) =
+            h.call(abi.encodeCall(IFrontierHooks.beforeDeposit, (owner, lower, upper, liquidity, slope, isBid)));
+        require(
+            ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == IFrontierHooks.beforeDeposit.selector,
+            "hook rejected"
+        );
+    }
+
+    function _callAfterDepositHook(address owner, uint256 positionId, bool isBid) internal {
+        address h = address(hooks);
+        if (h == address(0) || !h.hasFlag(FrontierHookFlags.AFTER_DEPOSIT_FLAG) || msg.sender == h) return;
+        (bool ok, bytes memory ret) = h.call(abi.encodeCall(IFrontierHooks.afterDeposit, (owner, positionId, isBid)));
+        require(
+            ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == IFrontierHooks.afterDeposit.selector, "hook rejected"
+        );
+    }
+
     // ------------------------------------------------------------------
     // Shared internals
     // ------------------------------------------------------------------
@@ -227,10 +252,7 @@ abstract contract FrontierBookBase {
             _writeSlope(lower + tickSpacing, frontierSlope[lower + tickSpacing] + int256(slope));
             _writeSlope(upper, frontierSlope[upper] - int256(slope));
         }
-        if (!_minBoundarySet || lower < _minBoundary) {
-            _minBoundary = lower;
-            _minBoundarySet = true;
-        }
+        if (lower < _minBoundary) _minBoundary = lower;
     }
 
     /// @dev Remove an order's remaining tail [frontier, upper). At an
@@ -256,10 +278,7 @@ abstract contract FrontierBookBase {
     function _addBid(int24 lower, int24 upper, uint128 liquidity) internal {
         _writeBidDelta(upper - tickSpacing, bidDelta[upper - tickSpacing] + int256(uint256(liquidity)));
         _writeBidDelta(lower - tickSpacing, bidDelta[lower - tickSpacing] - int256(uint256(liquidity)));
-        if (!_maxBoundarySet || upper > _maxBoundary) {
-            _maxBoundary = upper;
-            _maxBoundarySet = true;
-        }
+        if (upper > _maxBoundary) _maxBoundary = upper;
     }
 
     /// @dev Bid mirror of _writeDelta, maintaining the bid bitmap.
