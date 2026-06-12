@@ -2,13 +2,11 @@
 
 ## Summary
 
-Recommendation: merge this branch. Loop 2 meets the strict `<180000` isolated `depositBid` target while preserving the external `positions(id)` getter shape and all maker/bid settlement behavior covered by the full test suite.
+Recommendation: merge this branch, then start a dedicated architecture branch for any attempt to push wallet-funded fresh `depositBid` materially below `178k`.
 
-Target status: met.
+Loop 3 did not find a safe production-code change that meaningfully reduces the wallet-funded isolated bid deposit. The remaining wallet cost is mostly structural: ERC20 funding plus the position, endpoint, bitmap, and id writes required by the current public position and sweep model.
 
-- Loop 1 gas-report `depositBid` min: `211704`
-- Loop 2 gas-report `depositBid` min: `177992`
-- Loop 2 console `bid deposit (10 levels)`: `178500`
+Loop 3 did add a permanent benchmark proving the practical maker-default route: recycle proceeds into internal credit, then deposit from credit. That route is already sub-150k in the gas report.
 
 ## Results
 
@@ -24,22 +22,48 @@ Loop 2 result:
 - `bid deposit (10,000 levels)`: `200725`
 - gas-report `depositBid`: min `177992`, avg `185400`, median `177992`, max `200217`
 
-Loop 2 deltas:
+Loop 3 wallet-funded result:
+
+- `bid deposit (10 levels)`: `178500`
+- `bid deposit (10,000 levels)`: `200725`
+- isolated wallet gas-report `depositBid`: min `177992`, avg `185400`, median `177992`, max `200217`
+
+Loop 3 internal-credit result:
+
+- Permanent benchmark console `bid deposit from internal credit (10 levels)`: `148444`
+- Permanent benchmark gas-report `depositBid`: min `143436`, avg `143436`, median `143436`, max `143436`
+- Full gas suite gas-report `depositBid`: min `143436`, avg `175525`, median `177992`, max `200217`, calls `5`
+
+## Deltas
+
+Loop 1 -> loop 2:
 
 - `bid deposit (10 levels)`: `212212 -> 178500`, delta `-33712`
 - `bid deposit (10,000 levels)`: `234136 -> 200725`, delta `-33411`
 - gas-report `depositBid` min: `211704 -> 177992`, delta `-33712`
 - gas-report `depositBid` avg: `219012 -> 185400`, delta `-33612`
 - gas-report `depositBid` max: `233628 -> 200217`, delta `-33411`
-- `claimBidTo`: `48623 -> 46490`, delta `-2133`
-- `cancelBidWithWitness`: `60105 -> 57752`, delta `-2353`
+
+Loop 2 -> loop 3 wallet-funded:
+
+- `bid deposit (10 levels)`: `178500 -> 178500`, delta `0`
+- `bid deposit (10,000 levels)`: `200725 -> 200725`, delta `0`
+- isolated wallet gas-report `depositBid` min: `177992 -> 177992`, delta `0`
+- isolated wallet gas-report `depositBid` avg: `185400 -> 185400`, delta `0`
+
+Wallet-funded -> internal-credit-funded in loop 3:
+
+- Console: `178500 -> 148444`, delta `-30056`
+- Gas-report min: `177992 -> 143436`, delta `-34556`
 
 Total from pre-loop-1 baseline:
 
-- gas-report `depositBid` min: `229546 -> 177992`, delta `-51554`
-- `bid deposit (10 levels)`: `230054 -> 178500`, delta `-51554`
+- gas-report `depositBid` min: `229546 -> 177992`, wallet-funded delta `-51554`
+- console `bid deposit (10 levels)`: `230054 -> 178500`, wallet-funded delta `-51554`
 
 ## What Changed
+
+Loop 1 and loop 2 production changes:
 
 - Repacked `Position` so flat bid positions write two slots instead of three.
 - Moved ask-only `slope` to `_positionSlope[positionId]`; bids and flat asks avoid that write.
@@ -52,81 +76,103 @@ Total from pre-loop-1 baseline:
 - Kept deposit hook behavior intact with a hookless call-site guard.
 - Inlined the bid token1 credit-first pull and used a low-level bool-returning ERC20 call that preserves `"transfer in failed"` on failure.
 
+Loop 3 change:
+
+- Added `GasMatrixTest.testCreditFundedBidDepositCost`.
+- The benchmark creates token1 credit through a real ask deposit, fill, and `claimInternal`, zeros token1 approval, then posts a same-width bid from internal credit.
+- No production contract code changed in loop 3.
+
 ## Storage Breakdown
 
-Before loop 2, a fresh bid wrote:
+Current fresh wallet-funded bid writes:
 
-- 3 position slots: owner/range, liquidity/slope, clock/cursor/flags.
-- 2 bid endpoint slots: `bidDelta[upper - tickSpacing]`, `bidDelta[lower - tickSpacing]`.
-- 1 or 2 bitmap word writes, depending on whether endpoints share a 256-interval word.
-- `_maxBoundary`.
-- `nextPositionId`.
-- Token balance writes in `token1.transferFrom`.
-
-After loop 2, a fresh bid writes:
-
-- 2 position slots: `owner/lower/upper/claimedUpper/live/isBid` and `liquidity/depositClock`.
-- 2 bid endpoint slots.
+- 2 position slots:
+  - slot 0: `owner`, `lower`, `upper`, `claimedUpper`, `live`, `isBid`
+  - slot 1: `liquidity`, `depositClock`
+- 2 bid endpoint slots:
+  - `bidDelta[upper - tickSpacing]`
+  - `bidDelta[lower - tickSpacing]`
 - 1 coalesced bitmap word for the 10-level same-word case, or 2 bitmap words for wide/straddling cases.
 - `_nextPositionId`.
-- Token balance writes only when internal token1 credit is insufficient.
+- Token balance/allowance state through token1 `transferFrom` when internal token1 credit is insufficient.
 
-The unavoidable storage floor for a wallet-funded fresh bid is now dominated by two position slots, two endpoint slots, one bitmap word in the same-word case, the id update, the internal-credit check, and the ERC20 transfer.
+Storage pass 2 conclusion:
 
-## Token Transfer And Credit
+- `live` and `isBid` are already packed into slot 0. Re-encoding them does not remove a fresh SSTORE while preserving `positions(id)` compatibility.
+- `claimedUpper` is already packed into slot 0. It could be implied only for never-claimed fresh positions, but that would not remove a slot and would complicate getter and claim/cancel semantics.
+- `depositClock` is packed with `liquidity` in slot 1. It is required to test fill freshness after later sweeps.
+- The two endpoint writes are fundamental to the current descending frontier model. Removing either the upper frontier endpoint or lower sentinel would change sweep/no-resurrection accounting.
 
-Wallet-funded final `depositBid`:
+## Funding And Maker Route
 
-- Console `bid deposit (10 levels)`: `178500`
-- Gas-report `depositBid` min: `177992`
+Wallet-funded `depositBid` still checks internal credit first, then performs token1 `transferFrom` for the shortfall. Skipping the credit lookup would break the public "credit first" behavior. Removing the token pull would break ERC20 funding compatibility.
 
-Credit-funded contained benchmark using existing APIs:
+The practical maker-default route is already present:
 
-- Flow: `deposit` ask, fill, `claimInternal`, set token1 approval to zero, then `depositBid`.
-- Console `bid deposit from internal credit (10 levels)`: `143821`
-- Gas-report `depositBid` min: `143436`
+- `claimInternal(positionId)` credits ask proceeds as token1 inside the book.
+- `depositBid(...)` spends that token1 credit first.
+- `recycleAskIntoBid(askId, lower, upper, liquidity)` does both in one call.
+- The mirror route `claimBidInternal` / `recycleBidIntoAsk` does the same for token0 into asks.
 
-Measured implication: the wallet `transferFrom` path plus zero-credit handling accounts for about `34.7k` gas versus a fully credit-funded bid deposit in this mock-token setup (`178500 - 143821 = 34679`). The existing credit-first model is already the route to sub-150k bid deposits for makers recycling proceeds.
+Evidence:
+
+- Fully credit-funded `depositBid` gas-report min: `143436`.
+- Fully credit-funded `depositBid` console log: `148444`.
+- Wallet-funded isolated `depositBid` gas-report min: `177992`.
+- `recycleBidIntoAsk`: `126241`.
+- `claimBid + deposit` round trip: `145057`.
+- `requoteBid`: `81918`.
 
 ## Endpoint And Bitmap Notes
 
-Two endpoint SSTOREs remain fundamental to the current descending frontier model: the `+L` frontier endpoint and the `-L` lower sentinel are both needed so sweeps know where the aggregate bid run starts and stops.
+Same-word bid bitmap handling is already optimized for fresh endpoints: if both endpoints are in one bitmap word, loop 2 updates that word once.
 
-The safe same-word optimization is limited to bitmap maintenance. It removes the redundant second bitmap word update for fresh endpoints in the same 256-interval word. It cannot remove the second endpoint delta without changing sweep/no-resurrection accounting.
-
-Wide deposits remain about `22.2k` above same-word deposits because they touch a second cold bitmap word:
+Wide bids remain more expensive because they touch a second bitmap word:
 
 - `bid deposit (10 levels)`: `178500`
 - `bid deposit (10,000 levels)`: `200725`
 - delta: `22225`
 
-## Uniswap Comparison Caveat
-
-Uniswap-style paths can be cheaper for the specific "mint a position" surface because LP state is designed around compact tick/position accounting and does not model this book's per-maker frontier cursor, claim freshness, two-sided credit recycling, and standalone ERC20 custody in the same way.
-
-The apples-to-apples gap is narrower when comparing required semantics. Frontier deposits pay for explicit maker ownership, claim/cancel cursors, endpoint roll accounting, bitmap sweep discovery, and token funding or internal credit. A Uniswap LP mint also has tick initialization and token transfer costs, but it does not need a per-order no-resurrection frontier cursor for later witness claim/cancel in this venue model.
+The second endpoint delta cannot be removed safely in this model. The upper endpoint materializes the current bid frontier; the lower sentinel stops the descending run. Sweep, no-resurrection, claim, cancel, and bid liquidity semantics depend on both.
 
 ## Attempted And Rejected
 
-- Separate public bid-position storage was not needed for this loop; the explicit getter plus side slope mapping captured the safe part without breaking external getter shape.
-- Removing either bid endpoint was rejected as unsafe: sweep correctness and no-resurrection require both the active frontier endpoint and the lower sentinel.
-- Skipping internal-credit lookup for wallet deposits was rejected because existing deposit paths intentionally spend credit first.
-- Dropping the bid `transferFrom` failure reason was tested and reverted; the final code preserves `"transfer in failed"`.
-- A temp benchmark test for internal-credit deposits was used for measurement only and removed before commit.
+- Further flag packing for `live` / `isBid`: rejected because both flags already live in a written position word.
+- Implied `claimedUpper` for fresh bids: rejected because it saves no storage slot and creates getter/claim complexity.
+- Removing one bid endpoint: rejected as a sweep correctness and no-resurrection risk.
+- Removing the same-word bitmap write: rejected because sweep discovery requires the endpoint word to be visible.
+- Skipping the internal-credit lookup for wallet deposits: rejected because credit-first deposits are public behavior.
+- Adding a separate wallet-only deposit route: rejected for this branch because it creates API surface and encourages the less efficient maker path for only a narrow gas win.
+- Deeper singleton/global credit accounting, separate bid map, ERC6909 accounting, or dropping `positions(id)` compatibility: deferred to a dedicated architecture branch.
 
-## Next Opportunities
+## Hard Cost Floor
 
-- High impact, medium risk: make credit-first/singleton credit a first-class maker workflow across books. Expected impact is about `35k` gas for deposits that can avoid ERC20 transferFrom, but it expands accounting and authorization scope.
-- Medium impact, medium risk: split bid and ask storage more aggressively, including side-specific structs and possibly side-specific getter adapters. The safe slot reduction is already captured; further gains likely require API/storage compatibility decisions.
-- Medium impact, low risk: steer market makers toward recycle/requote flows. Current logs: `recycleBidIntoAsk` `126241` versus `claimBid + deposit` `145057`; `requoteBid` logs around `81918`.
-- Medium impact, high risk: redesign endpoint/index accounting to reduce bitmap or endpoint writes. This touches sweep correctness and should be a dedicated architecture branch.
-- Low impact, low risk: extend hookless pre-checking to more callback paths after benchmarking code-size tradeoffs.
+The current wallet-funded fresh bid floor is dominated by:
+
+- Position ownership and settlement cursor: 2 SSTOREs.
+- Frontier accounting: 2 endpoint SSTOREs.
+- Sweep discovery: 1 same-word bitmap SSTORE, or 2 for wide/straddling bids.
+- Id allocation: `_nextPositionId` nonzero-to-nonzero update.
+- Funding: internal credit SLOAD plus token1 `transferFrom` call and token state writes.
+- Logs and validation: range checks, amount math, `Deposit` event, and hook guards.
+
+That combination explains why wallet-funded isolated `depositBid` did not safely move toward `160000` without an API/storage architecture change.
+
+## Recommendation
+
+Merge this branch with the loop 3 benchmark. Do not keep chasing tiny wallet-funded savings in this branch.
+
+For the next branch, make the architecture question explicit:
+
+- Keep the current API and push makers toward `claimInternal`, `recycleAskIntoBid`, `recycleBidIntoAsk`, and `requoteBid`.
+- Or start a dedicated breaking-change branch for separate bid storage, singleton/global credits, ERC6909-style internal accounting, and possibly a new position getter shape.
 
 ## Verification
 
-Commands run on the final code:
+Commands run on the loop 3 code:
 
-- `cd prototype && forge test --match-path 'test/GasMatrix.t.sol' --match-test 'testBidOperationCosts' --isolate -vv --gas-report` passed.
-- `cd prototype && forge test --match-path 'test/*Gas*.t.sol' --isolate -vv --gas-report` passed, 19 tests.
+- `cd prototype && forge test --match-path 'test/GasMatrix.t.sol' --match-test 'testBidOperationCosts' --isolate -vv --gas-report` passed, 1 test.
+- `cd prototype && forge test --match-path 'test/GasMatrix.t.sol' --match-test 'testCreditFundedBidDepositCost' --isolate -vv --gas-report` passed, 1 test.
+- `cd prototype && forge test --match-path 'test/*Gas*.t.sol' --isolate -vv --gas-report` passed, 20 tests.
 - `cd prototype && forge test --match-contract 'FrontierTwoSidedTest|FrontierRecycleTest|PeripheryTest|PositionNFTTest|RangeLPTest|YieldRangeLPTest' -vv` passed, 41 tests.
-- `cd prototype && forge test` passed, 193 passed, 0 failed, 2 fork tests skipped.
+- `cd prototype && forge test` passed, 194 passed, 0 failed, 2 fork tests skipped.

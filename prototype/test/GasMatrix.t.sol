@@ -38,6 +38,10 @@ contract GasMatrixTest is Test {
         vm.stopPrank();
     }
 
+    function rate(int24 tick) internal pure returns (uint256) {
+        return uint256(int256(1e18) + int256(tick) * 1e15);
+    }
+
     function testBidOperationCosts() public {
         _fresh(100);
         vm.prank(mm);
@@ -78,6 +82,35 @@ contract GasMatrixTest is Test {
         assertEq(proceeds0, 0, "proceeds already claimed");
         assertGt(refund1, 0, "cancel measured a real refund");
         assertEq(t1.balanceOf(mm) - mm1Before, refund1, "token1 actually transferred");
+    }
+
+    function testCreditFundedBidDepositCost() public {
+        _fresh(100);
+
+        vm.prank(mm);
+        uint256 ask = book.deposit(101, 111, L);
+        vm.prank(taker);
+        book.moveTickTo(111);
+        vm.prank(mm);
+        uint256 credited1 = book.claimInternal(ask);
+
+        uint256 bidCost = 0;
+        for (int24 tick = 101; tick < 111; tick++) {
+            bidCost += (uint256(L) * rate(tick) + 1e18 - 1) / 1e18;
+        }
+        assertEq(credited1, bidCost, "claim should exactly fund the bid");
+
+        vm.prank(mm);
+        t1.approve(address(book), 0);
+        uint256 wallet1Before = t1.balanceOf(mm);
+
+        vm.prank(mm);
+        uint256 g = gasleft();
+        book.depositBid(101, 111, L);
+        console2.log("bid deposit from internal credit (10 levels):", g - gasleft());
+
+        assertEq(t1.balanceOf(mm), wallet1Before, "credit-funded bid skipped token1 transferFrom");
+        assertEq(book.internalBalance1(mm), 0, "spent internal credit first");
     }
 
     function testTakerCostPerLevel() public {
