@@ -95,27 +95,18 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         require(liquidity > 0, "zero liquidity");
         _checkRange(lower, upper);
         _checkShape(lower, upper, liquidity, slope);
-        _callBeforeDepositHook(msg.sender, lower, upper, liquidity, slope, false);
+        if (address(hooks) != address(0)) _callBeforeDepositHook(msg.sender, lower, upper, liquidity, slope, false);
 
         _addOrder(lower, upper, liquidity, slope);
 
-        positionId = nextPositionId++;
-        positions[positionId] = Position({
-            owner: msg.sender,
-            lower: lower,
-            upper: upper,
-            liquidity: liquidity,
-            slope: slope,
-            depositClock: fillClock,
-            claimedUpper: lower,
-            live: true,
-            isBid: false
-        });
+        positionId = _nextPositionId++;
+        _storePosition(positionId, msg.sender, lower, upper, liquidity, fillClock, lower, false);
+        if (slope != 0) _positionSlope[positionId] = slope;
 
         uint256 amount0 = _principalSpan(liquidity, slope, 0, _levels(lower, upper));
         _pull0(msg.sender, amount0);
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
-        _callAfterDepositHook(msg.sender, positionId, false);
+        if (address(hooks) != address(0)) _callAfterDepositHook(msg.sender, positionId, false);
     }
 
     /// @notice O(1) claim against a boundary witness: pays the span
@@ -123,7 +114,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// impossible because `target`'s interval must have filled after deposit,
     /// and prefix-contiguity covers everything below it.
     function claimTo(uint256 positionId, int24 target) public returns (uint256 proceeds1) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
         _authOwner(p.owner);
@@ -131,7 +122,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         require((target - p.lower) % tickSpacing == 0, "unaligned target");
         require(_highSince(p.depositClock) >= target, "not filled");
 
-        proceeds1 = _spanAmt1(p, p.claimedUpper, target);
+        proceeds1 = _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, target);
         p.claimedUpper = target;
 
         if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
@@ -155,7 +146,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     function _claimAsk(uint256 positionId, bool toInternal) internal returns (uint256 proceeds1) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
         _authOwner(p.owner);
@@ -166,7 +157,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         }
         if (!toInternal) return claimTo(positionId, frontier);
 
-        proceeds1 = _spanAmt1(p, p.claimedUpper, frontier);
+        proceeds1 = _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier);
         p.claimedUpper = frontier;
         internalBalance1[p.owner] += proceeds1;
         emit InternalCredit(p.owner, 0, proceeds1);
@@ -189,33 +180,41 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         require(lower < upper, "empty range");
         require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
         require(upper <= _currentTick, "range not below price");
-        _callBeforeDepositHook(msg.sender, lower, upper, liquidity, 0, true);
+        if (address(hooks) != address(0)) _callBeforeDepositHook(msg.sender, lower, upper, liquidity, 0, true);
 
         _addBid(lower, upper, liquidity);
 
-        positionId = nextPositionId++;
-        positions[positionId] = Position({
-            owner: msg.sender,
-            lower: lower,
-            upper: upper,
-            liquidity: liquidity,
-            slope: 0,
-            depositClock: fillClock,
-            claimedUpper: upper, // bid cursor descends from upper
-            live: true,
-            isBid: true
-        });
+        positionId = _nextPositionId++;
+        _storePosition(positionId, msg.sender, lower, upper, liquidity, fillClock, upper, true);
 
         uint256 amount1 = _uniformSpanValue(lower, upper, liquidity, true);
-        _pull1(msg.sender, amount1);
+        uint256 credit = internalBalance1[msg.sender];
+        if (credit >= amount1) {
+            internalBalance1[msg.sender] = credit - amount1;
+        } else {
+            if (credit > 0) internalBalance1[msg.sender] = 0;
+            uint256 pullAmount = amount1 - credit;
+            address t1 = address(token1);
+            bool ok;
+            assembly ("memory-safe") {
+                let ptr := mload(0x40)
+                mstore(ptr, shl(224, 0x23b872dd))
+                mstore(add(ptr, 4), caller())
+                mstore(add(ptr, 36), address())
+                mstore(add(ptr, 68), pullAmount)
+                ok := call(gas(), t1, 0, ptr, 100, ptr, 32)
+                ok := and(and(ok, eq(returndatasize(), 32)), mload(ptr))
+            }
+            require(ok, "transfer in failed");
+        }
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
-        _callAfterDepositHook(msg.sender, positionId, true);
+        if (address(hooks) != address(0)) _callAfterDepositHook(msg.sender, positionId, true);
     }
 
     /// @notice O(1) bid claim against a boundary witness: pays the token0 for
     /// filled levels [target, cursor). Mirror of claimTo.
     function claimBidTo(uint256 positionId, int24 target) public returns (uint256 proceeds0) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
         _authOwner(p.owner);
@@ -247,7 +246,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     function _claimBid(uint256 positionId, bool toInternal) internal returns (uint256 proceeds0) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
         _authOwner(p.owner);
@@ -258,8 +257,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         }
         if (!toInternal) return claimBidTo(positionId, frontier);
 
-        proceeds0 =
-            uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
+        proceeds0 = uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
         p.claimedUpper = frontier;
         internalBalance0[p.owner] += proceeds0;
         emit InternalCredit(p.owner, proceeds0, 0);
@@ -499,9 +497,16 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @dev Budget/step-limit exhausted at endpoint `e`: fill the affordable
     /// prefix of the run and park before the first unfilled level.
-    function _parkUp(UpSweep memory S, int24 e, int256 a0, int256 S2, uint256 n, uint256 maxSteps, uint256 maxPay, int24 oldTick)
-        internal
-    {
+    function _parkUp(
+        UpSweep memory S,
+        int24 e,
+        int256 a0,
+        int256 S2,
+        uint256 n,
+        uint256 maxSteps,
+        uint256 maxPay,
+        int24 oldTick
+    ) internal {
         uint256 fit = 0;
         if (S.steps != maxSteps && maxPay > S.owed1) {
             fit = _maxAffordable(e, a0, S2, n, maxPay - S.owed1);
@@ -622,9 +627,15 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// @dev Budget/step-limit exhausted at endpoint `e`: fill the affordable
     /// prefix of the run (uniform cost => subdivision is one division) and
     /// park just above the first unfilled level.
-    function _parkDown(DownSweep memory S, int24 e, int256 a0, uint256 n, uint256 maxSteps, uint256 maxPay, int24 oldTick)
-        internal
-    {
+    function _parkDown(
+        DownSweep memory S,
+        int24 e,
+        int256 a0,
+        uint256 n,
+        uint256 maxSteps,
+        uint256 maxPay,
+        int24 oldTick
+    ) internal {
         uint256 fit = 0;
         if (S.steps != maxSteps && maxPay > S.owed0 && a0 > 0) {
             fit = (maxPay - S.owed0) / uint256(a0);
@@ -661,23 +672,23 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     function claimable(uint256 positionId) external view returns (uint256) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         if (!p.live || p.isBid) return 0;
         int24 frontier = _frontier(p);
         if (frontier <= p.claimedUpper) return 0;
-        return _spanAmt1(p, p.claimedUpper, frontier);
+        return _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier);
     }
 
     function unfilledPrincipal(uint256 positionId) external view returns (uint256) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         if (!p.live || p.isBid) return 0;
         int24 frontier = _frontier(p);
-        return _principalSpan(p.liquidity, p.slope, _levelOf(p, frontier), _levels(p.lower, p.upper));
+        return _principalSpan(p.liquidity, _positionSlope[positionId], _levelOf(p, frontier), _levels(p.lower, p.upper));
     }
 
     /// @notice token0 a bid could claim right now.
     function bidClaimable(uint256 positionId) external view returns (uint256) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         if (!p.live || !p.isBid) return 0;
         int24 frontier = _bidFrontier(p);
         if (frontier >= p.claimedUpper) return 0;
@@ -686,7 +697,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @notice token1 still backing a bid's unfilled levels (floor).
     function bidRefundable(uint256 positionId) external view returns (uint256) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         if (!p.live || !p.isBid) return 0;
         int24 frontier = _bidFrontier(p);
         if (frontier <= p.lower) return 0;
@@ -699,16 +710,17 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     function isConsumedFor(uint256 positionId, int24 lowerTick) external view returns (bool) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         return _highSince(p.depositClock) >= lowerTick + tickSpacing;
     }
 
     /// @notice Aggregate live BID size (token0 units) at a level: suffix sum
     /// of bid endpoint deltas from above (mirror of activeLiquidity).
     function bidLiquidity(int24 lowerTick) external view returns (uint128) {
-        if (_maxBoundary == type(int24).min || lowerTick > _maxBoundary) return 0;
+        int24 maxBoundary = _floorAligned(_currentTick - 1);
+        if (lowerTick > maxBoundary) return 0;
         int256 sum;
-        for (int24 u = _maxBoundary; u >= lowerTick; u -= tickSpacing) {
+        for (int24 u = maxBoundary; u >= lowerTick; u -= tickSpacing) {
             sum += bidDelta[u];
         }
         require(sum >= 0, "negative active");

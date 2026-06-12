@@ -32,7 +32,11 @@ abstract contract FrontierBookBase {
 
     int24 internal _currentTick;
     uint64 public fillClock;
-    uint256 public nextPositionId = 1;
+    uint64 internal _nextPositionId = 1;
+
+    function nextPositionId() public view returns (uint256) {
+        return _nextPositionId;
+    }
 
     // signed: +L at live frontiers, -L at order uppers; rolls self-cancel
     mapping(int24 => int256) public frontierDelta;
@@ -47,6 +51,7 @@ abstract contract FrontierBookBase {
     // skip empty price regions in O(1) per 256 intervals instead of one SLOAD
     // per interval (which would brick sweeps across wide gaps)
     mapping(int16 => uint256) public tickBitmap;
+
     // ASK-side fill records: ONE entry per liquidity-moving up-sweep instead
     // of a clock stamp per level ("endpoint sweeps"). Entries keep clocks
     // strictly increasing and highs strictly decreasing (dominated entries
@@ -90,16 +95,69 @@ abstract contract FrontierBookBase {
         address owner;
         int24 lower;
         int24 upper;
-        uint128 liquidity; // size at `lower` (L0)
-        int128 slope; // per-level size increment; size at level j = L0 + slope*j
-        uint64 depositClock;
         // asks: proceeds paid for [lower, cursor); bids: paid for [cursor, upper)
         int24 claimedUpper;
         bool live;
         bool isBid;
+        uint128 liquidity; // size at `lower` (L0)
+        uint64 depositClock;
     }
 
-    mapping(uint256 => Position) public positions;
+    mapping(uint256 => Position) internal _positions;
+    // Ask-only per-level size increment; bids and flat asks leave this slot
+    // unset, saving one fresh position SSTORE on the hot flat paths.
+    mapping(uint256 => int128) internal _positionSlope;
+
+    function positions(uint256 positionId)
+        public
+        view
+        returns (
+            address owner,
+            int24 lower,
+            int24 upper,
+            uint128 liquidity,
+            int128 slope,
+            uint64 depositClock,
+            int24 claimedUpper,
+            bool live,
+            bool isBid
+        )
+    {
+        Position storage p = _positions[positionId];
+        return (
+            p.owner,
+            p.lower,
+            p.upper,
+            p.liquidity,
+            _positionSlope[positionId],
+            p.depositClock,
+            p.claimedUpper,
+            p.live,
+            p.isBid
+        );
+    }
+
+    function _storePosition(
+        uint256 positionId,
+        address owner,
+        int24 lower,
+        int24 upper,
+        uint128 liquidity,
+        uint64 depositClock,
+        int24 claimedUpper,
+        bool isBid
+    ) internal {
+        uint256 word0 = uint256(uint160(owner)) | (uint256(uint24(lower)) << 160) | (uint256(uint24(upper)) << 184)
+            | (uint256(uint24(claimedUpper)) << 208) | (uint256(1) << 232) | (isBid ? (uint256(1) << 240) : 0);
+        uint256 word1 = uint256(liquidity) | (uint256(depositClock) << 128);
+        assembly ("memory-safe") {
+            mstore(0, positionId)
+            mstore(32, _positions.slot)
+            let slot := keccak256(0, 64)
+            sstore(slot, word0)
+            sstore(add(slot, 1), word1)
+        }
+    }
 
     // Internal balance ledger: proceeds/refunds can be credited here instead
     // of transferred out, and every deposit path spends credit FIRST, pulling
@@ -276,9 +334,66 @@ abstract contract FrontierBookBase {
     }
 
     function _addBid(int24 lower, int24 upper, uint128 liquidity) internal {
-        _writeBidDelta(upper - tickSpacing, bidDelta[upper - tickSpacing] + int256(uint256(liquidity)));
-        _writeBidDelta(lower - tickSpacing, bidDelta[lower - tickSpacing] - int256(uint256(liquidity)));
-        if (upper > _maxBoundary) _maxBoundary = upper;
+        int24 upperT = upper - tickSpacing;
+        int24 lowerT = lower - tickSpacing;
+        int256 liq = int256(uint256(liquidity));
+        int256 oldUpper = bidDelta[upperT];
+        int256 newUpper = oldUpper + liq;
+        int256 oldLower = bidDelta[lowerT];
+        int256 newLower = oldLower - liq;
+        bidDelta[upperT] = newUpper;
+        bidDelta[lowerT] = newLower;
+        if (oldUpper == 0 && oldLower == 0) {
+            int24 cUpper = upperT / tickSpacing;
+            int24 cLower = lowerT / tickSpacing;
+            int16 wordUpper = int16(cUpper >> 8);
+            uint256 maskUpper = uint256(1) << uint8(uint24(cUpper));
+            uint256 maskLower = uint256(1) << uint8(uint24(cLower));
+            int16 wordLower = int16(cLower >> 8);
+            if (wordUpper == wordLower) {
+                bidBitmap[wordUpper] |= maskUpper | maskLower;
+            } else {
+                bidBitmap[wordUpper] |= maskUpper;
+                bidBitmap[wordLower] |= maskLower;
+            }
+            return;
+        }
+        _syncBidBitsAfterTwo(upperT, oldUpper, newUpper, lowerT, oldLower, newLower);
+    }
+
+    function _syncBidBitsAfterTwo(int24 a, int256 oldA, int256 newA, int24 b, int256 oldB, int256 newB) internal {
+        bool touchA = oldA == 0 || newA == 0;
+        bool touchB = oldB == 0 || newB == 0;
+        if (!touchA && !touchB) return;
+
+        int24 cA = a / tickSpacing;
+        int16 wordA = int16(cA >> 8);
+        uint256 maskA = uint256(1) << uint8(uint24(cA));
+        if (touchB) {
+            int24 cB = b / tickSpacing;
+            int16 wordB = int16(cB >> 8);
+            uint256 maskB = uint256(1) << uint8(uint24(cB));
+            if (wordA == wordB) {
+                uint256 word = bidBitmap[wordA];
+                if (touchA) word = newA != 0 ? word | maskA : word & ~maskA;
+                word = newB != 0 ? word | maskB : word & ~maskB;
+                bidBitmap[wordA] = word;
+                return;
+            }
+            if (touchA) _syncBidBit(wordA, maskA, newA != 0);
+            _syncBidBit(wordB, maskB, newB != 0);
+            return;
+        }
+        _syncBidBit(wordA, maskA, newA != 0);
+    }
+
+    function _syncBidBit(int16 wordPos, uint256 mask, bool set) internal {
+        uint256 word = bidBitmap[wordPos];
+        if (set) {
+            if (word & mask == 0) bidBitmap[wordPos] = word | mask;
+        } else {
+            if (word & mask != 0) bidBitmap[wordPos] = word & ~mask;
+        }
     }
 
     /// @dev Bid mirror of _writeDelta, maintaining the bid bitmap.
@@ -369,13 +484,15 @@ abstract contract FrontierBookBase {
     /// @dev token1 value of `size` token0-units per level over [a, b) at the
     /// linear rate curve; ceil = book-favorable (bid deposits), floor = payouts.
     function _uniformSpanValue(int24 a, int24 b, uint128 size, bool roundUp) internal view virtual returns (uint256) {
-        int256 sp = int256(tickSpacing);
-        int256 n = (int256(b) - int256(a)) / sp;
-        int256 tickSum = n * int256(a) + (sp * n * (n - 1)) / 2;
-        int256 rateSum = n * int256(PRICE_SCALE) + tickSum * 1e15;
-        require(rateSum > 0, "rate underflow");
-        uint256 v = uint256(size) * uint256(rateSum);
-        return roundUp ? (v + PRICE_SCALE - 1) / PRICE_SCALE : v / PRICE_SCALE;
+        unchecked {
+            int256 sp = int256(tickSpacing);
+            int256 n = (int256(b) - int256(a)) / sp;
+            int256 tickSum = n * int256(a) + (sp * n * (n - 1)) / 2;
+            int256 rateSum = n * int256(PRICE_SCALE) + tickSum * 1e15;
+            require(rateSum > 0, "rate underflow");
+            uint256 v = uint256(size) * uint256(rateSum);
+            return roundUp ? (v + PRICE_SCALE - 1) / PRICE_SCALE : v / PRICE_SCALE;
+        }
     }
 
     function _rate(int24 t) internal pure virtual returns (uint256) {
@@ -409,12 +526,7 @@ abstract contract FrontierBookBase {
     /// @dev token0 collected and token1 paid out (floor, contract-favorable)
     /// for a uniform descending run of `n` levels starting at level `e` with
     /// per-level size `a0`. Rate linear in tick => arithmetic series.
-    function _bidRunAmounts(int24 e, int256 a0, uint256 n)
-        internal
-        view
-        virtual
-        returns (uint256 in0, uint256 out1)
-    {
+    function _bidRunAmounts(int24 e, int256 a0, uint256 n) internal view virtual returns (uint256 in0, uint256 out1) {
         int256 ni = int256(n);
         int256 sumK = (ni * (ni - 1)) / 2;
         int256 tot0 = a0 * ni;
@@ -600,7 +712,7 @@ abstract contract FrontierBookBase {
     /// the sum is a quadratic series, floored ONCE over the whole span (the
     /// single rounding is what makes O(1) payouts possible).
     /// rate(t) = 1e18 + t*1e15, same linear curve as RangeTakeProfitBook.
-    function _spanAmt1(Position storage p, int24 a, int24 b) internal view virtual returns (uint256) {
+    function _spanAmt1(Position storage p, int128 slope, int24 a, int24 b) internal view virtual returns (uint256) {
         int256 sp = int256(tickSpacing);
         int256 ja = (int256(a) - int256(p.lower)) / sp;
         int256 n = (int256(b) - int256(a)) / sp;
@@ -611,7 +723,7 @@ abstract contract FrontierBookBase {
         int256 sj2 = ((jb - 1) * jb * (2 * jb - 1) - (ja - 1) * ja * (2 * ja - 1)) / 6;
         // size(j) = L0 + m*j ; rate(j) = C0 + C1*j, with C0 = 1e18 + lower*1e15, C1 = s*1e15
         int256 l0 = int256(uint256(p.liquidity));
-        int256 m = int256(p.slope);
+        int256 m = int256(slope);
         int256 c0 = int256(PRICE_SCALE) + int256(p.lower) * 1e15;
         int256 c1 = sp * 1e15;
         int256 total = l0 * c0 * s1 + (l0 * c1 + m * c0) * sj + m * c1 * sj2;

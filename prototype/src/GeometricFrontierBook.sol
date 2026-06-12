@@ -69,7 +69,7 @@ abstract contract GeometricCurve is FrontierBookBase {
         return _geoSpan(a, b, size, roundUp);
     }
 
-    function _spanAmt1(Position storage p, int24 a, int24 b) internal view virtual override returns (uint256) {
+    function _spanAmt1(Position storage p, int128, int24 a, int24 b) internal view virtual override returns (uint256) {
         // slope is always 0 here (enforced at deposit)
         return _geoSpan(a, b, p.liquidity, false);
     }
@@ -140,13 +140,13 @@ contract GeometricFrontierBook is RollingFrontierBook, GeometricCurve {
         return super._uniformSpanValue(a, b, size, roundUp);
     }
 
-    function _spanAmt1(Position storage p, int24 a, int24 b)
+    function _spanAmt1(Position storage p, int128 slope, int24 a, int24 b)
         internal
         view
         override(FrontierBookBase, GeometricCurve)
         returns (uint256)
     {
-        return super._spanAmt1(p, a, b);
+        return super._spanAmt1(p, slope, a, b);
     }
 
     function _runAmounts(int24 e, int256 a0, int256 slope, uint256 n)
@@ -199,13 +199,13 @@ contract GeometricMakerOps is FrontierMakerOps, GeometricCurve {
         return super._uniformSpanValue(a, b, size, roundUp);
     }
 
-    function _spanAmt1(Position storage p, int24 a, int24 b)
+    function _spanAmt1(Position storage p, int128 slope, int24 a, int24 b)
         internal
         view
         override(FrontierBookBase, GeometricCurve)
         returns (uint256)
     {
-        return super._spanAmt1(p, a, b);
+        return super._spanAmt1(p, slope, a, b);
     }
 
     function _runAmounts(int24 e, int256 a0, int256 slope, uint256 n)

@@ -26,7 +26,7 @@ contract FrontierMakerOps is FrontierBookBase {
     /// owner). Makes positions composable assets: periphery contracts can
     /// build positions and hand them to users; wrappers can tokenize them.
     function transferPosition(uint256 positionId, address to) external {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         _authOwner(p.owner);
         require(to != address(0), "zero owner");
@@ -49,7 +49,7 @@ contract FrontierMakerOps is FrontierBookBase {
     function requoteShaped(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity, int128 newSlope)
         public
     {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
         _authOwner(p.owner);
@@ -58,21 +58,23 @@ contract FrontierMakerOps is FrontierBookBase {
         require(_highSince(p.depositClock) < p.lower + tickSpacing, "partially filled");
         _checkRange(newLower, newUpper);
         _checkShape(newLower, newUpper, newLiquidity, newSlope);
+        int128 oldSlope = _positionSlope[positionId];
 
         // remove old endpoint entries (order unfilled: frontier == lower),
         // place new ones
-        _removeOrderAt(p.lower, p.lower, p.upper, p.liquidity, p.slope);
+        _removeOrderAt(p.lower, p.lower, p.upper, p.liquidity, oldSlope);
         _addOrder(newLower, newUpper, newLiquidity, newSlope);
 
-        uint256 oldAmount0 = _principalSpan(p.liquidity, p.slope, 0, _levels(p.lower, p.upper));
+        uint256 oldAmount0 = _principalSpan(p.liquidity, oldSlope, 0, _levels(p.lower, p.upper));
         uint256 newAmount0 = _principalSpan(newLiquidity, newSlope, 0, _levels(newLower, newUpper));
 
         p.lower = newLower;
         p.upper = newUpper;
         p.liquidity = newLiquidity;
-        p.slope = newSlope;
         p.depositClock = fillClock;
         p.claimedUpper = newLower;
+        if (newSlope == 0) delete _positionSlope[positionId];
+        else _positionSlope[positionId] = newSlope;
 
         if (newAmount0 > oldAmount0) {
             _pull0(msg.sender, newAmount0 - oldAmount0);
@@ -85,7 +87,7 @@ contract FrontierMakerOps is FrontierBookBase {
     /// @notice O(1) re-price of a completely unfilled bid; token1 settles
     /// difference-only; clock refresh preserves freshness.
     function requoteBid(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
         _authOwner(p.owner);
@@ -124,7 +126,7 @@ contract FrontierMakerOps is FrontierBookBase {
         public
         returns (uint256 proceeds1, uint256 principal0)
     {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
         _authOwner(p.owner);
@@ -139,16 +141,18 @@ contract FrontierMakerOps is FrontierBookBase {
         }
 
         if (frontier > p.claimedUpper) {
-            proceeds1 = _spanAmt1(p, p.claimedUpper, frontier);
+            proceeds1 = _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier);
             p.claimedUpper = frontier;
         }
         if (frontier < p.upper) {
-            _removeOrderAt(frontier, p.lower, p.upper, p.liquidity, p.slope);
-            principal0 = _principalSpan(p.liquidity, p.slope, _levelOf(p, frontier), _levels(p.lower, p.upper));
+            int128 slope = _positionSlope[positionId];
+            _removeOrderAt(frontier, p.lower, p.upper, p.liquidity, slope);
+            principal0 = _principalSpan(p.liquidity, slope, _levelOf(p, frontier), _levels(p.lower, p.upper));
         }
         // if frontier == upper the order fully consumed: its +L already rolled
         // into upper and self-cancelled against its -L; nothing to remove.
         p.live = false;
+        delete _positionSlope[positionId];
 
         if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
         if (principal0 > 0) require(token0.transfer(p.owner, principal0), "transfer out failed");
@@ -162,7 +166,7 @@ contract FrontierMakerOps is FrontierBookBase {
 
     /// @notice Convenience variant: finds the frontier itself in O(log width).
     function cancel(uint256 positionId) external returns (uint256 proceeds1, uint256 principal0) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
         _authOwner(p.owner);
@@ -175,7 +179,7 @@ contract FrontierMakerOps is FrontierBookBase {
         public
         returns (uint256 proceeds0, uint256 refund1)
     {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
         _authOwner(p.owner);
@@ -211,7 +215,7 @@ contract FrontierMakerOps is FrontierBookBase {
 
     /// @notice Convenience variant: finds the bid frontier in O(log width).
     function cancelBid(uint256 positionId) external returns (uint256 proceeds0, uint256 refund1) {
-        Position storage p = positions[positionId];
+        Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
         _authOwner(p.owner);
