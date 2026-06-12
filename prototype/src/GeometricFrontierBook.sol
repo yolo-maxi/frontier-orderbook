@@ -131,9 +131,23 @@ contract GeometricFrontierBook is RollingFrontierBook, GeometricCurve {
         int24 _initialTick,
         address _hooks,
         address _permissions,
-        address _makerOps
+        address _makerOps,
+        address _feeRecipient,
+        uint16 _makerFeeBps,
+        uint16 _takerFeeBps
     )
-        RollingFrontierBook(_token0, _token1, _tickSpacing, _initialTick, _hooks, _permissions, _makerOps)
+        RollingFrontierBook(
+            _token0,
+            _token1,
+            _tickSpacing,
+            _initialTick,
+            _hooks,
+            _permissions,
+            _makerOps,
+            _feeRecipient,
+            _makerFeeBps,
+            _takerFeeBps
+        )
         GeometricCurve(_tickSpacing)
     {
         require(
@@ -208,8 +222,19 @@ contract GeometricFrontierBook is RollingFrontierBook, GeometricCurve {
 /// @notice Maker-ops companion for geometric books (curve must match the
 /// book's: cancels and requotes price spans with it).
 contract GeometricMakerOps is FrontierMakerOps, GeometricCurve {
-    constructor(address _token0, address _token1, int24 _tickSpacing, address _hooks, address _permissions)
-        FrontierMakerOps(_token0, _token1, _tickSpacing, _hooks, _permissions)
+    constructor(
+        address _token0,
+        address _token1,
+        int24 _tickSpacing,
+        address _hooks,
+        address _permissions,
+        address _feeRecipient,
+        uint16 _makerFeeBps,
+        uint16 _takerFeeBps
+    )
+        FrontierMakerOps(
+            _token0, _token1, _tickSpacing, _hooks, _permissions, _feeRecipient, _makerFeeBps, _takerFeeBps
+        )
         GeometricCurve(_tickSpacing)
     {}
 

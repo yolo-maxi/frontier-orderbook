@@ -18,8 +18,19 @@ import {FrontierHookFlags, IFrontierHooks} from "./hooks/IFrontierHooks.sol";
 /// and reverts on the `live` check — the module holds no funds and has no
 /// deposit surface, so it is inert standalone.
 contract FrontierMakerOps is FrontierBookBase {
-    constructor(address _token0, address _token1, int24 _tickSpacing, address _hooks, address _permissions)
-        FrontierBookBase(_token0, _token1, _tickSpacing, 0, _hooks, _permissions)
+    constructor(
+        address _token0,
+        address _token1,
+        int24 _tickSpacing,
+        address _hooks,
+        address _permissions,
+        address _feeRecipient,
+        uint16 _makerFeeBps,
+        uint16 _takerFeeBps
+    )
+        FrontierBookBase(
+            _token0, _token1, _tickSpacing, 0, _hooks, _permissions, _feeRecipient, _makerFeeBps, _takerFeeBps
+        )
     {}
 
     /// @notice Transfer position ownership (claims/refunds follow the new
@@ -165,7 +176,7 @@ contract FrontierMakerOps is FrontierBookBase {
         }
 
         if (frontier > p.claimedUpper) {
-            proceeds1 = _spanAmt1(p, p.claimedUpper, frontier);
+            (proceeds1,) = _chargeMakerFee(token1, positionId, _spanAmt1(p, p.claimedUpper, frontier));
             p.claimedUpper = frontier;
         }
         if (frontier < p.upper) {
@@ -214,8 +225,11 @@ contract FrontierMakerOps is FrontierBookBase {
         }
 
         if (frontier < p.claimedUpper) {
-            proceeds0 =
-                uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
+            (proceeds0,) = _chargeMakerFee(
+                token0,
+                positionId,
+                uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)))
+            );
             p.claimedUpper = frontier;
         }
         if (frontier > p.lower) {
