@@ -29,6 +29,12 @@ abstract contract FrontierBookBase {
     IFrontierHooks public immutable hooks;
     /// delegatable permissions (ERC Approval Registry); 0 = owner-only
     IPermissionRegistry public immutable permissions;
+    /// fee recipient for this experimental branch; zero only when both fees are zero
+    address public immutable feeRecipient;
+    /// maker fee charged from claim proceeds, in basis points
+    uint16 public immutable makerFeeBps;
+    /// taker fee charged on sweep input, in basis points
+    uint16 public immutable takerFeeBps;
 
     int24 internal _currentTick;
     uint64 public fillClock;
@@ -175,8 +181,26 @@ abstract contract FrontierBookBase {
     event PositionTransferred(uint256 indexed positionId, address indexed from, address indexed to);
     event InternalCredit(address indexed user, uint256 amount0, uint256 amount1);
     event InternalWithdraw(address indexed user, uint256 amount0, uint256 amount1);
+    event MakerFee(
+        uint256 indexed positionId,
+        address indexed token,
+        uint256 grossProceeds,
+        uint256 fee,
+        uint256 netProceeds,
+        address recipient
+    );
+    event TakerFee(
+        address indexed payer,
+        address indexed token,
+        uint256 grossInput,
+        uint256 fee,
+        uint256 totalPaid,
+        address recipient
+    );
 
     uint256 internal constant PRICE_SCALE = 1e18;
+    uint256 public constant FEE_BPS_DENOMINATOR = 10_000;
+    uint16 public constant MAX_FEE_BPS = 1_000;
 
     constructor(
         address _token0,
@@ -184,15 +208,23 @@ abstract contract FrontierBookBase {
         int24 _tickSpacing,
         int24 _initialTick,
         address _hooks,
-        address _permissions
+        address _permissions,
+        address _feeRecipient,
+        uint16 _makerFeeBps,
+        uint16 _takerFeeBps
     ) {
         require(_tickSpacing > 0, "bad spacing");
+        require(_makerFeeBps <= MAX_FEE_BPS && _takerFeeBps <= MAX_FEE_BPS, "fee too high");
+        require(_feeRecipient != address(0) || (_makerFeeBps == 0 && _takerFeeBps == 0), "fee recipient required");
         token0 = IERC20Minimal(_token0);
         token1 = IERC20Minimal(_token1);
         tickSpacing = _tickSpacing;
         _currentTick = _initialTick;
         hooks = IFrontierHooks(_hooks);
         permissions = IPermissionRegistry(_permissions);
+        feeRecipient = _feeRecipient;
+        makerFeeBps = _makerFeeBps;
+        takerFeeBps = _takerFeeBps;
     }
 
     // ------------------------------------------------------------------
@@ -559,6 +591,40 @@ abstract contract FrontierBookBase {
         }
         if (credit > 0) internalBalance1[payer] = 0;
         require(token1.transferFrom(payer, address(this), amount - credit), "transfer in failed");
+    }
+
+    function _feeAmount(uint256 amount, uint16 feeBps) internal pure returns (uint256) {
+        return (amount * feeBps) / FEE_BPS_DENOMINATOR;
+    }
+
+    function _maxGrossForTotal(uint256 maxTotal, uint16 feeBps) internal pure returns (uint256) {
+        if (feeBps == 0 || maxTotal == type(uint256).max) return maxTotal;
+        uint256 denominator = FEE_BPS_DENOMINATOR + uint256(feeBps);
+        return
+            (maxTotal / denominator) * FEE_BPS_DENOMINATOR + ((maxTotal % denominator) * FEE_BPS_DENOMINATOR)
+                / denominator;
+    }
+
+    function _chargeMakerFee(IERC20Minimal token, uint256 positionId, uint256 grossProceeds)
+        internal
+        returns (uint256 netProceeds, uint256 fee)
+    {
+        fee = _feeAmount(grossProceeds, makerFeeBps);
+        netProceeds = grossProceeds - fee;
+        if (fee > 0) require(token.transfer(feeRecipient, fee), "fee transfer failed");
+        if (makerFeeBps > 0) emit MakerFee(positionId, address(token), grossProceeds, fee, netProceeds, feeRecipient);
+    }
+
+    function _takerTotal(uint256 grossInput) internal view returns (uint256 totalPaid, uint256 fee) {
+        fee = _feeAmount(grossInput, takerFeeBps);
+        totalPaid = grossInput + fee;
+    }
+
+    function _payTakerFee(IERC20Minimal token, address payer, uint256 grossInput, uint256 fee, uint256 totalPaid)
+        internal
+    {
+        if (fee > 0) require(token.transfer(feeRecipient, fee), "fee transfer failed");
+        if (takerFeeBps > 0) emit TakerFee(payer, address(token), grossInput, fee, totalPaid, feeRecipient);
     }
 
     /// @dev Single write paths for the ask ledgers, keeping the bitmap in

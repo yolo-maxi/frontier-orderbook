@@ -70,8 +70,23 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         int24 _initialTick,
         address _hooks,
         address _permissions,
-        address _makerOps
-    ) FrontierBookBase(_token0, _token1, _tickSpacing, _initialTick, _hooks, _permissions) {
+        address _makerOps,
+        address _feeRecipient,
+        uint16 _makerFeeBps,
+        uint16 _takerFeeBps
+    )
+        FrontierBookBase(
+            _token0,
+            _token1,
+            _tickSpacing,
+            _initialTick,
+            _hooks,
+            _permissions,
+            _feeRecipient,
+            _makerFeeBps,
+            _takerFeeBps
+        )
+    {
         makerOps = _makerOps;
     }
 
@@ -122,7 +137,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         require((target - p.lower) % tickSpacing == 0, "unaligned target");
         require(_highSince(p.depositClock) >= target, "not filled");
 
-        proceeds1 = _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, target);
+        (proceeds1,) = _chargeMakerFee(token1, positionId, _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, target));
         p.claimedUpper = target;
 
         if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
@@ -157,7 +172,8 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         }
         if (!toInternal) return claimTo(positionId, frontier);
 
-        proceeds1 = _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier);
+        (proceeds1,) =
+            _chargeMakerFee(token1, positionId, _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier));
         p.claimedUpper = frontier;
         internalBalance1[p.owner] += proceeds1;
         emit InternalCredit(p.owner, 0, proceeds1);
@@ -222,7 +238,11 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         require((target - p.lower) % tickSpacing == 0, "unaligned target");
         require(_lowSince(p.depositClock) <= target, "not filled");
 
-        proceeds0 = uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - target)) / uint256(uint24(tickSpacing)));
+        (proceeds0,) = _chargeMakerFee(
+            token0,
+            positionId,
+            uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - target)) / uint256(uint24(tickSpacing)))
+        );
         p.claimedUpper = target;
 
         if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
@@ -257,7 +277,11 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         }
         if (!toInternal) return claimBidTo(positionId, frontier);
 
-        proceeds0 = uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
+        (proceeds0,) = _chargeMakerFee(
+            token0,
+            positionId,
+            uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)))
+        );
         p.claimedUpper = frontier;
         internalBalance0[p.owner] += proceeds0;
         emit InternalCredit(p.owner, proceeds0, 0);
@@ -395,16 +419,22 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
             IFrontierHooks.beforeSweep.selector
         );
         if (target > oldTick) {
-            (reached, paid, received) = _sweepUp(oldTick, target, maxFills, maxPay);
+            (reached, paid, received) = _sweepUp(oldTick, target, maxFills, _maxGrossForTotal(maxPay, takerFeeBps));
+            uint256 fee;
+            (paid, fee) = _takerTotal(paid);
             _currentTick = reached;
             require(received >= minOut, "insufficient output");
-            if (paid > 0) require(token1.transferFrom(msg.sender, address(this), paid), "fill payment failed");
+            if (paid > 0) _transferInExact(token1, msg.sender, paid, "non-exact token1 transfer");
+            _payTakerFee(token1, msg.sender, paid - fee, fee, paid);
             if (received > 0) require(token0.transfer(msg.sender, received), "fill payout failed");
         } else {
-            (reached, paid, received) = _sweepDown(oldTick, target, maxFills, maxPay);
+            (reached, paid, received) = _sweepDown(oldTick, target, maxFills, _maxGrossForTotal(maxPay, takerFeeBps));
+            uint256 fee;
+            (paid, fee) = _takerTotal(paid);
             _currentTick = reached;
             require(received >= minOut, "insufficient output");
-            if (paid > 0) require(token0.transferFrom(msg.sender, address(this), paid), "fill payment failed");
+            if (paid > 0) _transferInExact(token0, msg.sender, paid, "non-exact token0 transfer");
+            _payTakerFee(token0, msg.sender, paid - fee, fee, paid);
             if (received > 0) require(token1.transfer(msg.sender, received), "fill payout failed");
         }
         _callHook(
@@ -676,7 +706,8 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         if (!p.live || p.isBid) return 0;
         int24 frontier = _frontier(p);
         if (frontier <= p.claimedUpper) return 0;
-        return _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier);
+        uint256 gross = _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier);
+        return gross - _feeAmount(gross, makerFeeBps);
     }
 
     function unfilledPrincipal(uint256 positionId) external view returns (uint256) {
@@ -692,7 +723,9 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         if (!p.live || !p.isBid) return 0;
         int24 frontier = _bidFrontier(p);
         if (frontier >= p.claimedUpper) return 0;
-        return uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
+        uint256 gross =
+            uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
+        return gross - _feeAmount(gross, makerFeeBps);
     }
 
     /// @notice token1 still backing a bid's unfilled levels (floor).
