@@ -24,6 +24,7 @@ import { bookAbi } from "../abi/book";
 import { lensAbi } from "../abi/lens";
 import { erc20Abi } from "../abi/erc20";
 import { tickToPrice } from "../lib/format";
+import { DEFAULT_MARKET_MODE, MARKET_PROFILES, type MarketMode, type MarketProfile } from "../lib/markets";
 
 // ---------------------------------------------------------------- types
 
@@ -125,6 +126,9 @@ interface AppData {
   priceHistory: PricePoint[];
   balances: Balances;
   positions: PositionRow[];
+  marketMode: MarketMode;
+  market: MarketProfile;
+  setMarketMode: (mode: MarketMode) => void;
   rpcError: string | null;
   toasts: TxToast[];
   busy: string | null;
@@ -139,6 +143,7 @@ interface AppData {
 }
 
 const AppCtx = createContext<AppData | null>(null);
+const MARKET_STORAGE_KEY = "frontier-market-mode";
 
 export function useApp(): AppData {
   const ctx = useContext(AppCtx);
@@ -234,16 +239,26 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n });
   const [positions, setPositions] = useState<PositionRow[]>([]);
+  const [marketMode, setMarketModeState] = useState<MarketMode>(() => {
+    const stored = window.localStorage.getItem(MARKET_STORAGE_KEY);
+    return stored === "spot" || stored === "prediction" ? stored : DEFAULT_MARKET_MODE;
+  });
   const [rpcError, setRpcError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<TxToast[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [preview, setPreview] = useState<ChartPreview | null>(null);
   const [makeFocus, setMakeFocus] = useState(false);
   const [nonce, setNonce] = useState(0); // manual refresh trigger
+  const market = MARKET_PROFILES[marketMode];
 
   const summaryRef = useRef<BookSummary | null>(null);
   summaryRef.current = summary;
   const errCount = useRef(0);
+
+  const setMarketMode = useCallback((mode: MarketMode) => {
+    setMarketModeState(mode);
+    window.localStorage.setItem(MARKET_STORAGE_KEY, mode);
+  }, []);
 
   const noteError = useCallback((e: unknown) => {
     errCount.current += 1;
@@ -672,14 +687,14 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     [client, pushToast, refresh],
   );
 
-  // -------- faucet: gas + 10 WETH + 50,000 USDC
+  // -------- faucet: gas + base + quote demo balances
   const faucet = useCallback(async () => {
     try {
       await ensureGas(client, cfg, account.address);
     } catch {
       /* may already have gas */
     }
-    const okWeth = await sendTx("Faucet: mint 10 WETH", () =>
+    const okWeth = await sendTx(`Faucet: mint 10 ${market.baseSymbol}`, () =>
       wallet.writeContract({
         address: cfg.contracts.weth,
         abi: erc20Abi,
@@ -688,7 +703,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       }),
     );
     if (!okWeth) return;
-    await sendTx("Faucet: mint 50,000 USDC", () =>
+    await sendTx(`Faucet: mint 50,000 ${market.quoteSymbol}`, () =>
       wallet.writeContract({
         address: cfg.contracts.usdc,
         abi: erc20Abi,
@@ -696,11 +711,14 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
         args: [account.address, parseUnits("50000", 18)],
       }),
     );
-  }, [client, cfg, account, wallet, sendTx]);
+  }, [client, cfg, account, wallet, sendTx, market.baseSymbol, market.quoteSymbol]);
 
   const value: AppData = {
     cfg,
     configured,
+    marketMode,
+    market,
+    setMarketMode,
     preview,
     setPreview,
     makeFocus,

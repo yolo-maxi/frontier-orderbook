@@ -3,7 +3,7 @@ import { useApp, type PositionRow } from "../state/app";
 import { fmtAmount, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
 
 export function MarketPanel() {
-  const { summary, priceHistory, fills, makerEvents } = useApp();
+  const { summary, priceHistory, fills, makerEvents, market } = useApp();
   const [feedTab, setFeedTab] = useState<"trades" | "makers">("trades");
 
   const last = summary ? tickToPrice(summary.currentTick) : null;
@@ -38,7 +38,7 @@ export function MarketPanel() {
           >
             {last !== null ? fmtPrice(last, 3) : "—"}
           </span>
-          <span className="ph-sub">USDC per WETH</span>
+          <span className="ph-sub">{market.priceUnit}</span>
         </div>
         <div className="ph-stats num">
           <div className="ph-stat">
@@ -90,8 +90,8 @@ export function MarketPanel() {
               <span>Side</span>
               <span className="ta-r">Avg Px</span>
               <span>Price Range</span>
-              <span className="ta-r">Size (WETH)</span>
-              <span className="ta-r">Value (USDC)</span>
+              <span className="ta-r">{market.sizeColumn}</span>
+              <span className="ta-r">{market.valueColumn}</span>
               <span className="ta-r">Lvls</span>
             </div>
             <div className="fills-body">
@@ -129,7 +129,7 @@ export function MarketPanel() {
               <span className="ta-r">#</span>
               <span>Range</span>
               <span className="ta-r">Size × Lvls</span>
-              <span className="ta-r">Total (WETH)</span>
+              <span className="ta-r">Total ({market.baseSymbol})</span>
               <span className="ta-r">Payout</span>
             </div>
             <div className="fills-body">

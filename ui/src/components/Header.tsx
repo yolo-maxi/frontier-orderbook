@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 import { useApp } from "../state/app";
 import { fmtAmount, shortAddr } from "../lib/format";
 import { Brand } from "./Brand";
+import type { MarketMode } from "../lib/markets";
 
-function TokenGlyph({ sym }: { sym: "weth" | "usdc" | "eth" }) {
-  const letter = sym === "weth" ? "W" : sym === "usdc" ? "U" : "Ξ";
+function TokenGlyph({ sym, glyph }: { sym: "base" | "quote" | "eth"; glyph: string }) {
+  const letter = sym === "eth" ? "Ξ" : glyph;
   return <span className={`tok-glyph tok-${sym}`}>{letter}</span>;
 }
 
@@ -20,7 +21,7 @@ function identGradient(address: string): string {
 }
 
 export function Header() {
-  const { cfg, account, balances, faucet, busy, rpcError, configured } = useApp();
+  const { cfg, account, balances, faucet, busy, rpcError, configured, market, marketMode, setMarketMode } = useApp();
   const [copied, setCopied] = useState(false);
   const [fauceting, setFauceting] = useState(false);
 
@@ -41,6 +42,9 @@ export function Header() {
       setFauceting(false);
     }
   };
+  const switchMarket = (mode: MarketMode) => {
+    if (mode !== marketMode) setMarketMode(mode);
+  };
 
   return (
     <header className="hdr">
@@ -49,11 +53,25 @@ export function Header() {
         <span className="hdr-sep" />
         <span className="pair">
           <span className="pair-glyphs">
-            <TokenGlyph sym="weth" />
-            <TokenGlyph sym="usdc" />
+            <TokenGlyph sym="base" glyph={market.baseGlyph} />
+            <TokenGlyph sym="quote" glyph={market.quoteGlyph} />
           </span>
-          WETH / USDC
+          {market.pairLabel}
         </span>
+        <div className="market-switch" role="group" aria-label="Market UI mode">
+          <button
+            className={`market-switch-btn ${marketMode === "prediction" ? "market-switch-on" : ""}`}
+            onClick={() => switchMarket("prediction")}
+          >
+            Prediction
+          </button>
+          <button
+            className={`market-switch-btn ${marketMode === "spot" ? "market-switch-on" : ""}`}
+            onClick={() => switchMarket("spot")}
+          >
+            ETH/USDC
+          </button>
+        </div>
         <span className="net">
           <span className={`dot ${rpcError ? "dot-bad" : configured ? "dot-ok" : "dot-warn"}`} />
           {cfg.name} <span className="dim num">#{cfg.chainId}</span>
@@ -62,13 +80,13 @@ export function Header() {
       <div className="hdr-right">
         <div className="bal-group num">
           <span className="bal">
-            <TokenGlyph sym="weth" /> {fmtAmount(balances.weth, 4)}
+            <TokenGlyph sym="base" glyph={market.baseGlyph} /> {fmtAmount(balances.weth, 4)}
           </span>
           <span className="bal">
-            <TokenGlyph sym="usdc" /> {fmtAmount(balances.usdc, 2)}
+            <TokenGlyph sym="quote" glyph={market.quoteGlyph} /> {fmtAmount(balances.usdc, 2)}
           </span>
           <span className="bal bal-gas" title="Native gas balance">
-            <TokenGlyph sym="eth" /> {fmtAmount(balances.eth, 3)}
+            <TokenGlyph sym="eth" glyph="Ξ" /> {fmtAmount(balances.eth, 3)}
           </span>
         </div>
         <button className="wallet-chip" onClick={copy} title={account.address}>
@@ -79,7 +97,7 @@ export function Header() {
           className="btn btn-accent"
           onClick={onFaucet}
           disabled={!configured || fauceting || busy !== null}
-          title="Mint 10 WETH + 50,000 USDC to the demo wallet"
+          title={market.faucetTitle}
         >
           {fauceting ? "Minting…" : "Faucet"}
         </button>

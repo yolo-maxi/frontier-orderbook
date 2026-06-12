@@ -34,7 +34,7 @@ function bucketize(
 }
 
 export function OrderBook() {
-  const { summary, depth, preview } = useApp();
+  const { summary, depth, preview, market } = useApp();
   // price range of the ladder being configured in Make (if any)
   const previewRange =
     preview?.kind === "make" && preview.lowerTick !== undefined && preview.upperTick !== undefined
@@ -154,8 +154,8 @@ export function OrderBook() {
       <section className="panel book-panel">
         <div className="panel-title">Order Book</div>
         <div className="book-head num">
-          <span>Price (USDC)</span>
-          <span>Size (WETH)</span>
+          <span>{market.priceColumn}</span>
+          <span>{market.sizeColumn}</span>
           <span>Total</span>
         </div>
         <div className="book-body">
@@ -199,8 +199,8 @@ export function OrderBook() {
         )}
       </div>
       <div className="book-head num">
-        <span>Price (USDC)</span>
-        <span>Size (WETH)</span>
+        <span>{market.priceColumn}</span>
+        <span>{market.sizeColumn}</span>
         <span>Total</span>
       </div>
       <div className="book-body">

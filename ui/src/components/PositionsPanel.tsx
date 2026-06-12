@@ -13,7 +13,7 @@ interface Editor {
 }
 
 export function PositionsPanel() {
-  const { cfg, client, wallet, account, summary, positions, sendTx, busy, refresh } = useApp();
+  const { cfg, client, wallet, account, summary, positions, sendTx, busy, refresh, market } = useApp();
   const [editor, setEditor] = useState<Editor | null>(null);
 
   const spacing = summary?.tickSpacing ?? 1;
@@ -164,9 +164,9 @@ export function PositionsPanel() {
   if (positions.length === 0) {
     return (
       <div className="positions-empty empty-state">
-        No maker positions yet.
+        {market.emptyPositions}
         <br />
-        <span className="dim">Place a ladder from the Make tab — fills accrue here.</span>
+        <span className="dim">{market.emptyPositionsHint}</span>
       </div>
     );
   }
@@ -181,8 +181,8 @@ export function PositionsPanel() {
       {positions.map((p) => {
         const lo = tickToPrice(p.lower);
         const hi = tickToPrice(p.upper);
-        const claimSym = p.isBid ? "WETH" : "USDC";
-        const restSym = p.isBid ? "USDC" : "WETH";
+        const claimSym = p.isBid ? market.claimBidSymbol : market.claimAskSymbol;
+        const restSym = p.isBid ? market.restBidSymbol : market.restAskSymbol;
         const ed = editor !== null && editor.id === p.id.toString() ? editor : null;
         return (
           <div className={`pos-card ${p.live ? "" : "pos-dead"}`} key={p.id.toString()}>
@@ -201,7 +201,7 @@ export function PositionsPanel() {
             <div className="pos-grid num">
               <div>
                 <span className="dim">Size / level</span>
-                <span>{fmtAmount(p.liquidity, 4)} WETH</span>
+                <span>{fmtAmount(p.liquidity, 4)} {market.baseSymbol}</span>
               </div>
               <div>
                 <span className="dim">Resting</span>

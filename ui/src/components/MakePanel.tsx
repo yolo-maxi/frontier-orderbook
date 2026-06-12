@@ -28,7 +28,7 @@ interface Plan {
 }
 
 export function MakePanel() {
-  const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview } = useApp();
+  const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview, market } = useApp();
   const [side, setSide] = useState<Side>("ask");
   const [fromStr, setFromStr] = useState("");
   const [toStr, setToStr] = useState("");
@@ -182,7 +182,7 @@ export function MakePanel() {
   useEffect(() => () => setPreview(null), [setPreview]);
 
   const payToken = side === "ask" ? cfg.contracts.weth : cfg.contracts.usdc;
-  const paySymbol = side === "ask" ? "WETH" : "USDC";
+  const paySymbol = side === "ask" ? market.baseSymbol : market.quoteSymbol;
   const payBalance = side === "ask" ? balances.weth : balances.usdc;
 
   const loadAllowance = useCallback(async () => {
@@ -260,10 +260,10 @@ export function MakePanel() {
     <div className="trade-panel">
       <div className="seg">
         <button className={`seg-btn ${side === "bid" ? "seg-buy" : ""}`} onClick={() => switchSide("bid")}>
-          Bid <span className="seg-note">buy WETH</span>
+          {market.makerBidLabel} <span className="seg-note">{market.bidNote}</span>
         </button>
         <button className={`seg-btn ${side === "ask" ? "seg-sell" : ""}`} onClick={() => switchSide("ask")}>
-          Ask <span className="seg-note">sell WETH</span>
+          {market.makerAskLabel} <span className="seg-note">{market.askNote}</span>
         </button>
       </div>
 
@@ -294,7 +294,7 @@ export function MakePanel() {
 
       <div className="field-row">
         <label className="field">
-          <span className="field-label">Size per level <span className="dim">(WETH)</span></span>
+          <span className="field-label">Size per level <span className="dim">({market.baseSymbol})</span></span>
           <input
             className="input num"
             inputMode="decimal"
@@ -368,12 +368,12 @@ export function MakePanel() {
           <span>{plan ? plan.n.toLocaleString() : "—"}</span>
         </div>
         <div className="qrow">
-          <span className="dim">Total {side === "ask" ? "WETH" : "USDC"} required</span>
+          <span className="dim">Total {side === "ask" ? market.baseSymbol : market.quoteSymbol} required</span>
           <span>{plan && plan.cost > 0n ? fmtAmount(plan.cost, side === "ask" ? 4 : 2) : "—"}</span>
         </div>
         {side === "bid" && plan && plan.cost > 0n && (
           <div className="qrow">
-            <span className="dim">Total WETH bid for</span>
+            <span className="dim">Total {market.baseSymbol} bid for</span>
             <span>{fmtAmount(plan.liquidity * BigInt(plan.n), 4)}</span>
           </div>
         )}
@@ -382,7 +382,7 @@ export function MakePanel() {
       {plan?.error && <div className="note warn">{plan.error}</div>}
       {side === "ask" && mid !== null && (
         <div className="note dim-note">
-          Asks rest above the current price ({fmtPrice(mid, 3)}); the range is auto-bumped if
+          {market.makerAskLabel}s rest above the current price ({fmtPrice(mid, 3)}); the range is auto-bumped if
           it overlaps.
         </div>
       )}
@@ -400,8 +400,8 @@ export function MakePanel() {
           {insufficient
             ? `Insufficient ${paySymbol}`
             : side === "bid"
-              ? "Place Bid Ladder"
-              : "Place Ask Ladder"}
+              ? market.makerBidButton
+              : market.makerAskButton}
         </button>
       )}
     </div>

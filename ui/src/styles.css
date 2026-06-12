@@ -283,11 +283,13 @@ body {
   flex: 0 0 auto;
 }
 
-.tok-weth {
+.tok-weth,
+.tok-base {
   background: linear-gradient(135deg, #7b94f0, #4a63c9);
 }
 
-.tok-usdc {
+.tok-usdc,
+.tok-quote {
   background: linear-gradient(135deg, #3d8fdd, #1f5fa8);
 }
 
@@ -302,6 +304,39 @@ body {
   font-size: 12px;
   color: var(--text-mid);
   white-space: nowrap;
+}
+
+.market-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-input);
+  box-shadow: inset 0 1px 0 var(--edge-hi);
+  flex: 0 0 auto;
+}
+
+.market-switch-btn {
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  padding: 0 8px;
+  font: 700 11px/1 var(--sans);
+  cursor: pointer;
+}
+
+.market-switch-btn:hover {
+  color: var(--text);
+}
+
+.market-switch-on {
+  color: var(--text);
+  background: var(--bg-panel-2);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
 }
 
 .dot {
