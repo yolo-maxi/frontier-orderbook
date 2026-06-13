@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IRangeOrderBook} from "./IRangeOrderBook.sol";
 import {FrontierBookBase} from "./FrontierBookBase.sol";
+import {IFrontierVault} from "./FrontierVault.sol";
 import {IFrontierHooks, FrontierHookFlags} from "./hooks/IFrontierHooks.sol";
 
 /// @title RollingFrontierBook — width-O(1) production candidate
@@ -125,7 +126,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         proceeds1 = _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, target);
         p.claimedUpper = target;
 
-        if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
+        _creditOrTransfer1(p.owner, proceeds1);
         emit Claim(positionId, proceeds1);
         _callHook(
             FrontierHookFlags.AFTER_CLAIM_FLAG,
@@ -159,8 +160,12 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
         proceeds1 = _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier);
         p.claimedUpper = frontier;
-        internalBalance1[p.owner] += proceeds1;
-        emit InternalCredit(p.owner, 0, proceeds1);
+        if (frontierVault != address(0)) {
+            IFrontierVault(frontierVault).credit(p.owner, address(token1), proceeds1);
+        } else {
+            internalBalance1[p.owner] += proceeds1;
+            emit InternalCredit(p.owner, 0, proceeds1);
+        }
         emit Claim(positionId, proceeds1);
     }
 
@@ -188,24 +193,29 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         _storePosition(positionId, msg.sender, lower, upper, liquidity, fillClock, upper, true);
 
         uint256 amount1 = _uniformSpanValue(lower, upper, liquidity, true);
-        uint256 credit = internalBalance1[msg.sender];
-        if (credit >= amount1) {
-            internalBalance1[msg.sender] = credit - amount1;
+        address vault = frontierVault;
+        if (vault != address(0)) {
+            IFrontierVault(vault).debit(msg.sender, address(token1), amount1);
         } else {
-            if (credit > 0) internalBalance1[msg.sender] = 0;
-            uint256 pullAmount = amount1 - credit;
-            address t1 = address(token1);
-            bool ok;
-            assembly ("memory-safe") {
-                let ptr := mload(0x40)
-                mstore(ptr, shl(224, 0x23b872dd))
-                mstore(add(ptr, 4), caller())
-                mstore(add(ptr, 36), address())
-                mstore(add(ptr, 68), pullAmount)
-                ok := call(gas(), t1, 0, ptr, 100, ptr, 32)
-                ok := and(and(ok, eq(returndatasize(), 32)), mload(ptr))
+            uint256 credit = internalBalance1[msg.sender];
+            if (credit >= amount1) {
+                internalBalance1[msg.sender] = credit - amount1;
+            } else {
+                if (credit > 0) internalBalance1[msg.sender] = 0;
+                uint256 pullAmount = amount1 - credit;
+                address t1 = address(token1);
+                bool ok;
+                assembly ("memory-safe") {
+                    let ptr := mload(0x40)
+                    mstore(ptr, shl(224, 0x23b872dd))
+                    mstore(add(ptr, 4), caller())
+                    mstore(add(ptr, 36), address())
+                    mstore(add(ptr, 68), pullAmount)
+                    ok := call(gas(), t1, 0, ptr, 100, ptr, 32)
+                    ok := and(and(ok, eq(returndatasize(), 32)), mload(ptr))
+                }
+                require(ok, "transfer in failed");
             }
-            require(ok, "transfer in failed");
         }
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
         if (address(hooks) != address(0)) _callAfterDepositHook(msg.sender, positionId, true);
@@ -225,7 +235,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         proceeds0 = uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - target)) / uint256(uint24(tickSpacing)));
         p.claimedUpper = target;
 
-        if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
+        _creditOrTransfer0(p.owner, proceeds0);
         emit Claim(positionId, proceeds0);
         _callHook(
             FrontierHookFlags.AFTER_CLAIM_FLAG,
@@ -259,8 +269,12 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
         proceeds0 = uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)));
         p.claimedUpper = frontier;
-        internalBalance0[p.owner] += proceeds0;
-        emit InternalCredit(p.owner, proceeds0, 0);
+        if (frontierVault != address(0)) {
+            IFrontierVault(frontierVault).credit(p.owner, address(token0), proceeds0);
+        } else {
+            internalBalance0[p.owner] += proceeds0;
+            emit InternalCredit(p.owner, proceeds0, 0);
+        }
         emit Claim(positionId, proceeds0);
     }
 
@@ -292,6 +306,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @notice Withdraw internal credits to the wallet.
     function withdrawInternal(uint256 amount0, uint256 amount1) external {
+        require(frontierVault == address(0), "use vault");
         if (amount0 > 0) {
             internalBalance0[msg.sender] -= amount0;
             require(token0.transfer(msg.sender, amount0), "transfer out failed");
@@ -398,14 +413,26 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
             (reached, paid, received) = _sweepUp(oldTick, target, maxFills, maxPay);
             _currentTick = reached;
             require(received >= minOut, "insufficient output");
-            if (paid > 0) require(token1.transferFrom(msg.sender, address(this), paid), "fill payment failed");
-            if (received > 0) require(token0.transfer(msg.sender, received), "fill payout failed");
+            address vault = frontierVault;
+            if (vault != address(0)) {
+                if (paid > 0) require(token1.transferFrom(msg.sender, vault, paid), "fill payment failed");
+                if (received > 0) IFrontierVault(vault).pay(address(token0), msg.sender, received);
+            } else {
+                if (paid > 0) require(token1.transferFrom(msg.sender, address(this), paid), "fill payment failed");
+                if (received > 0) require(token0.transfer(msg.sender, received), "fill payout failed");
+            }
         } else {
             (reached, paid, received) = _sweepDown(oldTick, target, maxFills, maxPay);
             _currentTick = reached;
             require(received >= minOut, "insufficient output");
-            if (paid > 0) require(token0.transferFrom(msg.sender, address(this), paid), "fill payment failed");
-            if (received > 0) require(token1.transfer(msg.sender, received), "fill payout failed");
+            address vault = frontierVault;
+            if (vault != address(0)) {
+                if (paid > 0) require(token0.transferFrom(msg.sender, vault, paid), "fill payment failed");
+                if (received > 0) IFrontierVault(vault).pay(address(token1), msg.sender, received);
+            } else {
+                if (paid > 0) require(token0.transferFrom(msg.sender, address(this), paid), "fill payment failed");
+                if (received > 0) require(token1.transfer(msg.sender, received), "fill payout failed");
+            }
         }
         _callHook(
             FrontierHookFlags.AFTER_SWEEP_FLAG,

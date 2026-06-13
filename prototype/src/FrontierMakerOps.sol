@@ -79,7 +79,7 @@ contract FrontierMakerOps is FrontierBookBase {
         if (newAmount0 > oldAmount0) {
             _pull0(msg.sender, newAmount0 - oldAmount0);
         } else if (oldAmount0 > newAmount0) {
-            require(token0.transfer(msg.sender, oldAmount0 - newAmount0), "transfer out failed");
+            _creditOrTransfer0(msg.sender, oldAmount0 - newAmount0);
         }
         emit Requote(positionId, newLower, newUpper, newLiquidity);
     }
@@ -114,7 +114,7 @@ contract FrontierMakerOps is FrontierBookBase {
         if (newAmount1 > oldAmount1) {
             _pull1(msg.sender, newAmount1 - oldAmount1);
         } else if (oldAmount1 > newAmount1) {
-            require(token1.transfer(msg.sender, oldAmount1 - newAmount1), "transfer out failed");
+            _creditOrTransfer1(msg.sender, oldAmount1 - newAmount1);
         }
         emit Requote(positionId, newLower, newUpper, newLiquidity);
     }
@@ -154,8 +154,8 @@ contract FrontierMakerOps is FrontierBookBase {
         p.live = false;
         delete _positionSlope[positionId];
 
-        if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
-        if (principal0 > 0) require(token0.transfer(p.owner, principal0), "transfer out failed");
+        _creditOrTransfer1(p.owner, proceeds1);
+        _creditOrTransfer0(p.owner, principal0);
         emit Cancel(positionId, proceeds1, principal0);
         _callHook(
             FrontierHookFlags.AFTER_CANCEL_FLAG,
@@ -203,8 +203,8 @@ contract FrontierMakerOps is FrontierBookBase {
         }
         p.live = false;
 
-        if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
-        if (refund1 > 0) require(token1.transfer(p.owner, refund1), "transfer out failed");
+        _creditOrTransfer0(p.owner, proceeds0);
+        _creditOrTransfer1(p.owner, refund1);
         emit Cancel(positionId, proceeds0, refund1);
         _callHook(
             FrontierHookFlags.AFTER_CANCEL_FLAG,

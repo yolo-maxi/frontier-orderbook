@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20Minimal} from "./RangeTakeProfitBook.sol";
+import {IFrontierVault} from "./FrontierVault.sol";
 import {IFrontierHooks, FrontierHookFlags} from "./hooks/IFrontierHooks.sol";
 import {IPermissionRegistry} from "./permissions/interfaces/IPermissionRegistry.sol";
 
@@ -29,6 +30,11 @@ abstract contract FrontierBookBase {
     IFrontierHooks public immutable hooks;
     /// delegatable permissions (ERC Approval Registry); 0 = owner-only
     IPermissionRegistry public immutable permissions;
+
+    /// Optional singleton custody/credit vault. Zero preserves the original
+    /// per-book custody path; nonzero makes deposits debit global credits and
+    /// settlement credit/settle through the vault.
+    address public frontierVault;
 
     int24 internal _currentTick;
     uint64 public fillClock;
@@ -175,6 +181,7 @@ abstract contract FrontierBookBase {
     event PositionTransferred(uint256 indexed positionId, address indexed from, address indexed to);
     event InternalCredit(address indexed user, uint256 amount0, uint256 amount1);
     event InternalWithdraw(address indexed user, uint256 amount0, uint256 amount1);
+    event FrontierVaultEnabled(address indexed vault);
 
     uint256 internal constant PRICE_SCALE = 1e18;
 
@@ -193,6 +200,14 @@ abstract contract FrontierBookBase {
         _currentTick = _initialTick;
         hooks = IFrontierHooks(_hooks);
         permissions = IPermissionRegistry(_permissions);
+    }
+
+    function _enableFrontierVault(address vault_) internal {
+        require(vault_ != address(0), "zero vault");
+        require(frontierVault == address(0), "vault set");
+        require(_nextPositionId == 1 && fillClock == 0, "book active");
+        frontierVault = vault_;
+        emit FrontierVaultEnabled(vault_);
     }
 
     // ------------------------------------------------------------------
@@ -541,6 +556,11 @@ abstract contract FrontierBookBase {
     /// @dev Spend the payer's internal token0 credit first; transferFrom
     /// only the shortfall.
     function _pull0(address payer, uint256 amount) internal {
+        address vault = frontierVault;
+        if (vault != address(0)) {
+            IFrontierVault(vault).debit(payer, address(token0), amount);
+            return;
+        }
         uint256 credit = internalBalance0[payer];
         if (credit >= amount) {
             internalBalance0[payer] = credit - amount;
@@ -552,6 +572,11 @@ abstract contract FrontierBookBase {
 
     /// @dev Mirror for token1.
     function _pull1(address payer, uint256 amount) internal {
+        address vault = frontierVault;
+        if (vault != address(0)) {
+            IFrontierVault(vault).debit(payer, address(token1), amount);
+            return;
+        }
         uint256 credit = internalBalance1[payer];
         if (credit >= amount) {
             internalBalance1[payer] = credit - amount;
@@ -559,6 +584,26 @@ abstract contract FrontierBookBase {
         }
         if (credit > 0) internalBalance1[payer] = 0;
         require(token1.transferFrom(payer, address(this), amount - credit), "transfer in failed");
+    }
+
+    function _creditOrTransfer0(address owner, uint256 amount) internal {
+        if (amount == 0) return;
+        address vault = frontierVault;
+        if (vault != address(0)) {
+            IFrontierVault(vault).credit(owner, address(token0), amount);
+        } else {
+            require(token0.transfer(owner, amount), "transfer out failed");
+        }
+    }
+
+    function _creditOrTransfer1(address owner, uint256 amount) internal {
+        if (amount == 0) return;
+        address vault = frontierVault;
+        if (vault != address(0)) {
+            IFrontierVault(vault).credit(owner, address(token1), amount);
+        } else {
+            require(token1.transfer(owner, amount), "transfer out failed");
+        }
     }
 
     /// @dev Single write paths for the ask ledgers, keeping the bitmap in
