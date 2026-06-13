@@ -1,2 +1,6 @@
 # standalone — do not hoist into the parent uniswap-tools workspace
 packages: []
+# esbuild ships a prebuilt native binary and needs its install script to run
+onlyBuiltDependencies:
+  - esbuild
+verifyDepsBeforeRun: false

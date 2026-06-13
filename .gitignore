@@ -1,3 +1,26 @@
+# ── Solidity / Foundry ──────────────────────────────────────────────
 prototype/out/
 prototype/cache/
 prototype/broadcast/
+
+# ── Node / JS ───────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.vitepress/cache/
+.vitepress/dist/
+
+# ── Secrets / local env ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+deployment.local.json
+
+# ── Editor / OS ─────────────────────────────────────────────────────
+.DS_Store
+*.log
+.idea/
+.vscode/

@@ -2,26 +2,27 @@
 
 ## Live demo (clob devnet)
 
-- UI: https://clob.repo.box (static, served from the FRONT server)
-- RPC: https://rpc-clob.repo.box (chain id 84009, 2s blocks, anvil with
-  state persistence under pm2 `clob-devnet`, state in /home/xiko/clob-devnet)
+The reference demo runs on a disposable devnet (anvil with state
+persistence, 2s blocks) fronted by a static UI build and an RPC endpoint.
+Infrastructure topology (hosts, tunnels, process managers) is intentionally
+omitted from this public repository.
 
-TOPOLOGY: public DNS for *.repo.box points at the front server
-(fran@204.168.190.248); this box publishes through it. The UI is static
-files at /var/www/repo.box/subdomains/clob ON THE FRONT; the RPC is an SSH
-reverse tunnel (pm2 `clob-rpc-tunnel`, front 127.0.0.1:43110 -> local
-8547) behind the front's Caddy. The local Caddy entries on this box only
-matter for loopback testing. clob.repo.box previously carried the
-uniswap-tools mock book preview (port 43109) — replaced 2026-06-10, front
-Caddyfile backed up (.bak.clob-full-*).
-- Addresses: `deployments/latest.json` (also served at clob.repo.box/deployment.json)
-- Bots on the box (pm2): `clob-mm-bot` quotes ETH-USDC at ±0.1% around the
-  live Coinbase spot, requoting through a DELEGATED operator key
-  (PermissionRegistry selector grants — the fast path never holds custody);
-  fills force the owner-key settle path. `clob-taker-bot` sends randomized
-  market orders through the FrontierRouter to generate flow.
+- UI: `https://clob.repo.box` — a static build of `../ui` (`pnpm build`).
+- RPC: chain id `84009`, 2s blocks.
+- Addresses: `deployments/latest.json`, also served next to the UI as
+  `deployment.json` (the frontend fetches it at load).
+- Bots: a market-maker bot quotes ETH-USDC at ±0.1% around the live spot,
+  requoting through a **delegated operator key** (PermissionRegistry
+  selector grants — the fast path never holds custody); fills force the
+  owner-key settle path. A taker bot sends randomized market orders through
+  the `FrontierRouter` to generate flow. See `../bots/`.
 - Deploy/redeploy: `./deploy-devnet.sh` (forge create + cast; forge script
-  refuses to broadcast because the factory exceeds EIP-170 — see below).
+  refuses to broadcast the older factory because it exceeds EIP-170 — see
+  below).
+
+> The devnet runs with the contract size limit disabled. Demo keys are the
+> well-known deterministic Anvil/Foundry test keys and control nothing of
+> value — never reuse them on a real chain.
 
 ## Base Sepolia (ready, needs a funded key)
 
