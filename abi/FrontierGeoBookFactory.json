@@ -8,16 +8,6 @@
         "internalType": "address"
       },
       {
-        "name": "_bookDeployer",
-        "type": "address",
-        "internalType": "contract RollingBookDeployer"
-      },
-      {
-        "name": "_makerOpsDeployer",
-        "type": "address",
-        "internalType": "contract MakerOpsDeployer"
-      },
-      {
         "name": "_geoBookDeployer",
         "type": "address",
         "internalType": "contract GeometricBookDeployer"
@@ -45,19 +35,6 @@
   },
   {
     "type": "function",
-    "name": "bookDeployer",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract RollingBookDeployer"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "books",
     "inputs": [
       {
@@ -74,182 +51,6 @@
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "createBook",
-    "inputs": [
-      {
-        "name": "token0",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "token1",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tickSpacing",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "startTick",
-        "type": "int24",
-        "internalType": "int24"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "book",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "createBookWithFees",
-    "inputs": [
-      {
-        "name": "token0",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "token1",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tickSpacing",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "startTick",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "feeRecipient",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "makerFeeBps",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "takerFeeBps",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "book",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "createBookWithHooks",
-    "inputs": [
-      {
-        "name": "token0",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "token1",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tickSpacing",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "startTick",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "hooks",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "book",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "createBookWithHooksAndFees",
-    "inputs": [
-      {
-        "name": "token0",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "token1",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tickSpacing",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "startTick",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "hooks",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "feeRecipient",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "makerFeeBps",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "takerFeeBps",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "book",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -508,19 +309,6 @@
   },
   {
     "type": "function",
-    "name": "makerOpsDeployer",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract MakerOpsDeployer"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "makerOpsFor",
     "inputs": [
       {
@@ -596,12 +384,6 @@
         "type": "address",
         "indexed": false,
         "internalType": "address"
-      },
-      {
-        "name": "curve",
-        "type": "uint8",
-        "indexed": false,
-        "internalType": "enum FrontierBookFactory.Curve"
       },
       {
         "name": "feeRecipient",

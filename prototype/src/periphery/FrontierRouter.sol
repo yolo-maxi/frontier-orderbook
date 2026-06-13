@@ -2,10 +2,13 @@
 pragma solidity ^0.8.24;
 
 import {RollingFrontierBook} from "../RollingFrontierBook.sol";
-import {FrontierBookFactory} from "../FrontierBookFactory.sol";
 import {FrontierLens} from "./FrontierLens.sol";
 import {GeoTickMath} from "../curve/GeoTickMath.sol";
 import {IERC20Minimal} from "../RangeTakeProfitBook.sol";
+
+interface IFrontierBookRegistry {
+    function defaultBook(address token0, address token1) external view returns (address);
+}
 
 /// @title FrontierRouter — taker periphery with aggregator-friendly entry
 /// points. Exposes Uniswap-v2-shaped `swapExactTokensForTokens` /
@@ -14,15 +17,15 @@ import {IERC20Minimal} from "../RangeTakeProfitBook.sol";
 /// the book's budgeted sweeps: spend up to amountIn, park exactly at the
 /// affordable thin tick, refund the remainder.
 contract FrontierRouter {
-    FrontierBookFactory public immutable factory;
+    IFrontierBookRegistry public immutable factory;
     FrontierLens public immutable lens;
 
     /// taker sweeps are bounded to this many ticks past the current pointer
     /// so exhausted books don't strand the pointer at grid extremes
     int24 public constant SWEEP_WINDOW = 200_000;
 
-    constructor(FrontierBookFactory _factory, FrontierLens _lens) {
-        factory = _factory;
+    constructor(address _factory, FrontierLens _lens) {
+        factory = IFrontierBookRegistry(_factory);
         lens = _lens;
     }
 

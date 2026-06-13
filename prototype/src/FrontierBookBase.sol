@@ -579,7 +579,7 @@ abstract contract FrontierBookBase {
             return;
         }
         if (credit > 0) internalBalance0[payer] = 0;
-        require(token0.transferFrom(payer, address(this), amount - credit), "transfer in failed");
+        _transferInExact(token0, payer, amount - credit, "non-exact token0 transfer");
     }
 
     /// @dev Mirror for token1.
@@ -590,7 +590,14 @@ abstract contract FrontierBookBase {
             return;
         }
         if (credit > 0) internalBalance1[payer] = 0;
-        require(token1.transferFrom(payer, address(this), amount - credit), "transfer in failed");
+        _transferInExact(token1, payer, amount - credit, "non-exact token1 transfer");
+    }
+
+    function _transferInExact(IERC20Minimal token, address payer, uint256 amount, string memory err) internal {
+        if (amount == 0) return;
+        uint256 beforeBal = token.balanceOf(address(this));
+        require(token.transferFrom(payer, address(this), amount), "transfer in failed");
+        require(token.balanceOf(address(this)) - beforeBal == amount, err);
     }
 
     function _feeAmount(uint256 amount, uint16 feeBps) internal pure returns (uint256) {

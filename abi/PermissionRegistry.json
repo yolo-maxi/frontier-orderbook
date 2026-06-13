@@ -1,71 +1,756 @@
-
-╭-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------╮
-| Type        | Signature                                                                             | Selector                                                           |
-+==========================================================================================================================================================================+
-| event       | AuthorizationSet(address,address,address,uint48,bytes4[])                             | 0xdbf10ca3a6e5acb3b11a77f5792eb5d602bb48fa446cd9d7f7c8945bae5d4ae1 |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| event       | PermissionSet(address,address,address,bytes4,bool,uint48)                             | 0x5df2ea8e0f4df273fc210bdd1ed093b4d5023a90c4bd8a410ecb7a44df54194f |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| error       | DeadlineExpired()                                                                     | 0x1ab7da6b                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| error       | InvalidAddress()                                                                      | 0xe6c4247b                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| error       | InvalidExpiry()                                                                       | 0xd36c8500                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| error       | InvalidNonce(uint256,uint256)                                                         | 0x06427aeb                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| error       | InvalidSelector()                                                                     | 0x7352d91c                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| error       | InvalidSignature()                                                                    | 0x8baa579f                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| error       | InvalidSignature()                                                                    | 0x8baa579f                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| error       | InvalidSignatureLength()                                                              | 0x4be6321b                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| error       | PermissionDenied(address,address,address,bytes4)                                      | 0x5425f1c3                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| error       | PermissionExpired(address,address,address,bytes4)                                     | 0x56f2e824                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | FULL_AUTHORIZATION_PERMIT_TYPEHASH() view returns (bytes32)                           | 0x19d2aeca                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | PERMISSION_PERMIT_TYPEHASH() view returns (bytes32)                                   | 0xe1fc815d                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | domainSeparator() view returns (bytes32)                                              | 0xf698da25                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | grant(address,address,bytes4) nonpayable                                              | 0xa6515bf1                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | grantBatch(IPermissionRegistry.PermissionKey[]) nonpayable                            | 0xee9fa889                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | grantBatchWithExpiry(IPermissionRegistry.PermissionEntry[]) nonpayable                | 0x75d298d5                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | grantFull(address,address) nonpayable                                                 | 0xbf573927                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | grantFullWithExpiry(address,address,uint48) nonpayable                                | 0xc549ba75                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | grantSelectorBundle(address,address,bytes4[],uint48) nonpayable                       | 0xe33d1043                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | grantWithExpiry(address,address,bytes4,uint48) nonpayable                             | 0x5f7013d7                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | isAuthorizedCall(address,address,address,bytes4) view returns (bool)                  | 0xded28f13                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | permissionExpiry(address,address,address,bytes4) view returns (uint48)                | 0x503aed59                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | permissionNonce(address) view returns (uint256)                                       | 0xb2c9d248                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | permitFullAuthorization(IPermissionRegistry.FullAuthorizationPermit,bytes) nonpayable | 0x833da581                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | permitPermission(IPermissionRegistry.PermissionPermit,bytes) nonpayable               | 0x62a9f3c5                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | rawPermissionData(address,address,address) view returns (bytes)                       | 0x23d56701                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | requireAuthorizedCall(address,address,address,bytes4) view                            | 0x902feb8b                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | revoke(address,address,bytes4) nonpayable                                             | 0x5cf3693c                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | revokeAll(address,address) nonpayable                                                 | 0x827f5869                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| function    | revokeBatch(IPermissionRegistry.PermissionKey[]) nonpayable                           | 0x6324ffea                                                         |
-|-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------|
-| constructor | constructor() nonpayable                                                              |                                                                    |
-╰-------------+---------------------------------------------------------------------------------------+--------------------------------------------------------------------╯
-
+[
+  {
+    "type": "constructor",
+    "inputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "FULL_AUTHORIZATION_PERMIT_TYPEHASH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PERMISSION_PERMIT_TYPEHASH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "domainSeparator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "grant",
+    "inputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "grantBatch",
+    "inputs": [
+      {
+        "name": "keys",
+        "type": "tuple[]",
+        "internalType": "struct IPermissionRegistry.PermissionKey[]",
+        "components": [
+          {
+            "name": "user",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "operator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "grantBatchWithExpiry",
+    "inputs": [
+      {
+        "name": "entries",
+        "type": "tuple[]",
+        "internalType": "struct IPermissionRegistry.PermissionEntry[]",
+        "components": [
+          {
+            "name": "key",
+            "type": "tuple",
+            "internalType": "struct IPermissionRegistry.PermissionKey",
+            "components": [
+              {
+                "name": "user",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "operator",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "target",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "selector",
+                "type": "bytes4",
+                "internalType": "bytes4"
+              }
+            ]
+          },
+          {
+            "name": "expiry",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "grantFull",
+    "inputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "grantFullWithExpiry",
+    "inputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expiry",
+        "type": "uint48",
+        "internalType": "uint48"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "grantSelectorBundle",
+    "inputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selectors",
+        "type": "bytes4[]",
+        "internalType": "bytes4[]"
+      },
+      {
+        "name": "expiry",
+        "type": "uint48",
+        "internalType": "uint48"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "grantWithExpiry",
+    "inputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      },
+      {
+        "name": "expiry",
+        "type": "uint48",
+        "internalType": "uint48"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "isAuthorizedCall",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "permissionExpiry",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint48",
+        "internalType": "uint48"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "permissionNonce",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "permitFullAuthorization",
+    "inputs": [
+      {
+        "name": "permit",
+        "type": "tuple",
+        "internalType": "struct IPermissionRegistry.FullAuthorizationPermit",
+        "components": [
+          {
+            "name": "user",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "operator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "expiry",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "signature",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "permitPermission",
+    "inputs": [
+      {
+        "name": "permit",
+        "type": "tuple",
+        "internalType": "struct IPermissionRegistry.PermissionPermit",
+        "components": [
+          {
+            "name": "user",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "operator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          },
+          {
+            "name": "expiry",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "signature",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "rawPermissionData",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "requireAuthorizedCall",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "revoke",
+    "inputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "revokeAll",
+    "inputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "revokeBatch",
+    "inputs": [
+      {
+        "name": "keys",
+        "type": "tuple[]",
+        "internalType": "struct IPermissionRegistry.PermissionKey[]",
+        "components": [
+          {
+            "name": "user",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "operator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "AuthorizationSet",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "expiry",
+        "type": "uint48",
+        "indexed": false,
+        "internalType": "uint48"
+      },
+      {
+        "name": "selectors",
+        "type": "bytes4[]",
+        "indexed": false,
+        "internalType": "bytes4[]"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PermissionSet",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "indexed": false,
+        "internalType": "bytes4"
+      },
+      {
+        "name": "approved",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "expiry",
+        "type": "uint48",
+        "indexed": false,
+        "internalType": "uint48"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "DeadlineExpired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidExpiry",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidNonce",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidSelector",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSignature",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSignature",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSignatureLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PermissionDenied",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PermissionExpired",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ]
+  }
+]

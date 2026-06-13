@@ -30,7 +30,7 @@ contract PeripheryTest is Test {
         t1 = new MockERC20("USDC", "USDC");
         factory = newFactory(address(0));
         lens = new FrontierLens();
-        router = new FrontierRouter(factory, lens);
+        router = new FrontierRouter(address(factory), lens);
         book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 100));
 
         t0.mint(mm, 1e30);
@@ -204,7 +204,7 @@ contract GeoPeripheryTest is Test {
         t1 = new MockERC20("USDC", "USDC");
         FrontierBookFactory factory = newFactory(address(0));
         lens = new FrontierLens();
-        router = new FrontierRouter(factory, lens);
+        router = new FrontierRouter(address(factory), lens);
         book = GeometricFrontierBook(factory.createGeoBook(address(t0), address(t1), 1, 100));
 
         t0.mint(mm, 1e30);

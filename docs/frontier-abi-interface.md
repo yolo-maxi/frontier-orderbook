@@ -1,89 +1,139 @@
 # Frontier deploy ABI interface
 
-This is the deploy-facing ABI guide for the current `main` Frontier book.
+This is the deploy-facing ABI guide for the current Frontier standalone order-book venue.
 
-Status: production-candidate prototype for a standalone Frontier order-book venue. Use the geometric book for real deployments unless you intentionally want the linear demo curve.
+For agent operation examples, use [`../skill.md`](../skill.md). This file is the compact ABI/reference layer.
 
-## Canonical contracts
+## Deploy-readiness status
 
-- `FrontierBookFactory`
-  - Deploys books and memoizes the maker-ops companion contracts.
-  - Use `createGeoBook(...)` for the production curve.
-  - Use `createBook(...)` only for the linear/demo curve.
+Frontier is ready for a real-token deploy when the deploy script is run with the target chain/token/fee parameters and the post-deploy smoke test passes.
 
-- `GeometricFrontierBook`
-  - Production-candidate order book using the geometric `1.0001^tick` curve.
-  - Same core user ABI as `RollingFrontierBook`.
+Current deploy target:
 
-- `RollingFrontierBook`
-  - Linear/demo curve order book.
-  - Useful for tests, local demos, and simpler reasoning.
+- Use `GeometricFrontierBook` for real markets.
+- Create books through `FrontierGeoBookFactory.createGeoBookWithFees(...)`.
+- Use `FrontierLens` for quotes/depth.
+- Use `FrontierRouter` for normal exact-input taker swaps.
+- Use `PermissionRegistry` for selector-scoped maker-agent delegation.
 
-- `FrontierRouter`
-  - V2-style exact-input taker periphery.
-  - Supports direct book calls and simple token path calls through the factory default book.
+Not part of the deploy-day path:
 
-- `FrontierLens`
-  - Read-only quotes, depth, summary, and curve detection.
-  - Agents should quote through the lens before submitting swaps.
+- Hook-enabled books.
+- Singleton/global credit prototype.
+- Referrer-code fee splits.
+- Maker rebates/emissions.
+- Exotic/non-standard ERC20 support.
 
-- `PermissionRegistry`
-  - Delegation layer for bots/agents managing a maker's positions.
+## Generated ABIs
 
-Generated JSON ABIs are in `abi/` at the repo root:
+Generated JSON ABIs live at the repo root:
 
-- `abi/FrontierBookFactory.json`
+- `abi/FrontierGeoBookFactory.json`
+- `abi/FrontierBookFactory.json` — broader test/experiment factory
 - `abi/GeometricFrontierBook.json`
 - `abi/RollingFrontierBook.json`
 - `abi/FrontierRouter.json`
 - `abi/FrontierLens.json`
 - `abi/PermissionRegistry.json`
 
+Regenerate after Solidity ABI changes:
+
+```bash
+cd prototype
+forge build
+```
+
 ## Real-token deploy script
 
-Use `prototype/script/DeployFrontier.s.sol` for today's deploy. Required env vars:
+Use `prototype/script/DeployFrontier.s.sol`.
+
+Required env vars:
 
 - `DEPLOYER_KEY`
 - `TOKEN0`
 - `TOKEN1`
 - `TICK_SPACING`
 - `START_TICK`
+- `RPC_URL` passed to `forge script --rpc-url`
 
 Optional env vars:
 
-- `DEPLOY_NAME`
-- `DEPLOY_OUT`
+- `DEPLOY_NAME`, defaults to `Frontier`
+- `DEPLOY_OUT`, defaults to `deployments/frontier-latest.json`
+- `FEE_RECIPIENT`, defaults to deployer
+- `MAKER_FEE_BPS`, defaults to `0`
+- `TAKER_FEE_BPS`, defaults to `0`
 
 Example:
 
 ```bash
 cd prototype
-DEPLOYER_KEY=... TOKEN0=0x... TOKEN1=0x... TICK_SPACING=60 START_TICK=0 \
-forge script script/DeployFrontier.s.sol:DeployFrontier --rpc-url "$RPC_URL" --broadcast --verify
+DEPLOYER_KEY=... \
+TOKEN0=0x... \
+TOKEN1=0x... \
+TICK_SPACING=60 \
+START_TICK=0 \
+FEE_RECIPIENT=0x... \
+MAKER_FEE_BPS=0 \
+TAKER_FEE_BPS=30 \
+FOUNDRY_PROFILE=deploy forge script script/DeployFrontier.s.sol:DeployFrontier --rpc-url "$RPC_URL" --broadcast --verify
 ```
 
-The script deploys registry, factory, lens, router, and one geometric book, then writes a deployment JSON.
+The script deploys registry, deployers, factory, lens, router, and one fee-configured geometric book, then writes deployment JSON.
 
 ## Deploy sequence
 
-Deploy these contracts first:
+The script deploys:
 
 - `PermissionRegistry`
-- `RollingBookDeployer`
-- `MakerOpsDeployer`
 - `GeometricBookDeployer`
 - `GeometricOpsDeployer`
-- `FrontierBookFactory(registry, rollingDeployer, makerOpsDeployer, geoBookDeployer, geoOpsDeployer)`
+- `FrontierGeoBookFactory`
 - `FrontierLens`
-- `FrontierRouter(factory, lens)`
+- `FrontierRouter`
 
-Then create the market book:
+Then it creates the market book:
 
 ```solidity
-address book = factory.createGeoBook(token0, token1, tickSpacing, startTick);
+address book = factory.createGeoBookWithFees(
+    token0,
+    token1,
+    tickSpacing,
+    startTick,
+    feeRecipient,
+    makerFeeBps,
+    takerFeeBps
+);
 ```
 
-Use `createGeoBookWithHooks(...)` only if the hooks contract is final and its address has the correct low-bit hook flags.
+Use `createGeoBook(...)` only for zero-fee markets.
+
+Use hook-aware creation functions only after hook-specific review. The deploy script uses the hookless path.
+
+## Factory ABI
+
+```solidity
+function createGeoBookWithFees(
+    address token0,
+    address token1,
+    int24 tickSpacing,
+    int24 startTick,
+    address feeRecipient,
+    uint16 makerFeeBps,
+    uint16 takerFeeBps
+) external returns (address book);
+
+function createGeoBook(address token0, address token1, int24 tickSpacing, int24 startTick)
+    external
+    returns (address book);
+
+function defaultBook(address token0, address token1) external view returns (address book);
+function getBook(address token0, address token1, int24 tickSpacing) external view returns (address book);
+function books(uint256 index) external view returns (address book);
+function bookCount() external view returns (uint256);
+```
+
+Agent rule: after creation, persist the explicit `book` address. Avoid `defaultBook` when multiple books may exist for the same pair.
 
 ## Tick and asset conventions
 
@@ -92,127 +142,159 @@ Use `createGeoBookWithHooks(...)` only if the hooks contract is final and its ad
 - Ticks are aligned to `tickSpacing`.
 - Ask ranges are `[lower, upper)` above the current tick.
 - Bid ranges are `[lower, upper)` at or below the current tick.
-- For geometric books, price follows the geometric curve implemented by `GeoTickMath`.
+- Geometric price follows the curve implemented by `GeoTickMath`.
+
+## Book config and fee views
+
+```solidity
+function token0() external view returns (IERC20Minimal);
+function token1() external view returns (IERC20Minimal);
+function tickSpacing() external view returns (int24);
+function currentTick() external view returns (int24);
+function hooks() external view returns (IFrontierHooks);
+function permissions() external view returns (PermissionRegistry);
+function feeRecipient() external view returns (address);
+function makerFeeBps() external view returns (uint16);
+function takerFeeBps() external view returns (uint16);
+```
+
+Fees:
+
+- Maker fee is charged from claim proceeds.
+- Taker fee is charged on input amount.
+- Max per-side fee is 1000 bps.
+- Zero fees preserve old behavior.
 
 ## Maker ABI: asks
 
-Sell token0 across a range above current price.
+Sell `token0` across a range above current price.
 
 ```solidity
-function deposit(int24 lower, int24 upper, uint128 liquidity) returns (uint256 positionId);
-function depositShaped(int24 lower, int24 upper, uint128 liquidity, int128 slope) returns (uint256 positionId);
+function deposit(int24 lower, int24 upper, uint128 liquidity) external returns (uint256 positionId);
+function depositShaped(int24 lower, int24 upper, uint128 liquidity, int128 slope)
+    external
+    returns (uint256 positionId);
+
+function claim(uint256 positionId) external returns (uint256 proceeds1);
+function claimTo(uint256 positionId, int24 target) external returns (uint256 proceeds1);
+function claimInternal(uint256 positionId) external returns (uint256 proceeds1);
+function cancel(uint256 positionId) external returns (uint256 proceeds1, uint256 principal0);
+function cancelWithWitness(uint256 positionId, int24 frontier)
+    external
+    returns (uint256 proceeds1, uint256 principal0);
+function claimable(uint256 positionId) external view returns (uint256);
+function unfilledPrincipal(uint256 positionId) external view returns (uint256);
 ```
 
-Before calling:
-
-- Approve token0 to the book.
-- Ensure `lower < upper`.
-- Ensure both ticks are aligned.
-- Ensure the range is above the current tick.
-- For shaped orders, each covered level must remain positive.
-
-Useful follow-ups:
-
-```solidity
-function claim(uint256 positionId) returns (uint256 proceeds1);
-function claimTo(uint256 positionId, int24 target) returns (uint256 proceeds1);
-function claimInternal(uint256 positionId) returns (uint256 proceeds1);
-function cancel(uint256 positionId) returns (uint256 proceeds1, uint256 principal0);
-function cancelWithWitness(uint256 positionId, int24 frontier) returns (uint256 proceeds1, uint256 principal0);
-```
-
-Use `claimTo` or `cancelWithWitness` when the agent can compute a valid frontier witness. Otherwise use `claim`/`cancel` and let the book binary-search.
+`claimable(...)`, `claim(...)`, `claimTo(...)`, `claimInternal(...)`, and ask cancel proceeds are net of maker fee when maker fees are enabled.
 
 ## Maker ABI: bids
 
-Buy token0 with token1 below or at current price.
+Buy `token0` with `token1` across a range below or at current price.
 
 ```solidity
-function depositBid(int24 lower, int24 upper, uint128 liquidity) returns (uint256 positionId);
+function depositBid(int24 lower, int24 upper, uint128 liquidity) external returns (uint256 positionId);
+
+function claimBid(uint256 positionId) external returns (uint256 proceeds0);
+function claimBidTo(uint256 positionId, int24 target) external returns (uint256 proceeds0);
+function claimBidInternal(uint256 positionId) external returns (uint256 proceeds0);
+function cancelBid(uint256 positionId) external returns (uint256 proceeds0, uint256 refund1);
+function cancelBidWithWitness(uint256 positionId, int24 frontier)
+    external
+    returns (uint256 proceeds0, uint256 refund1);
+function bidClaimable(uint256 positionId) external view returns (uint256);
+function bidRefundable(uint256 positionId) external view returns (uint256);
 ```
 
-Before calling:
-
-- Approve token1 to the book unless using existing internal token1 credit.
-- Ensure `lower < upper`.
-- Ensure both ticks are aligned.
-- Ensure `upper <= currentTick()`.
-
-Useful follow-ups:
-
-```solidity
-function claimBid(uint256 positionId) returns (uint256 proceeds0);
-function claimBidTo(uint256 positionId, int24 target) returns (uint256 proceeds0);
-function claimBidInternal(uint256 positionId) returns (uint256 proceeds0);
-function cancelBid(uint256 positionId) returns (uint256 proceeds0, uint256 refund1);
-function cancelBidWithWitness(uint256 positionId, int24 frontier) returns (uint256 proceeds0, uint256 refund1);
-```
+`bidClaimable(...)`, bid claim functions, and bid cancel proceeds are net of maker fee when maker fees are enabled.
 
 ## Internal credit ABI
 
-Internal credits are per-book, not global across books.
+Internal credits are per-book.
 
 ```solidity
-function internalBalance0(address user) view returns (uint256);
-function internalBalance1(address user) view returns (uint256);
-function withdrawInternal(uint256 amount0, uint256 amount1);
-function recycleBidIntoAsk(uint256 bidId, int24 lower, int24 upper, uint128 liquidity, int128 slope) returns (uint256 newPositionId);
-function recycleAskIntoBid(uint256 askId, int24 lower, int24 upper, uint128 liquidity) returns (uint256 newPositionId);
+function internalBalance0(address user) external view returns (uint256);
+function internalBalance1(address user) external view returns (uint256);
+function withdrawInternal(uint256 amount0, uint256 amount1) external;
+function recycleBidIntoAsk(uint256 bidId, int24 lower, int24 upper, uint128 liquidity, int128 slope)
+    external
+    returns (uint256 newPositionId);
+function recycleAskIntoBid(uint256 askId, int24 lower, int24 upper, uint128 liquidity)
+    external
+    returns (uint256 newPositionId);
 ```
 
-Use internal claims/recycling for active makers because it avoids wallet round-trips. Withdraw only when the maker wants funds back in the wallet.
+Use internal claim/recycle paths for active makers. Withdraw only when inventory should leave the book.
 
 ## Position management ABI
 
 ```solidity
-function positions(uint256 positionId) view returns (
-  address owner,
-  int24 lower,
-  int24 upper,
-  uint128 liquidity,
-  uint64 depositClock,
-  int24 claimedUpper,
-  bool live,
-  bool isBid
+function positions(uint256 positionId) external view returns (
+    address owner,
+    int24 lower,
+    int24 upper,
+    uint128 liquidity,
+    uint64 depositClock,
+    int24 claimedUpper,
+    bool live,
+    bool isBid
 );
 
-function transferPosition(uint256 positionId, address to);
-function requote(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity);
-function requoteShaped(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity, int128 newSlope);
-function requoteBid(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity);
+function transferPosition(uint256 positionId, address to) external;
+function requote(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external;
+function requoteShaped(
+    uint256 positionId,
+    int24 newLower,
+    int24 newUpper,
+    uint128 newLiquidity,
+    int128 newSlope
+) external;
+function requoteBid(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external;
 ```
 
-Requotes and transfers require the position owner or an authorized delegate in `PermissionRegistry`.
+Requotes and transfers require the owner or an authorized delegate.
 
 ## Taker ABI: direct book
 
-Direct book taker path:
-
 ```solidity
 function sweepWithLimits(
-  int24 target,
-  uint256 maxFills,
-  uint256 maxPay,
-  uint256 minOut,
-  uint256 deadline
-) returns (int24 reached, uint256 paid, uint256 received);
+    int24 target,
+    uint256 maxFills,
+    uint256 maxPay,
+    uint256 minOut,
+    uint256 deadline
+) external returns (int24 reached, uint256 paid, uint256 received);
 ```
 
-Direction rules:
+Direction:
 
-- If `target > currentTick`, the taker buys token0 from asks and pays token1.
-- If `target < currentTick`, the taker sells token0 into bids and receives token1.
-- Approve the input token to the book before calling.
-- Always set `maxPay`, `minOut`, and `deadline`.
-- Avoid `sweep(...)` and `moveTickTo(...)` in production taker agents unless explicitly simulating/admin-testing. They have weak user protection.
+- `target > currentTick`: buy `token0` from asks, pay `token1`.
+- `target < currentTick`: sell `token0` into bids, pay `token0`, receive `token1`.
+
+`paid` includes taker fee when fees are enabled.
+
+Production taker agents should set all of `maxFills`, `maxPay`, `minOut`, and `deadline`.
 
 ## Taker ABI: router
 
 ```solidity
-function buyExactIn(address book, uint256 amount1In, uint256 minOut0, address to, uint256 deadline) returns (uint256 paid1, uint256 received0);
-function sellExactIn(address book, uint256 amount0In, uint256 minOut1, address to, uint256 deadline) returns (uint256 paid0, uint256 received1);
-function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) returns (uint256[] memory amounts);
-function getAmountsOut(uint256 amountIn, address[] path) view returns (uint256[] memory amounts);
+function buyExactIn(address book, uint256 amount1In, uint256 minOut0, address to, uint256 deadline)
+    external
+    returns (uint256 paid1, uint256 received0);
+
+function sellExactIn(address book, uint256 amount0In, uint256 minOut1, address to, uint256 deadline)
+    external
+    returns (uint256 paid0, uint256 received1);
+
+function swapExactTokensForTokens(
+    uint256 amountIn,
+    uint256 amountOutMin,
+    address[] calldata path,
+    address to,
+    uint256 deadline
+) external returns (uint256[] memory amounts);
+
+function getAmountsOut(uint256 amountIn, address[] calldata path) external view returns (uint256[] memory amounts);
 ```
 
 For router calls, approve the input token to the router. The router handles book approval and refunds unspent input.
@@ -220,79 +302,71 @@ For router calls, approve the input token to the router. The router handles book
 ## Lens ABI
 
 ```solidity
-function summary(RollingFrontierBook book, int24 scanWindow) view returns (BookSummary memory);
-function depth(RollingFrontierBook book, int24 fromTick, int24 toTick, uint256 maxLevels) view returns (Level[] memory);
-function quoteBuy(RollingFrontierBook book, uint256 amount1In) view returns (uint256 amount0Out, uint256 amount1Spent, int24 endTick);
-function quoteSell(RollingFrontierBook book, uint256 amount0In, uint256 maxRuns) view returns (uint256 amount1Out, uint256 amount0Spent, int24 endTick);
-function curveOf(RollingFrontierBook book) view returns (Curve memory);
+function summary(RollingFrontierBook book, int24 scanWindow) external view returns (BookSummary memory);
+function depth(RollingFrontierBook book, int24 fromTick, int24 toTick, uint256 maxLevels)
+    external
+    view
+    returns (Level[] memory);
+function quoteBuy(RollingFrontierBook book, uint256 amount1In)
+    external
+    view
+    returns (uint256 amount0Out, uint256 amount1Spent, int24 endTick);
+function quoteSell(RollingFrontierBook book, uint256 amount0In, uint256 maxRuns)
+    external
+    view
+    returns (uint256 amount1Out, uint256 amount0Spent, int24 endTick);
+function curveOf(RollingFrontierBook book) external view returns (Curve memory);
 ```
 
-Agent rule: quote first through `FrontierLens`, apply slippage, then submit through router or direct book.
+Agent rule: quote first, apply slippage, then submit through router or direct book.
 
 ## Permission registry ABI
 
-Use this when bots/agents manage maker positions for a human owner. Permissions are scoped to `(user, operator, target, selector)` or to a full target.
-
 ```solidity
-function grant(address operator, address target, bytes4 selector);
-function grantWithExpiry(address operator, address target, bytes4 selector, uint48 expiry);
-function revoke(address operator, address target, bytes4 selector);
-function grantFull(address operator, address target);
-function grantFullWithExpiry(address operator, address target, uint48 expiry);
-function revokeAll(address operator, address target);
-function grantSelectorBundle(address operator, address target, bytes4[] selectors, uint48 expiry);
-function isAuthorizedCall(address user, address operator, address target, bytes4 selector) view returns (bool);
-function permissionExpiry(address user, address operator, address target, bytes4 selector) view returns (uint48);
-function permissionNonce(address user) view returns (uint256);
+function grant(address operator, address target, bytes4 selector) external;
+function grantWithExpiry(address operator, address target, bytes4 selector, uint48 expiry) external;
+function revoke(address operator, address target, bytes4 selector) external;
+function grantFull(address operator, address target) external;
+function grantFullWithExpiry(address operator, address target, uint48 expiry) external;
+function revokeAll(address operator, address target) external;
+function grantSelectorBundle(address operator, address target, bytes4[] calldata selectors, uint48 expiry) external;
+function isAuthorizedCall(address user, address operator, address target, bytes4 selector)
+    external
+    view
+    returns (bool);
+function permissionExpiry(address user, address operator, address target, bytes4 selector) external view returns (uint48);
+function permissionNonce(address user) external view returns (uint256);
 ```
 
-Authorization model:
+Prefer selector-scoped and expiring grants. Use full-target grants only for trusted automation.
 
-- Owner can always manage their own positions.
-- Operator/delegate can manage positions only for selectors or targets the owner granted.
-- Prefer selector-scoped grants for agents. Use `grantFull` only for trusted automation.
-- Delegates cannot withdraw a wallet's ERC20s; they can only call book management functions that the book authorizes.
+## Deploy-day checklist
 
-## Production call recommendations
+Before broadcast:
 
-- Deploy geometric books for real markets.
-- Prefer router for simple swaps and direct book calls for advanced market-maker/taker bots.
-- Always use lens quotes and slippage checks.
-- Always use deadlines.
-- Keep `maxFills` bounded for automated takers.
-- Use `claimInternal` / `claimBidInternal` / recycle functions for active makers.
-- Use witness functions only when the agent has verified the witness using `currentTick`, position data, and fill state.
+- `cd prototype && forge build`
+- `cd prototype && forge test`
+- Dry-run `DeployFrontier.s.sol` with target RPC and real env vars.
+- Confirm token order, spacing, start tick, fee recipient, maker fee, and taker fee.
 
-## Rough edges on current main
+After broadcast:
 
-- The book is a standalone venue, not a Uniswap v4 hook-backed pool.
-- Internal credits are per book, not singleton/global.
-- Deployment scripts are demo-oriented and still mint mock tokens. A real deploy script should be parameterized for chain, tokens, spacing, start tick, and optional seeding.
-- Geometric book is the real target, but some helper periphery originated around the linear demo path. Use tested geometric paths only.
-- The factory default book is first-created per token pair. If multiple books exist for a pair, agents should use explicit book addresses rather than relying on `defaultBook`.
-- Router sweep window is fixed. Large trades may need direct `sweepWithLimits` or multiple calls.
-- Lens depth scans are bounded and window-based. It is suitable for bots/UIs, not an exhaustive archival index.
-- Non-standard ERC20 behavior is not deeply handled beyond boolean-return style expectations.
-- Code size is near the EIP-170 boundary; keep deploy pipeline pinned to the tested compiler settings.
-- Hooks are powerful and address-flagged. Do not deploy with hooks unless they have been audited.
-- Maker-ops uses delegatecall into shared storage. Storage layout changes require explicit review.
-- No singleton/global custody on main. That branch exists as a prototype only.
+- Save deployment JSON.
+- Verify contracts on explorer if supported.
+- Confirm `currentTick`, `tickSpacing`, fee config, and token addresses.
+- Place one tiny ask and one tiny bid.
+- Quote buy/sell through lens.
+- Execute one tiny router buy or sell.
+- Claim or cancel the test position.
+- Confirm fee recipient balance increases if fees are nonzero.
 
-## Finish-before-deploy checklist
+## Known limits for agents
 
-Minimum for today:
+These are constraints, not blockers for the standalone deploy:
 
-- Use the parameterized real-token deploy script: `prototype/script/DeployFrontier.s.sol`.
-- Run full Foundry tests with the exact compiler/profile used for deploy.
-- Dry-run deployment on the target chain RPC with the real constructor args.
-- Save deployed addresses and ABIs in a chain-specific deployment JSON.
-- Verify contracts on the explorer if supported.
-- Create one smoke-test maker order and one small taker swap on the deployed book.
-- Point agents at the explicit book/router/lens addresses, not only factory defaults.
-
-Nice but not required for today:
-
-- Add an indexer for order events and position state.
-- Add agent-side witness computation helpers.
-- Add multi-book routing policy.
-- Add global/singleton credits after today’s deployment is stable.
+- Internal credits are per book, not global.
+- Multiple books can exist for the same token pair; use explicit book addresses.
+- Lens depth is bounded by scan window and max levels.
+- Large taker strategies should use bounded direct sweeps or repeated router calls.
+- Hooks, singleton credits, referrers, and maker rebates are separate future features.
+- Use normal ERC20s for deploy day. Avoid rebasing, fee-on-transfer, callback-heavy, or broken-return tokens.
