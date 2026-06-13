@@ -6,6 +6,7 @@ out-deploy/
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/
+/broadcast/*/84009/
 /broadcast/**/dry-run/
 
 # Docs
