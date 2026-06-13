@@ -78,7 +78,7 @@ contract FeeBookHandler is Test {
         book.sweepWithLimits(target, bound(maxFills, 1, 64), bound(budget, 1e6, 1e27), 0, block.timestamp);
     }
 
-    function claimOrCancel(uint256 seed, uint256 pick, bool doCancel, bool internalCredit) external feesNeverDecrease {
+    function claimOrCancel(uint256 seed, uint256 pick, bool doCancel, bool) external feesNeverDecrease {
         seed;
         if (allPositions.length == 0) return;
         uint256 id = allPositions[pick % allPositions.length];
@@ -87,20 +87,12 @@ contract FeeBookHandler is Test {
         vm.startPrank(owner);
         if (isBid) {
             if (doCancel) book.cancelBid(id);
-            else if (internalCredit) book.claimBidInternal(id);
             else book.claimBid(id);
         } else {
             if (doCancel) book.cancel(id);
-            else if (internalCredit) book.claimInternal(id);
             else book.claim(id);
         }
         vm.stopPrank();
-    }
-
-    function withdrawInternal(uint256 seed) external feesNeverDecrease {
-        address a = _actor(seed);
-        vm.prank(a);
-        book.withdrawInternal(book.internalBalance0(a), book.internalBalance1(a));
     }
 }
 
@@ -136,10 +128,6 @@ contract FeeInvariantsTest is Test {
                 owed1 += book.claimable(id);
                 owed0 += book.unfilledPrincipal(id);
             }
-        }
-        for (uint256 i; i < 3; i++) {
-            owed0 += book.internalBalance0(handler.actors(i));
-            owed1 += book.internalBalance1(handler.actors(i));
         }
         assertGe(t0.balanceOf(address(book)), owed0, "fee token0 insolvency");
         assertGe(t1.balanceOf(address(book)), owed1, "fee token1 insolvency");

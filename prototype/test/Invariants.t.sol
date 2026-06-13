@@ -83,22 +83,12 @@ contract BookHandler is Test {
         vm.startPrank(owner);
         if (isBid) {
             if (doCancel) book.cancelBid(id);
-            else if (internalCredit) book.claimBidInternal(id);
             else book.claimBid(id);
         } else {
             if (doCancel) book.cancel(id);
-            else if (internalCredit) book.claimInternal(id);
             else book.claim(id);
         }
         vm.stopPrank();
-    }
-
-    function withdrawInternal(uint256 seed) external {
-        address a = _actor(seed);
-        uint256 c0 = book.internalBalance0(a);
-        uint256 c1 = book.internalBalance1(a);
-        vm.prank(a);
-        book.withdrawInternal(c0, c1);
     }
 }
 
@@ -137,10 +127,6 @@ contract InvariantsTest is Test {
                 owed1 += book.claimable(id);
                 owed0 += book.unfilledPrincipal(id);
             }
-        }
-        for (uint256 i = 0; i < 3; i++) {
-            owed0 += book.internalBalance0(handler.actors(i));
-            owed1 += book.internalBalance1(handler.actors(i));
         }
         assertGe(t0.balanceOf(address(book)), owed0, "token0 insolvency");
         assertGe(t1.balanceOf(address(book)), owed1, "token1 insolvency");

@@ -251,16 +251,18 @@ contract FrontierOzempicTest is Test {
 
         assertEq(reached, 181, "parked mid-run at exact affordability");
         assertEq(paid, 120 * uint256(L), "pays exactly the budget");
-        assertEq(book.bidClaimable(id), 120 * uint256(L), "partial run credited exactly");
 
-        // resume completes the rest; totals exact
+        // resume completes the rest; claim total must be exact
         vm.prank(taker);
         book.sweepWithLimits(1, type(uint256).max, type(uint256).max, 0, block.timestamp);
-        assertEq(book.bidClaimable(id), 300 * uint256(L), "resume exact, no double-fill");
+        vm.prank(makers[0]);
+        uint256 totalProceeds = book.claimBid(id);
+        assertEq(totalProceeds, 300 * uint256(L), "resume exact, no double-fill");
 
-        // freshness: a new bid in the swept region is untouched
+        // freshness: a new bid in the swept region is untouched (claimBid returns 0)
         vm.prank(makers[0]);
         uint256 fresh = book.depositBid(0, 1, L);
-        assertEq(book.bidClaimable(fresh), 0, "low-water clocks keep new bids fresh");
+        vm.prank(makers[0]);
+        assertEq(book.claimBid(fresh), 0, "low-water clocks keep new bids fresh");
     }
 }

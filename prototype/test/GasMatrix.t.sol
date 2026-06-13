@@ -84,33 +84,16 @@ contract GasMatrixTest is Test {
         assertEq(t1.balanceOf(mm) - mm1Before, refund1, "token1 actually transferred");
     }
 
-    function testCreditFundedBidDepositCost() public {
-        _fresh(100);
+    function testBidDepositCost() public {
+        _fresh(120); // price above the intended bid range
 
-        vm.prank(mm);
-        uint256 ask = book.deposit(101, 111, L);
-        vm.prank(taker);
-        book.moveTickTo(111);
-        vm.prank(mm);
-        uint256 credited1 = book.claimInternal(ask);
-
-        uint256 bidCost = 0;
-        for (int24 tick = 101; tick < 111; tick++) {
-            bidCost += (uint256(L) * rate(tick) + 1e18 - 1) / 1e18;
-        }
-        assertEq(credited1, bidCost, "claim should exactly fund the bid");
-
-        vm.prank(mm);
-        t1.approve(address(book), 0);
         uint256 wallet1Before = t1.balanceOf(mm);
-
         vm.prank(mm);
         uint256 g = gasleft();
         book.depositBid(101, 111, L);
-        console2.log("bid deposit from internal credit (10 levels):", g - gasleft());
+        console2.log("bid deposit (10 levels):", g - gasleft());
 
-        assertEq(t1.balanceOf(mm), wallet1Before, "credit-funded bid skipped token1 transferFrom");
-        assertEq(book.internalBalance1(mm), 0, "spent internal credit first");
+        assertLt(t1.balanceOf(mm), wallet1Before, "token1 pulled for bid");
     }
 
     function testTakerCostPerLevel() public {
