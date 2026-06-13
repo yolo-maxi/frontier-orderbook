@@ -153,7 +153,7 @@ If an agent manages a human maker's positions:
 - Build: `cd prototype && forge build`
 - Full tests: `cd prototype && forge test`
 - Gas sanity: `cd prototype && forge test --match-path 'test/*Gas*.t.sol' --isolate -vv --gas-report`
-- Dry-run deployment with target RPC and real args.
+- Dry-run `prototype/script/DeployFrontier.s.sol` with target RPC and real args.
 - Save deployed addresses in a chain-specific JSON file.
 - Smoke test:
   - create geometric book

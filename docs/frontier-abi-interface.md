@@ -39,6 +39,31 @@ Generated JSON ABIs are in `abi/` at the repo root:
 - `abi/FrontierLens.json`
 - `abi/PermissionRegistry.json`
 
+## Real-token deploy script
+
+Use `prototype/script/DeployFrontier.s.sol` for today's deploy. Required env vars:
+
+- `DEPLOYER_KEY`
+- `TOKEN0`
+- `TOKEN1`
+- `TICK_SPACING`
+- `START_TICK`
+
+Optional env vars:
+
+- `DEPLOY_NAME`
+- `DEPLOY_OUT`
+
+Example:
+
+```bash
+cd prototype
+DEPLOYER_KEY=... TOKEN0=0x... TOKEN1=0x... TICK_SPACING=60 START_TICK=0 \
+forge script script/DeployFrontier.s.sol:DeployFrontier --rpc-url "$RPC_URL" --broadcast --verify
+```
+
+The script deploys registry, factory, lens, router, and one geometric book, then writes a deployment JSON.
+
 ## Deploy sequence
 
 Deploy these contracts first:
@@ -257,7 +282,7 @@ Authorization model:
 
 Minimum for today:
 
-- Parameterize a real deployment script with token addresses, tick spacing, start tick, and optional seed orders.
+- Use the parameterized real-token deploy script: `prototype/script/DeployFrontier.s.sol`.
 - Run full Foundry tests with the exact compiler/profile used for deploy.
 - Dry-run deployment on the target chain RPC with the real constructor args.
 - Save deployed addresses and ABIs in a chain-specific deployment JSON.
