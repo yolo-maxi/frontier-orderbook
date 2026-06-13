@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {RollingFrontierBook} from "../RollingFrontierBook.sol";
+import {FrontierBookBase} from "../FrontierBookBase.sol";
+import {IRangeOrderBook} from "../IRangeOrderBook.sol";
 import {GeoTickMath} from "../curve/GeoTickMath.sol";
 
 /// @title FrontierLens — read-only periphery for UIs, bots, and aggregators.
@@ -41,7 +42,7 @@ contract FrontierLens {
     /// @notice Depth over [fromTick, toTick): walks the aggregate ledgers
     /// once and emits non-empty levels only. View-only; intended for
     /// eth_call from UIs (bounded by the requested window).
-    function depth(RollingFrontierBook book, int24 fromTick, int24 toTick, uint256 maxLevels)
+    function depth(FrontierBookBase book, int24 fromTick, int24 toTick, uint256 maxLevels)
         external
         view
         returns (Level[] memory levels)
@@ -96,8 +97,8 @@ contract FrontierLens {
         }
     }
 
-    function summary(RollingFrontierBook book, int24 scanWindow) external view returns (BookSummary memory out) {
-        out.currentTick = book.currentTick();
+    function summary(FrontierBookBase book, int24 scanWindow) external view returns (BookSummary memory out) {
+        out.currentTick = IRangeOrderBook(address(book)).currentTick();
         out.tickSpacing = book.tickSpacing();
         out.token0 = address(book.token0());
         out.token1 = address(book.token1());
@@ -125,7 +126,7 @@ contract FrontierLens {
     }
 
     /// @notice The book's price curve, detected from the contract itself.
-    function curveOf(RollingFrontierBook book) public view returns (Curve memory c) {
+    function curveOf(FrontierBookBase book) public view returns (Curve memory c) {
         (bool ok, bytes memory ret) = address(book).staticcall(abi.encodeWithSignature("geoD()"));
         if (ok && ret.length >= 32) {
             c.d = abi.decode(ret, (uint256));
@@ -136,7 +137,7 @@ contract FrontierLens {
     /// @notice Exact-input BUY quote (token1 in, token0 out): replays the
     /// endpoint-telescoped up-sweep read-only, including the mid-run budget
     /// subdivision, so the quote matches execution to the wei.
-    function quoteBuy(RollingFrontierBook book, uint256 amount1In)
+    function quoteBuy(FrontierBookBase book, uint256 amount1In)
         external
         view
         returns (uint256 amount0Out, uint256 amount1Spent, int24 endTick)
@@ -145,7 +146,7 @@ contract FrontierLens {
         uint16 takerFeeBps = book.takerFeeBps();
         uint256 grossBudget = _maxGrossForTotal(amount1In, takerFeeBps);
         int24 s = book.tickSpacing();
-        int24 cur = book.currentTick();
+        int24 cur = IRangeOrderBook(address(book)).currentTick();
         int24 lastLevel = _maxTick(c, s) - s;
 
         int256 B;
@@ -195,14 +196,14 @@ contract FrontierLens {
     /// matches execution to the wei on both curves. `maxRuns` bounds the
     /// walk by maker-order endpoints (not price levels); endTick is the
     /// lowest filled level.
-    function quoteSell(RollingFrontierBook book, uint256 amount0In, uint256 maxRuns)
+    function quoteSell(FrontierBookBase book, uint256 amount0In, uint256 maxRuns)
         external
         view
         returns (uint256 amount1Out, uint256 amount0Spent, int24 endTick)
     {
         Curve memory c = curveOf(book);
         int24 s = book.tickSpacing();
-        int24 cur = book.currentTick();
+        int24 cur = IRangeOrderBook(address(book)).currentTick();
         endTick = cur;
         uint16 takerFeeBps = book.takerFeeBps();
         uint256 grossBudget = _maxGrossForTotal(amount0In, takerFeeBps);
@@ -334,7 +335,7 @@ contract FrontierLens {
         return (maxTotal / denominator) * 10_000 + ((maxTotal % denominator) * 10_000) / denominator;
     }
 
-    function _nextActiveAsk(RollingFrontierBook book, int24 fromT, int24 maxT, int24 s)
+    function _nextActiveAsk(FrontierBookBase book, int24 fromT, int24 maxT, int24 s)
         internal
         view
         returns (int24, bool)
@@ -356,7 +357,7 @@ contract FrontierLens {
         return (0, false);
     }
 
-    function _prevActiveBid(RollingFrontierBook book, int24 fromT, int24 s) internal view returns (int24, bool) {
+    function _prevActiveBid(FrontierBookBase book, int24 fromT, int24 s) internal view returns (int24, bool) {
         int24 c = fromT / s;
         int24 cMin = c - 4096; // bounded scan window for quoting
         while (c >= cMin) {

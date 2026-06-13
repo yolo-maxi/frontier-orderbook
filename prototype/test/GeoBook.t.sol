@@ -148,9 +148,13 @@ contract GeoBookTest is Test {
     }
 
     function testShapesDisabled() public {
-        vm.prank(maker);
-        vm.expectRevert(bytes("geometric: uniform only"));
-        book.depositShaped(1, 101, L, 1);
+        // The shaped-ladder (slope) surface is removed from the geometric
+        // runtime entirely — it is uniform-only — so the depositShaped
+        // selector does not exist on the book at all (not merely disabled).
+        (bool ok,) = address(book).call(
+            abi.encodeWithSignature("depositShaped(int24,int24,uint128,int128)", int24(1), int24(101), L, int128(1))
+        );
+        assertFalse(ok, "depositShaped selector absent on geometric book");
     }
 
     // ------------------------------------------------------------------

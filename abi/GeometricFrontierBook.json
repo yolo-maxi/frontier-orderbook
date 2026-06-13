@@ -341,25 +341,6 @@
   },
   {
     "type": "function",
-    "name": "claimBidInternal",
-    "inputs": [
-      {
-        "name": "positionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "proceeds0",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "claimBidTo",
     "inputs": [
       {
@@ -376,25 +357,6 @@
     "outputs": [
       {
         "name": "proceeds0",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "claimInternal",
-    "inputs": [
-      {
-        "name": "positionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "proceeds1",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -517,40 +479,6 @@
   },
   {
     "type": "function",
-    "name": "depositShaped",
-    "inputs": [
-      {
-        "name": "lower",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "upper",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "liquidity",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "slope",
-        "type": "int128",
-        "internalType": "int128"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "positionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "feeRecipient",
     "inputs": [],
     "outputs": [
@@ -641,44 +569,6 @@
   },
   {
     "type": "function",
-    "name": "internalBalance0",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "internalBalance1",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "isConsumedFor",
     "inputs": [
       {
@@ -738,25 +628,6 @@
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "multicall",
-    "inputs": [
-      {
-        "name": "data",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "results",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
-      }
-    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -865,79 +736,6 @@
   },
   {
     "type": "function",
-    "name": "recycleAskIntoBid",
-    "inputs": [
-      {
-        "name": "askId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "lower",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "upper",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "liquidity",
-        "type": "uint128",
-        "internalType": "uint128"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "newPositionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "recycleBidIntoAsk",
-    "inputs": [
-      {
-        "name": "bidId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "lower",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "upper",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "liquidity",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "slope",
-        "type": "int128",
-        "internalType": "int128"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "newPositionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "requote",
     "inputs": [
       {
@@ -987,39 +785,6 @@
         "name": "",
         "type": "uint128",
         "internalType": "uint128"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "requoteShaped",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "",
-        "type": "int128",
-        "internalType": "int128"
       }
     ],
     "outputs": [],
@@ -1207,24 +972,6 @@
     "stateMutability": "view"
   },
   {
-    "type": "function",
-    "name": "withdrawInternal",
-    "inputs": [
-      {
-        "name": "amount0",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
     "type": "event",
     "name": "Cancel",
     "inputs": [
@@ -1301,56 +1048,6 @@
         "type": "uint128",
         "indexed": false,
         "internalType": "uint128"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "InternalCredit",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount0",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "InternalWithdraw",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount0",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false

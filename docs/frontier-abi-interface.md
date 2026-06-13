@@ -171,9 +171,6 @@ Sell `token0` across a range above current price.
 
 ```solidity
 function deposit(int24 lower, int24 upper, uint128 liquidity) external returns (uint256 positionId);
-function depositShaped(int24 lower, int24 upper, uint128 liquidity, int128 slope)
-    external
-    returns (uint256 positionId);
 
 function claim(uint256 positionId) external returns (uint256 proceeds1);
 function claimTo(uint256 positionId, int24 target) external returns (uint256 proceeds1);
@@ -186,6 +183,8 @@ function unfilledPrincipal(uint256 positionId) external view returns (uint256);
 ```
 
 `claimable(...)`, `claim(...)`, `claimTo(...)`, and ask cancel proceeds are net of maker fee when maker fees are enabled.
+
+Note: the deployed `GeometricFrontierBook` is **uniform-only** — ask ladders rest the same `liquidity` at every level. The shaped-ladder surface (`depositShaped`/`requoteShaped`, per-level `slope`) is not present on the geometric runtime at all (no selector, no slope arithmetic, no `_positionSlope`/`frontierSlope` writes). Approximate a sloped profile with a few uniform `deposit` ladders. Shaped ladders remain available only on the linear demo book `RollingFrontierBook` (test/experiment factory). The `frontierSlope(int24)` getter and the `slope` field of `positions(...)` are retained on the geometric ABI for tooling compatibility (e.g. `FrontierLens`) but always read `0`.
 
 Note: `claimInternal`, `recycleBidIntoAsk`, `recycleAskIntoBid`, and `withdrawInternal` were removed to stay under the EIP-170 24576-byte limit.
 
@@ -219,6 +218,7 @@ function positions(uint256 positionId) external view returns (
     int24 lower,
     int24 upper,
     uint128 liquidity,
+    int128 slope,
     uint64 depositClock,
     int24 claimedUpper,
     bool live,
@@ -227,15 +227,10 @@ function positions(uint256 positionId) external view returns (
 
 function transferPosition(uint256 positionId, address to) external;
 function requote(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external;
-function requoteShaped(
-    uint256 positionId,
-    int24 newLower,
-    int24 newUpper,
-    uint128 newLiquidity,
-    int128 newSlope
-) external;
 function requoteBid(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external;
 ```
+
+On the uniform-only `GeometricFrontierBook` the `slope` field is always `0` (the shaped `requoteShaped` re-price entrypoint is not present; it exists only on the linear `RollingFrontierBook`).
 
 Requotes and transfers require the owner or an authorized delegate.
 

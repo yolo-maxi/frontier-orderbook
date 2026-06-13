@@ -339,6 +339,85 @@ abstract contract FrontierBookBase {
         if (slope != 0) _writeSlope(upper, frontierSlope[upper] + int256(slope));
     }
 
+    // ------------------------------------------------------------------
+    // UNIFORM-ONLY ask helpers (no slope). These are the slope == 0
+    // specializations of the shaped machinery above, used by the deployed
+    // uniform-curve book/ops (UniformFrontierBook / UniformMakerOps and the
+    // geometric pair built on them). They never touch frontierSlope or
+    // _positionSlope, so a book whose reachable call graph uses only these
+    // links no slope code into its runtime. The shaped contracts never call
+    // them, so they are dead-stripped from the linear book/ops.
+    // ------------------------------------------------------------------
+
+    /// @dev Flat-order endpoint write: keeps the ask bitmap in sync against
+    /// frontierDelta ALONE. A uniform book has no slope-only endpoints (every
+    /// covered level carries nonzero frontierDelta after the roll), so the
+    /// bit is set iff frontierDelta != 0 — no frontierSlope read.
+    function _writeFlatDelta(int24 t, int256 newVal) internal {
+        int256 old = frontierDelta[t];
+        if (old == newVal) return;
+        frontierDelta[t] = newVal;
+        if (old == 0 || newVal == 0) {
+            int24 c = t / tickSpacing; // exact: t is always spacing-aligned
+            int16 wordPos = int16(c >> 8);
+            uint8 bitPos = uint8(uint24(c));
+            if (newVal != 0) tickBitmap[wordPos] |= (uint256(1) << bitPos);
+            else tickBitmap[wordPos] &= ~(uint256(1) << bitPos);
+        }
+    }
+
+    /// @dev Uniform mirror of _addOrder: two endpoint writes, size `liquidity`
+    /// at every covered level.
+    function _addFlatOrder(int24 lower, int24 upper, uint128 liquidity) internal {
+        int256 liq = int256(uint256(liquidity));
+        _writeFlatDelta(lower, frontierDelta[lower] + liq);
+        _writeFlatDelta(upper, frontierDelta[upper] - liq);
+        if (lower < _minBoundary) _minBoundary = lower;
+    }
+
+    /// @dev Uniform mirror of _removeOrderAt: every covered level holds the
+    /// same `liquidity`, so the frontier/rolled-into distinction collapses —
+    /// the remaining tail [frontier, upper) is just -liq at the frontier and
+    /// +liq at the upper.
+    function _removeFlatOrderAt(int24 frontier, int24 upper, uint128 liquidity) internal {
+        int256 liq = int256(uint256(liquidity));
+        _writeFlatDelta(frontier, frontierDelta[frontier] - liq);
+        _writeFlatDelta(upper, frontierDelta[upper] + liq);
+    }
+
+    /// @dev Uniform ask run [e, e+n*s): token0 sold and token1 collected
+    /// (ceil, contract-favorable) for `n` levels of constant size `a0`. The
+    /// slope == 0 specialization of _runAmounts. Virtual so the curve mixin
+    /// swaps in its closed form.
+    function _askRun(int24 e, int256 a0, uint256 n) internal view virtual returns (uint256 out0, uint256 cost1) {
+        require(a0 >= 0, "negative run");
+        int256 ni = int256(n);
+        int256 sumK = (ni * (ni - 1)) / 2;
+        int256 c0 = int256(PRICE_SCALE) + int256(e) * 1e15;
+        int256 c1 = int256(tickSpacing) * 1e15;
+        int256 val = a0 * c0 * ni + a0 * c1 * sumK;
+        require(val >= 0, "negative run");
+        out0 = uint256(a0 * ni);
+        cost1 = (uint256(val) + PRICE_SCALE - 1) / PRICE_SCALE;
+    }
+
+    /// @dev Uniform claim span: token1 proceeds (floor) for the position's
+    /// levels in [a, b) at constant size p.liquidity. The slope == 0
+    /// specialization of _spanAmt1. Virtual so the curve mixin swaps its form.
+    function _askSpan(Position storage p, int24 a, int24 b) internal view virtual returns (uint256) {
+        int256 sp = int256(tickSpacing);
+        int256 ja = (int256(a) - int256(p.lower)) / sp;
+        int256 n = (int256(b) - int256(a)) / sp;
+        int256 jb = ja + n; // exclusive
+        int256 sj = ((ja + jb - 1) * n) / 2;
+        int256 l0 = int256(uint256(p.liquidity));
+        int256 c0 = int256(PRICE_SCALE) + int256(p.lower) * 1e15;
+        int256 c1 = sp * 1e15;
+        int256 total = l0 * c0 * n + l0 * c1 * sj;
+        require(total >= 0, "rate underflow");
+        return uint256(total) / PRICE_SCALE;
+    }
+
     function _addBid(int24 lower, int24 upper, uint128 liquidity) internal {
         int24 upperT = upper - tickSpacing;
         int24 lowerT = lower - tickSpacing;
