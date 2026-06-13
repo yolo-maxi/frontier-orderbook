@@ -20,18 +20,44 @@ contract RollingBookDeployer {
         int24 startTick,
         address hooks,
         address permissions,
-        address makerOps
+        address makerOps,
+        address feeRecipient,
+        uint16 makerFeeBps,
+        uint16 takerFeeBps
     ) external returns (address) {
-        return address(new RollingFrontierBook(token0, token1, tickSpacing, startTick, hooks, permissions, makerOps));
+        return address(
+            new RollingFrontierBook(
+                token0,
+                token1,
+                tickSpacing,
+                startTick,
+                hooks,
+                permissions,
+                makerOps,
+                feeRecipient,
+                makerFeeBps,
+                takerFeeBps
+            )
+        );
     }
 }
 
 contract MakerOpsDeployer {
-    function deploy(address token0, address token1, int24 tickSpacing, address hooks, address permissions)
-        external
-        returns (address)
-    {
-        return address(new FrontierMakerOps(token0, token1, tickSpacing, hooks, permissions));
+    function deploy(
+        address token0,
+        address token1,
+        int24 tickSpacing,
+        address hooks,
+        address permissions,
+        address feeRecipient,
+        uint16 makerFeeBps,
+        uint16 takerFeeBps
+    ) external returns (address) {
+        return address(
+            new FrontierMakerOps(
+                token0, token1, tickSpacing, hooks, permissions, feeRecipient, makerFeeBps, takerFeeBps
+            )
+        );
     }
 }
 
@@ -59,12 +85,26 @@ contract GeometricBookDeployer {
         int24 startTick,
         address hooks,
         address permissions,
-        address makerOps
+        address makerOps,
+        address feeRecipient,
+        uint16 makerFeeBps,
+        uint16 takerFeeBps
     ) external returns (address book) {
         bytes memory init = bytes.concat(
             _read(chunk0),
             _read(chunk1),
-            abi.encode(token0, token1, tickSpacing, startTick, hooks, permissions, makerOps)
+            abi.encode(
+                token0,
+                token1,
+                tickSpacing,
+                startTick,
+                hooks,
+                permissions,
+                makerOps,
+                feeRecipient,
+                makerFeeBps,
+                takerFeeBps
+            )
         );
         assembly ("memory-safe") {
             book := create(0, add(init, 0x20), mload(init))
@@ -100,10 +140,20 @@ contract GeometricBookDeployer {
 }
 
 contract GeometricOpsDeployer {
-    function deploy(address token0, address token1, int24 tickSpacing, address hooks, address permissions)
-        external
-        returns (address)
-    {
-        return address(new GeometricMakerOps(token0, token1, tickSpacing, hooks, permissions));
+    function deploy(
+        address token0,
+        address token1,
+        int24 tickSpacing,
+        address hooks,
+        address permissions,
+        address feeRecipient,
+        uint16 makerFeeBps,
+        uint16 takerFeeBps
+    ) external returns (address) {
+        return address(
+            new GeometricMakerOps(
+                token0, token1, tickSpacing, hooks, permissions, feeRecipient, makerFeeBps, takerFeeBps
+            )
+        );
     }
 }

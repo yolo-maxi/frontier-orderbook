@@ -42,7 +42,7 @@ contract DeployDemo is Script {
             new GeometricOpsDeployer()
         );
         FrontierLens lens = new FrontierLens();
-        FrontierRouter router = new FrontierRouter(factory, lens);
+        FrontierRouter router = new FrontierRouter(address(factory), lens);
         RangeLPFactory lpFactory = new RangeLPFactory();
         MockYieldVault yieldVault = new MockYieldVault(address(weth), "Yield-bearing demo WETH", "ywWETH");
 
