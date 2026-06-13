@@ -1,0 +1,61 @@
+Frontier Source-Available License v1.0
+Copyright (c) 2026 Francesco Renzi. All rights reserved.
+
+This is NOT an open-source license. It is a source-available license. The
+source code in this repository is published for transparency, evaluation,
+and study only. It does not grant the rights an OSI-approved open-source
+license would.
+
+1. DEFINITIONS
+   "The Software" means the contents of this repository, including the
+   smart contracts, frontend, bots, scripts, and documentation.
+   "You" means any individual or entity exercising rights under this
+   license.
+   "Author" means Francesco Renzi.
+
+2. PERMITTED — WITHOUT A SEPARATE WRITTEN AGREEMENT
+   Subject to Section 3, You may:
+   (a) view and read the Software;
+   (b) clone or fork the repository for the sole purpose of private
+       evaluation, security study, and academic review;
+   (c) quote limited excerpts for commentary, education, or research, with
+       attribution to the Author and a link to this repository.
+
+3. NOT PERMITTED — WITHOUT THE AUTHOR'S PRIOR WRITTEN PERMISSION
+   You may NOT, in whole or in part:
+   (a) use the Software, or any derivative of it, in production or to
+       operate, settle, or facilitate any live market, exchange, or
+       financial activity;
+   (b) deploy the Software, or any derivative of it, to any public or
+       private blockchain, testnet, or mainnet, other than a strictly
+       local, private development chain used only for the evaluation
+       permitted in Section 2;
+   (c) use the Software for any commercial purpose, or incorporate it
+       (or any derivative, design, or substantial portion) into any
+       product, service, protocol, or codebase, whether or not for profit;
+   (d) redistribute, sublicense, sell, or offer the Software for use by
+       third parties;
+   (e) remove or alter this license, the copyright notice, or the
+       attribution to the Author.
+
+4. WRITTEN PERMISSION
+   Rights withheld under Section 3 may be granted only by a separate,
+   signed, written agreement with the Author. If You are interested in
+   deploying or using Frontier, please reach out to the Author.
+
+5. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+   The Software is an unaudited research prototype. It is not fit for
+   handling real funds.
+
+6. LIMITATION OF LIABILITY
+   IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
+   FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+7. TERMINATION
+   Any breach of Section 3 automatically and immediately terminates all
+   rights granted to You under this license.
