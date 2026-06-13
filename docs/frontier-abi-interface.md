@@ -177,7 +177,6 @@ function depositShaped(int24 lower, int24 upper, uint128 liquidity, int128 slope
 
 function claim(uint256 positionId) external returns (uint256 proceeds1);
 function claimTo(uint256 positionId, int24 target) external returns (uint256 proceeds1);
-function claimInternal(uint256 positionId) external returns (uint256 proceeds1);
 function cancel(uint256 positionId) external returns (uint256 proceeds1, uint256 principal0);
 function cancelWithWitness(uint256 positionId, int24 frontier)
     external
@@ -186,7 +185,9 @@ function claimable(uint256 positionId) external view returns (uint256);
 function unfilledPrincipal(uint256 positionId) external view returns (uint256);
 ```
 
-`claimable(...)`, `claim(...)`, `claimTo(...)`, `claimInternal(...)`, and ask cancel proceeds are net of maker fee when maker fees are enabled.
+`claimable(...)`, `claim(...)`, `claimTo(...)`, and ask cancel proceeds are net of maker fee when maker fees are enabled.
+
+Note: `claimInternal`, `recycleBidIntoAsk`, `recycleAskIntoBid`, and `withdrawInternal` were removed to stay under the EIP-170 24576-byte limit.
 
 ## Maker ABI: bids
 
@@ -197,34 +198,18 @@ function depositBid(int24 lower, int24 upper, uint128 liquidity) external return
 
 function claimBid(uint256 positionId) external returns (uint256 proceeds0);
 function claimBidTo(uint256 positionId, int24 target) external returns (uint256 proceeds0);
-function claimBidInternal(uint256 positionId) external returns (uint256 proceeds0);
 function cancelBid(uint256 positionId) external returns (uint256 proceeds0, uint256 refund1);
 function cancelBidWithWitness(uint256 positionId, int24 frontier)
     external
     returns (uint256 proceeds0, uint256 refund1);
 function bidClaimable(uint256 positionId) external view returns (uint256);
 function bidRefundable(uint256 positionId) external view returns (uint256);
+function bidLiquidity(int24 lowerTick) external view returns (uint128);
 ```
 
 `bidClaimable(...)`, bid claim functions, and bid cancel proceeds are net of maker fee when maker fees are enabled.
 
-## Internal credit ABI
-
-Internal credits are per-book.
-
-```solidity
-function internalBalance0(address user) external view returns (uint256);
-function internalBalance1(address user) external view returns (uint256);
-function withdrawInternal(uint256 amount0, uint256 amount1) external;
-function recycleBidIntoAsk(uint256 bidId, int24 lower, int24 upper, uint128 liquidity, int128 slope)
-    external
-    returns (uint256 newPositionId);
-function recycleAskIntoBid(uint256 askId, int24 lower, int24 upper, uint128 liquidity)
-    external
-    returns (uint256 newPositionId);
-```
-
-Use internal claim/recycle paths for active makers. Withdraw only when inventory should leave the book.
+Note: `claimBidInternal` was removed; use `claimBid` to receive proceeds directly.
 
 ## Position management ABI
 
@@ -364,7 +349,6 @@ After broadcast:
 
 These are constraints, not blockers for the standalone deploy:
 
-- Internal credits are per book, not global.
 - Multiple books can exist for the same token pair; use explicit book addresses.
 - Lens depth is bounded by scan window and max levels.
 - Large taker strategies should use bounded direct sweeps or repeated router calls.
