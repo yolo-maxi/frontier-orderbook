@@ -165,12 +165,10 @@ abstract contract FrontierBookBase {
         }
     }
 
-    // Internal balance ledger: proceeds/refunds can be credited here instead
-    // of transferred out, and every deposit path spends credit FIRST, pulling
-    // only the shortfall via transferFrom. This is what lets earned balances
-    // recycle into new orders with zero token transfers.
-    mapping(address => uint256) public internalBalance0;
-    mapping(address => uint256) public internalBalance1;
+    // Internal balance ledger: kept for storage-layout compatibility; no
+    // public-facing accumulation paths exist in the deploy-facing book.
+    mapping(address => uint256) internal internalBalance0;
+    mapping(address => uint256) internal internalBalance1;
 
     event Deposit(uint256 indexed positionId, address indexed owner, int24 lower, int24 upper, uint128 liquidity);
     event IntervalFilled(int24 indexed lowerTick, uint128 liquidity, uint256 proceeds1, uint64 clock);
@@ -179,8 +177,6 @@ abstract contract FrontierBookBase {
     event Cancel(uint256 indexed positionId, uint256 proceeds1, uint256 principal0);
     event Requote(uint256 indexed positionId, int24 lower, int24 upper, uint128 liquidity);
     event PositionTransferred(uint256 indexed positionId, address indexed from, address indexed to);
-    event InternalCredit(address indexed user, uint256 amount0, uint256 amount1);
-    event InternalWithdraw(address indexed user, uint256 amount0, uint256 amount1);
     event MakerFee(
         uint256 indexed positionId,
         address indexed token,
@@ -238,28 +234,6 @@ abstract contract FrontierBookBase {
         if (msg.sender != owner) {
             require(address(permissions) != address(0), "not owner");
             permissions.requireAuthorizedCall(owner, msg.sender, address(this), msg.sig);
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Batching: settle a whole portfolio in one transaction. Delegatecall
-    // to self preserves msg.sender AND msg.sig (per inner call), so
-    // authorization is byte-identical to separate transactions; the
-    // savings are one 21k intrinsic + cold account/token access per
-    // extra call. No function here is payable, so msg.value reuse — the
-    // classic multicall hazard — does not apply.
-    // ------------------------------------------------------------------
-
-    function multicall(bytes[] calldata data) external returns (bytes[] memory results) {
-        results = new bytes[](data.length);
-        for (uint256 i = 0; i < data.length; i++) {
-            (bool ok, bytes memory ret) = address(this).delegatecall(data[i]);
-            if (!ok) {
-                assembly ("memory-safe") {
-                    revert(add(ret, 32), mload(ret))
-                }
-            }
-            results[i] = ret;
         }
     }
 
@@ -570,27 +544,12 @@ abstract contract FrontierBookBase {
         out1 = uint256(val) / PRICE_SCALE;
     }
 
-    /// @dev Spend the payer's internal token0 credit first; transferFrom
-    /// only the shortfall.
     function _pull0(address payer, uint256 amount) internal {
-        uint256 credit = internalBalance0[payer];
-        if (credit >= amount) {
-            internalBalance0[payer] = credit - amount;
-            return;
-        }
-        if (credit > 0) internalBalance0[payer] = 0;
-        _transferInExact(token0, payer, amount - credit, "non-exact token0 transfer");
+        _transferInExact(token0, payer, amount, "non-exact token0 transfer");
     }
 
-    /// @dev Mirror for token1.
     function _pull1(address payer, uint256 amount) internal {
-        uint256 credit = internalBalance1[payer];
-        if (credit >= amount) {
-            internalBalance1[payer] = credit - amount;
-            return;
-        }
-        if (credit > 0) internalBalance1[payer] = 0;
-        _transferInExact(token1, payer, amount - credit, "non-exact token1 transfer");
+        _transferInExact(token1, payer, amount, "non-exact token1 transfer");
     }
 
     function _transferInExact(IERC20Minimal token, address payer, uint256 amount, string memory err) internal {

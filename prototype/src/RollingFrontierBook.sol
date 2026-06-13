@@ -151,16 +151,6 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @notice Convenience variant: finds the frontier itself in O(log width).
     function claim(uint256 positionId) external returns (uint256 proceeds1) {
-        return _claimAsk(positionId, false);
-    }
-
-    /// @notice Like claim(), but proceeds are CREDITED to the owner's
-    /// internal token1 balance instead of transferred — fuel for new bids.
-    function claimInternal(uint256 positionId) external returns (uint256 proceeds1) {
-        return _claimAsk(positionId, true);
-    }
-
-    function _claimAsk(uint256 positionId, bool toInternal) internal returns (uint256 proceeds1) {
         Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
@@ -170,14 +160,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
             emit Claim(positionId, 0);
             return 0;
         }
-        if (!toInternal) return claimTo(positionId, frontier);
-
-        (proceeds1,) =
-            _chargeMakerFee(token1, positionId, _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier));
-        p.claimedUpper = frontier;
-        internalBalance1[p.owner] += proceeds1;
-        emit InternalCredit(p.owner, 0, proceeds1);
-        emit Claim(positionId, proceeds1);
+        return claimTo(positionId, frontier);
     }
 
     // ------------------------------------------------------------------
@@ -204,25 +187,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         _storePosition(positionId, msg.sender, lower, upper, liquidity, fillClock, upper, true);
 
         uint256 amount1 = _uniformSpanValue(lower, upper, liquidity, true);
-        uint256 credit = internalBalance1[msg.sender];
-        if (credit >= amount1) {
-            internalBalance1[msg.sender] = credit - amount1;
-        } else {
-            if (credit > 0) internalBalance1[msg.sender] = 0;
-            uint256 pullAmount = amount1 - credit;
-            address t1 = address(token1);
-            bool ok;
-            assembly ("memory-safe") {
-                let ptr := mload(0x40)
-                mstore(ptr, shl(224, 0x23b872dd))
-                mstore(add(ptr, 4), caller())
-                mstore(add(ptr, 36), address())
-                mstore(add(ptr, 68), pullAmount)
-                ok := call(gas(), t1, 0, ptr, 100, ptr, 32)
-                ok := and(and(ok, eq(returndatasize(), 32)), mload(ptr))
-            }
-            require(ok, "transfer in failed");
-        }
+        _transferInExact(token1, msg.sender, amount1, "non-exact token1 transfer");
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
         if (address(hooks) != address(0)) _callAfterDepositHook(msg.sender, positionId, true);
     }
@@ -256,16 +221,6 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @notice Convenience variant: finds the bid frontier in O(log width).
     function claimBid(uint256 positionId) external returns (uint256 proceeds0) {
-        return _claimBid(positionId, false);
-    }
-
-    /// @notice Like claimBid(), but the bought token0 is CREDITED to the
-    /// owner's internal balance instead of transferred — fuel for new asks.
-    function claimBidInternal(uint256 positionId) external returns (uint256 proceeds0) {
-        return _claimBid(positionId, true);
-    }
-
-    function _claimBid(uint256 positionId, bool toInternal) internal returns (uint256 proceeds0) {
         Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(p.isBid, "not a bid");
@@ -275,56 +230,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
             emit Claim(positionId, 0);
             return 0;
         }
-        if (!toInternal) return claimBidTo(positionId, frontier);
-
-        (proceeds0,) = _chargeMakerFee(
-            token0,
-            positionId,
-            uint256(p.liquidity) * (uint256(uint24(p.claimedUpper - frontier)) / uint256(uint24(tickSpacing)))
-        );
-        p.claimedUpper = frontier;
-        internalBalance0[p.owner] += proceeds0;
-        emit InternalCredit(p.owner, proceeds0, 0);
-        emit Claim(positionId, proceeds0);
-    }
-
-    // ------------------------------------------------------------------
-    // Recycling: earned balances -> new orders, zero token transfers
-    // ------------------------------------------------------------------
-
-    /// @notice One call: claim a filled bid's token0 internally and commit it
-    /// straight into a new ask ladder. No ERC20 transfers happen unless the
-    /// new order needs more than the claimed credit (shortfall is pulled) —
-    /// excess credit stays withdrawable.
-    function recycleBidIntoAsk(uint256 bidId, int24 lower, int24 upper, uint128 liquidity, int128 slope)
-        external
-        returns (uint256 newPositionId)
-    {
-        _claimBid(bidId, true);
-        newPositionId = depositShaped(lower, upper, liquidity, slope);
-    }
-
-    /// @notice One call: claim a filled ask's token1 internally and commit it
-    /// straight into a new bid. Mirror of recycleBidIntoAsk.
-    function recycleAskIntoBid(uint256 askId, int24 lower, int24 upper, uint128 liquidity)
-        external
-        returns (uint256 newPositionId)
-    {
-        _claimAsk(askId, true);
-        newPositionId = _depositBid(lower, upper, liquidity);
-    }
-
-    /// @notice Withdraw internal credits to the wallet.
-    function withdrawInternal(uint256 amount0, uint256 amount1) external {
-        if (amount0 > 0) {
-            internalBalance0[msg.sender] -= amount0;
-            require(token0.transfer(msg.sender, amount0), "transfer out failed");
-        }
-        if (amount1 > 0) {
-            internalBalance1[msg.sender] -= amount1;
-            require(token1.transfer(msg.sender, amount1), "transfer out failed");
-        }
-        emit InternalWithdraw(msg.sender, amount0, amount1);
+        return claimBidTo(positionId, frontier);
     }
 
     // ------------------------------------------------------------------
@@ -691,8 +597,8 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     // ------------------------------------------------------------------
-    // Views (interface compatibility — scans are view-only convenience;
-    // production frontends compute the witness off-chain)
+    // Views (interface compatibility — kept for correctness tests and
+    // differential fuzz. Bid-side helpers and rateAt moved to FrontierLens.)
     // ------------------------------------------------------------------
 
     /// @notice Explicit getter (the variable lives in FrontierBookBase as
@@ -717,6 +623,31 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         return _principalSpan(p.liquidity, _positionSlope[positionId], _levelOf(p, frontier), _levels(p.lower, p.upper));
     }
 
+    function isConsumedFor(uint256 positionId, int24 lowerTick) external view returns (bool) {
+        Position storage p = _positions[positionId];
+        return _highSince(p.depositClock) >= lowerTick + tickSpacing;
+    }
+
+    /// @notice The book's price curve at a tick (X18 token1 per token0).
+    /// Periphery contracts (YieldRangeLP, FrontierPositionNFT) need this for
+    /// cost estimation across curve types; FrontierLens uses it for quotes.
+    function rateAt(int24 t) external view returns (uint256) {
+        return _rate(t);
+    }
+
+    /// @notice Aggregate live BID size (token0 units) at a level: suffix sum
+    /// of bid endpoint deltas from above (mirror of activeLiquidity).
+    function bidLiquidity(int24 lowerTick) external view returns (uint128) {
+        int24 maxBoundary = _floorAligned(_currentTick - 1);
+        if (lowerTick > maxBoundary) return 0;
+        int256 sum;
+        for (int24 u = maxBoundary; u >= lowerTick; u -= tickSpacing) {
+            sum += bidDelta[u];
+        }
+        require(sum >= 0, "negative active");
+        return uint128(uint256(sum));
+    }
+
     /// @notice token0 a bid could claim right now.
     function bidClaimable(uint256 positionId) external view returns (uint256) {
         Position storage p = _positions[positionId];
@@ -735,29 +666,6 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         int24 frontier = _bidFrontier(p);
         if (frontier <= p.lower) return 0;
         return _uniformSpanValue(p.lower, frontier, p.liquidity, false);
-    }
-
-    /// @notice The book's price curve at a tick (X18 token1 per token0).
-    function rateAt(int24 t) external view returns (uint256) {
-        return _rate(t);
-    }
-
-    function isConsumedFor(uint256 positionId, int24 lowerTick) external view returns (bool) {
-        Position storage p = _positions[positionId];
-        return _highSince(p.depositClock) >= lowerTick + tickSpacing;
-    }
-
-    /// @notice Aggregate live BID size (token0 units) at a level: suffix sum
-    /// of bid endpoint deltas from above (mirror of activeLiquidity).
-    function bidLiquidity(int24 lowerTick) external view returns (uint128) {
-        int24 maxBoundary = _floorAligned(_currentTick - 1);
-        if (lowerTick > maxBoundary) return 0;
-        int256 sum;
-        for (int24 u = maxBoundary; u >= lowerTick; u -= tickSpacing) {
-            sum += bidDelta[u];
-        }
-        require(sum >= 0, "negative active");
-        return uint128(uint256(sum));
     }
 
     /// @dev Aggregate live liquidity covering [lowerTick, lowerTick+s) =
