@@ -45,7 +45,7 @@ export function Header() {
   return (
     <header className="hdr">
       <div className="hdr-left">
-        <Brand />
+        <Brand href="#home" />
         <span className="hdr-sep" />
         <span className="pair">
           <span className="pair-glyphs">

@@ -8,13 +8,34 @@ import { MarketPanel } from "./components/MarketPanel";
 import { SidePanel } from "./components/SidePanel";
 import { Toasts } from "./components/Toasts";
 import { Brand } from "./components/Brand";
+import { Landing } from "./components/Landing";
+
+/** The terminal lives behind #trade; everything else shows the landing page. */
+function isTerminalHash(): boolean {
+  return window.location.hash === "#trade" || window.location.hash === "#terminal";
+}
+
+export default function App() {
+  const [terminal, setTerminal] = useState<boolean>(isTerminalHash);
+
+  useEffect(() => {
+    const onHash = () => setTerminal(isTerminalHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  if (!terminal) {
+    return <Landing onEnter={() => (window.location.hash = "trade")} />;
+  }
+  return <Terminal />;
+}
 
 type ConfigState =
   | { phase: "loading" }
   | { phase: "error"; message: string }
   | { phase: "ready"; cfg: DeploymentConfig };
 
-export default function App() {
+function Terminal() {
   const [state, setState] = useState<ConfigState>({ phase: "loading" });
 
   useEffect(() => {
@@ -59,6 +80,9 @@ export default function App() {
         <div className="note warn boot-note">
           Could not load <span className="num">deployment.json</span>: {state.message}
         </div>
+        <a className="btn btn-ghost" href="#home">
+          ← Back to overview
+        </a>
       </div>
     );
   }
@@ -93,7 +117,11 @@ function Shell() {
             </p>
             <p className="dim">
               Drop the real deployment manifest next to <span className="num">index.html</span>{" "}
-              and reload.
+              and reload, or return to the{" "}
+              <a className="awaiting-link" href="#home">
+                overview
+              </a>
+              .
             </p>
           </div>
         </main>

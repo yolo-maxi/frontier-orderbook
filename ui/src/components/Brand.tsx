@@ -29,12 +29,20 @@ export function FrontierMark({ size = 22 }: { size?: number }) {
   );
 }
 
-export function Brand({ markSize = 22 }: { markSize?: number }) {
-  return (
-    <span className="brand">
+export function Brand({ markSize = 22, href }: { markSize?: number; href?: string }) {
+  const inner = (
+    <>
       <FrontierMark size={markSize} />
       <span className="brand-word">FRONTIER</span>
       <span className="brand-tag">CLOB</span>
-    </span>
+    </>
   );
+  if (href) {
+    return (
+      <a className="brand" href={href} title="Back to overview">
+        {inner}
+      </a>
+    );
+  }
+  return <span className="brand">{inner}</span>;
 }
