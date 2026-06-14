@@ -2632,3 +2632,173 @@ body {
     font-size: 26px;
   }
 }
+
+/* ── connect wallet ─────────────────────────────────────────────────── */
+.btn-connect {
+  color: #04231f;
+  background: linear-gradient(180deg, var(--db-accent), var(--db-accent-2));
+  border: none;
+  font-weight: 700;
+}
+.btn-connect:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 4px 16px -8px var(--db-accent);
+}
+.btn-faucet {
+  font-weight: 600;
+}
+.wallet-chip.wallet-connected {
+  border-color: var(--db-accent);
+  box-shadow: inset 0 0 0 1px var(--db-accent-dim);
+}
+.wallet-chip.wallet-demo {
+  color: var(--text-mid);
+}
+
+/* ── liquidity depth bars (replaces YES/NO cards) ───────────────────── */
+.dbx-depth {
+  padding: 13px 16px 10px;
+}
+.dbx-depth-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.dbx-depth-toggle {
+  display: flex;
+  gap: 7px;
+}
+.dbx-depth-toggle button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-mid);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: 0.12s;
+}
+.dbx-depth-toggle button:hover {
+  border-color: var(--text-faint);
+}
+.dbx-depth-toggle button.on.yes {
+  color: #06281c;
+  background: var(--green);
+  border-color: var(--green);
+}
+.dbx-depth-toggle button.on.no {
+  color: #2c0a10;
+  background: var(--red);
+  border-color: var(--red);
+}
+.dbx-depth-median {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+.dbx-depth-median .dim {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.dbx-depth-median strong {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.dbx-depth-median strong.yes-tone {
+  color: var(--green-hi);
+}
+.dbx-depth-median strong.no-tone {
+  color: var(--red-hi);
+}
+.dbx-depth-plot {
+  height: 150px;
+  position: relative;
+}
+.dbx-depth-bars {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+.dbx-depth-half {
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.dbx-depth-half.bids {
+  justify-content: flex-end;
+}
+.dbx-depth-half.asks {
+  justify-content: flex-start;
+}
+.dbx-depth-col {
+  flex: 0 1 16px;
+  max-width: 20px;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+.dbx-depth-bar {
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+  transition: height 0.4s ease;
+}
+.dbx-depth-col.bid .dbx-depth-bar {
+  background: linear-gradient(180deg, var(--green-hi), rgba(46, 189, 133, 0.25));
+}
+.dbx-depth-col.ask .dbx-depth-bar {
+  background: linear-gradient(180deg, var(--red-hi), rgba(246, 70, 93, 0.25));
+}
+.dbx-depth-col:hover .dbx-depth-bar {
+  filter: brightness(1.25);
+}
+.dbx-depth-center {
+  flex: 0 0 1px;
+  align-self: stretch;
+  background: linear-gradient(180deg, transparent, var(--border) 18%, var(--border) 100%);
+  position: relative;
+  margin: 0 10px;
+}
+.dbx-depth-center-px {
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--bg-panel-2);
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.dbx-depth-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  padding: 0 20px;
+}
+.dbx-depth-axis {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11px;
+  color: var(--text-faint);
+}

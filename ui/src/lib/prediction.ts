@@ -55,8 +55,13 @@ export const fmtProb = fmtCents;
  * price 4.85e8) must NOT be shown as a 99.9% probability. */
 function lastFromTick(currentTick: number): number | null {
   const px = tickToPrice(currentTick);
-  return px > 0 && px < 1.2 ? clampProb(px) : null;
+  return inBand(px) ? clampProb(px) : null;
 }
+
+/** A binary-outcome price must lie in (0,1). Touches/levels outside this band
+ * are junk (e.g. orphaned asks resting at the book's construction tick, where
+ * price ≈ 4.85e8) and must never surface as a 99.9¢ quote. */
+const inBand = (px: number): boolean => px > 0.002 && px < 1;
 
 function bookFromSide(
   outcome: Outcome,
@@ -64,8 +69,10 @@ function bookFromSide(
   depth: DepthLevel[],
   baseDecimals: number,
 ): PredictionBook {
-  const bestBid = summary?.hasBid ? clampProb(tickToPrice(summary.bestBid)) : null;
-  const bestAsk = summary?.hasAsk ? clampProb(tickToPrice(summary.bestAsk)) : null;
+  const askPx = summary?.hasAsk ? tickToPrice(summary.bestAsk) : null;
+  const bidPx = summary?.hasBid ? tickToPrice(summary.bestBid) : null;
+  const bestAsk = askPx !== null && inBand(askPx) ? clampProb(askPx) : null;
+  const bestBid = bidPx !== null && inBand(bidPx) ? clampProb(bidPx) : null;
   const last = summary ? lastFromTick(summary.currentTick) : null;
   const mid =
     bestBid !== null && bestAsk !== null
@@ -153,12 +160,13 @@ function makeDepth(depth: DepthLevel[], side: "ask" | "bid", baseDecimals: numbe
     .map((d) => {
       const raw = side === "ask" ? d.askSize : d.bidSize;
       return {
-        probability: clampProb(tickToPrice(d.tick)),
+        rawPx: tickToPrice(d.tick),
         tick: d.tick,
         size: Number(formatUnits(raw, baseDecimals)),
       };
     })
-    .filter((d) => d.size > 0)
+    .filter((d) => d.size > 0 && inBand(d.rawPx)) // drop junk levels outside (0,1)
+    .map((d) => ({ probability: clampProb(d.rawPx), tick: d.tick, size: d.size }))
     .sort((a, b) => (side === "ask" ? a.probability - b.probability : b.probability - a.probability));
   let cum = 0;
   return rows.slice(0, 14).map((r) => {

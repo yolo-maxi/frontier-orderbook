@@ -9,7 +9,7 @@ type Mode = "split" | "merge" | "redeem";
 const MAX_UINT = 2n ** 256n - 1n;
 
 export function LiquidityCard() {
-  const { cfg, client, wallet, account, balances, sendTx, busy } = useApp();
+  const { cfg, client, wallet, addr, balances, sendTx, busy } = useApp();
   const market = marketVaultAddr(cfg);
   const quoteDec = quoteDecimals(cfg);
   const baseDec = baseDecimals(cfg);
@@ -31,7 +31,7 @@ export function LiquidityCard() {
           address: cfg.contracts.usdc,
           abi: erc20Abi,
           functionName: "allowance",
-          args: [account.address, market],
+          args: [addr, market],
         }),
       ]);
       setStatus(Number(st));
@@ -40,7 +40,7 @@ export function LiquidityCard() {
     } catch {
       /* market views optional */
     }
-  }, [client, market, cfg, account]);
+  }, [client, market, cfg, addr]);
   useEffect(() => {
     loadState();
   }, [loadState, busy]);
@@ -78,7 +78,7 @@ export function LiquidityCard() {
           address: market,
           abi: marketAbi,
           functionName: "split",
-          args: [amount, account.address],
+          args: [amount, addr],
         }),
       );
       if (ok) setAmountStr("");
@@ -88,7 +88,7 @@ export function LiquidityCard() {
           address: market,
           abi: marketAbi,
           functionName: "merge",
-          args: [amount, account.address],
+          args: [amount, addr],
         }),
       );
       if (ok) setAmountStr("");
@@ -99,7 +99,7 @@ export function LiquidityCard() {
           address: market,
           abi: marketAbi,
           functionName: "redeem",
-          args: [winner, amount, account.address],
+          args: [winner, amount, addr],
         }),
       );
       if (ok) setAmountStr("");

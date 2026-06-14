@@ -5,7 +5,7 @@ import { fmtAmount } from "../lib/format";
 import { buildPredictionBooks, exposureFromPositions, fmtCents, type Outcome } from "../lib/prediction";
 import { MarketHeader } from "./market/MarketHeader";
 import { ProbabilityChart } from "./market/ProbabilityChart";
-import { OutcomeCards } from "./market/OutcomeCards";
+import { DepthBars } from "./market/DepthBars";
 import { OrderBookCard } from "./market/OrderBookCard";
 import { ActivityFeed } from "./market/ActivityFeed";
 import { MarketInfoCards } from "./market/MarketInfoCards";
@@ -32,7 +32,7 @@ export function PredictionWorkspace() {
       <div className="dbx-main">
         <MarketHeader />
         <ProbabilityChart yes={yes} />
-        <OutcomeCards outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} />
+        <DepthBars outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} />
         <OrderBookCard outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} />
         <ActivityFeed />
         <MarketInfoCards />

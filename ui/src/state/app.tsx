@@ -19,7 +19,7 @@ import {
 import type { DeploymentConfig } from "../lib/config";
 import { isConfigured } from "../lib/config";
 import { makePublicClient, makeWalletClient, type DemoWalletClient } from "../lib/chain";
-import { ensureGas, loadOrCreateAccount } from "../lib/wallet";
+import { connectInjected, ensureGas, getInjected, loadOrCreateAccount, type InjectedConnection } from "../lib/wallet";
 import { bookAbi } from "../abi/book";
 import { lensAbi } from "../abi/lens";
 import { erc20Abi } from "../abi/erc20";
@@ -123,6 +123,12 @@ interface AppData {
   client: PublicClient;
   wallet: DemoWalletClient;
   account: PrivateKeyAccount;
+  /** Active address — the connected injected wallet, else the demo wallet. */
+  addr: `0x${string}`;
+  walletKind: "demo" | "injected";
+  connect: () => Promise<void>;
+  disconnect: () => void;
+  connecting: boolean;
   summary: BookSummary | null;
   depth: DepthLevel[];
   /** NO book — live when the deployment ships a noBook, else null (NO derived). */
@@ -252,6 +258,34 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const client = useMemo(() => makePublicClient(cfg), [cfg]);
   const account = useMemo(() => loadOrCreateAccount(), []);
   const wallet = useMemo(() => makeWalletClient(cfg, account), [cfg, account]);
+
+  // Active wallet: an injected browser wallet when connected, else the auto demo
+  // wallet so the UI is usable immediately. `addr` is whichever is active.
+  const [injected, setInjected] = useState<InjectedConnection | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const addr = injected?.address ?? account.address;
+  const activeWallet = injected?.wallet ?? wallet;
+  const walletKind: "demo" | "injected" = injected ? "injected" : "demo";
+
+  const connect = useCallback(async () => {
+    setConnecting(true);
+    try {
+      setInjected(await connectInjected(cfg));
+    } finally {
+      setConnecting(false);
+    }
+  }, [cfg]);
+  const disconnect = useCallback(() => setInjected(null), []);
+
+  useEffect(() => {
+    const eth = getInjected();
+    if (!eth?.on) return;
+    const onAccounts = (accs: string[]) => {
+      if (!accs?.length) setInjected(null); // wallet locked / disconnected
+    };
+    eth.on("accountsChanged", onAccounts);
+    return () => eth.removeListener?.("accountsChanged", onAccounts);
+  }, []);
 
   const [summary, setSummary] = useState<BookSummary | null>(null);
   const [depth, setDepth] = useState<DepthLevel[]>([]);
@@ -552,25 +586,25 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     const tick = async () => {
       try {
         const [eth, weth, usdc, no] = await Promise.all([
-          client.getBalance({ address: account.address }),
+          client.getBalance({ address: addr }),
           client.readContract({
             address: cfg.contracts.weth,
             abi: erc20Abi,
             functionName: "balanceOf",
-            args: [account.address],
+            args: [addr],
           }),
           client.readContract({
             address: cfg.contracts.usdc,
             abi: erc20Abi,
             functionName: "balanceOf",
-            args: [account.address],
+            args: [addr],
           }),
           noTokenAddr
             ? client.readContract({
                 address: noTokenAddr,
                 abi: erc20Abi,
                 functionName: "balanceOf",
-                args: [account.address],
+                args: [addr],
               })
             : Promise.resolve(0n),
         ]);
@@ -585,7 +619,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, account, noTokenAddr, nonce]);
+  }, [configured, client, cfg, account, addr, noTokenAddr, nonce]);
 
   // -------- positions: Deposit logs (owner-filtered) + per-id state (3s)
   const knownIds = useRef<Set<bigint>>(new Set());
@@ -603,7 +637,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
           const logs = await client.getLogs({
             address: cfg.contracts.book,
             event: depositEvent,
-            args: { owner: account.address },
+            args: { owner: addr },
             fromBlock: depositScanFrom.current,
             toBlock: latest,
           });
@@ -623,7 +657,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
               args: [id],
             });
             const [owner, lower, upper, liquidity, slope, , , live, isBid] = p;
-            if (owner.toLowerCase() !== account.address.toLowerCase()) return null;
+            if (owner.toLowerCase() !== addr.toLowerCase()) return null;
             let claimable = 0n;
             let unfilled = 0n;
             if (live) {
@@ -685,7 +719,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, account, noTokenAddr, nonce]);
+  }, [configured, client, cfg, account, addr, noTokenAddr, nonce]);
 
   // -------- tx pipeline
   const toastSeq = useRef(0);
@@ -766,8 +800,13 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     makeFocus,
     setMakeFocus,
     client,
-    wallet,
+    wallet: activeWallet,
     account,
+    addr,
+    walletKind,
+    connect,
+    disconnect,
+    connecting,
     summary,
     depth,
     noSummary,

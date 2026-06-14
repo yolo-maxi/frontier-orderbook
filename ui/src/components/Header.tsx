@@ -21,23 +21,34 @@ function identGradient(address: string): string {
 }
 
 export function Header() {
-  const { cfg, account, balances, faucet, busy, rpcError, configured } = useApp();
+  const { cfg, addr, walletKind, connect, disconnect, connecting, balances, faucet, busy, rpcError, configured } =
+    useApp();
   const [copied, setCopied] = useState(false);
   const [fauceting, setFauceting] = useState(false);
+  const [connErr, setConnErr] = useState<string | null>(null);
 
   const base = baseSymbol(cfg);
   const quote = quoteSymbol(cfg);
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
-  const isDarkbox = !!cfg.darkbox;
-  const faucetLabel = isDarkbox ? `Get ${quote}` : "Faucet";
-  const identBg = useMemo(() => identGradient(account.address), [account.address]);
+  const connected = walletKind === "injected";
+  const identBg = useMemo(() => identGradient(addr), [addr]);
 
   const copy = () => {
-    navigator.clipboard?.writeText(account.address).then(() => {
+    navigator.clipboard?.writeText(addr).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });
+  };
+
+  const onConnect = async () => {
+    setConnErr(null);
+    try {
+      await connect();
+    } catch (e) {
+      setConnErr(e instanceof Error ? e.message : "Connect failed");
+      setTimeout(() => setConnErr(null), 5000);
+    }
   };
 
   const onFaucet = async () => {
@@ -78,19 +89,40 @@ export function Header() {
             <TokenGlyph sym="eth" /> {fmtAmount(balances.eth, 3)}
           </span>
         </div>
-        <button className="wallet-chip" onClick={copy} title={account.address}>
-          <span className="ident-dot" style={{ background: identBg }} />
-          {copied ? "copied" : shortAddr(account.address)}
-        </button>
         <button
-          className="btn btn-accent"
-          onClick={onFaucet}
-          disabled={!configured || fauceting || busy !== null}
-          title={`Mint demo ${quote} to your session wallet (ARC testnet)`}
+          className={`wallet-chip ${connected ? "wallet-connected" : "wallet-demo"}`}
+          onClick={copy}
+          title={connected ? `Connected: ${addr}` : `Demo wallet: ${addr}`}
         >
-          {fauceting ? "Minting…" : faucetLabel}
+          <span className="ident-dot" style={{ background: identBg }} />
+          {copied ? "copied" : connected ? shortAddr(addr) : `demo · ${shortAddr(addr)}`}
         </button>
+        {configured && (
+          <button
+            className="btn btn-ghost btn-faucet"
+            onClick={onFaucet}
+            disabled={fauceting || busy !== null}
+            title={`Mint demo ${quote} to the active wallet (ARC testnet)`}
+          >
+            {fauceting ? "Minting…" : `Get ${quote}`}
+          </button>
+        )}
+        {connected ? (
+          <button className="btn btn-ghost" onClick={disconnect} title="Disconnect wallet">
+            Disconnect
+          </button>
+        ) : (
+          <button
+            className="btn btn-connect"
+            onClick={onConnect}
+            disabled={connecting}
+            title={connErr ?? "Connect a browser wallet (MetaMask, Rabby, …) on ARC testnet"}
+          >
+            {connecting ? "Connecting…" : "Connect Wallet"}
+          </button>
+        )}
       </div>
+      {connErr && <div className="banner banner-bad">Wallet: {connErr}</div>}
     </header>
   );
 }

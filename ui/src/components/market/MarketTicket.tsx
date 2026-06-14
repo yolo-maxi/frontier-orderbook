@@ -39,7 +39,7 @@ export function MarketTicket({
   yes: PredictionBook;
   no: PredictionBook;
 }) {
-  const { cfg, client, wallet, account, balances, sendTx, busy } = useApp();
+  const { cfg, client, wallet, addr, balances, sendTx, busy } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
   const quoteSym = quoteSymbol(cfg);
@@ -125,13 +125,13 @@ export function MarketTicket({
         address: tokenIn,
         abi: erc20Abi,
         functionName: "allowance",
-        args: [account.address, cfg.contracts.router],
+        args: [addr, cfg.contracts.router],
       });
       setAllowance(a);
     } catch {
       setAllowance(null);
     }
-  }, [client, tokenIn, account, cfg]);
+  }, [client, tokenIn, addr, cfg]);
   const loadBookAllowance = useCallback(async () => {
     if (!book) return;
     try {
@@ -139,13 +139,13 @@ export function MarketTicket({
         address: tokenIn,
         abi: erc20Abi,
         functionName: "allowance",
-        args: [account.address, book],
+        args: [addr, book],
       });
       setBookAllowance(a);
     } catch {
       setBookAllowance(null);
     }
-  }, [client, tokenIn, account, book]);
+  }, [client, tokenIn, addr, book]);
   useEffect(() => {
     setAllowance(null);
     loadAllowance();
@@ -231,7 +231,7 @@ export function MarketTicket({
         address: cfg.contracts.router,
         abi: routerAbi,
         functionName: side === "buy" ? "buyExactIn" : "sellExactIn",
-        args: [book, amountIn, minOut, account.address, deadline],
+        args: [book, amountIn, minOut, addr, deadline],
       }),
     );
     if (ok) setAmountStr("");
