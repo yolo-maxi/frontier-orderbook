@@ -577,15 +577,16 @@ async function main() {
       // occasional "news" swings so the chart stays varied. Kept modest (±8¢, was
       // ±16¢) so fair doesn't lurch far from the resting quotes and strand them
       // off-centre — that stranding is part of what spread the clusters apart.
-      const newsY = Math.random() < 0.14 ? (Math.random() - 0.5) * 0.08 : 0;
-      const newsN = Math.random() < 0.14 ? (Math.random() - 0.5) * 0.08 : 0;
-      // mean-revert toward 0.5 (6%/cycle) so fair can't random-walk away to an
-      // extreme. When it did, every recenter targeted a price far from the book and
-      // moveTickTo reverted crossing the book's own quotes — which is what drove the
-      // ask-deposit failures up. Drift + news still keep the chart lively.
-      const revert = (f) => 0.5 + (f - 0.5) * 0.94;
-      yesFair = clampP(revert(yesFair) + clampD(yesFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.025 + newsY);
-      noFair = clampP(revert(noFair) + clampD(noFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.025 + newsN);
+      // Fair must move GENTLY: at 1.5s cycles, big per-cycle steps make the maker
+      // chase a new price every cycle and post quotes all over the book, which then
+      // strand into a wide smear (the "gap"). Keep each step small and news jumps
+      // under the ladder width (~3.2¢) so consecutive quotes overlap into ONE tight
+      // cluster. Mean-revert toward 0.5 so it still can't wander to an extreme.
+      const newsY = Math.random() < 0.08 ? (Math.random() - 0.5) * 0.04 : 0; // ≤±2¢, rare
+      const newsN = Math.random() < 0.08 ? (Math.random() - 0.5) * 0.04 : 0;
+      const revert = (f) => 0.5 + (f - 0.5) * 0.985;
+      yesFair = clampP(revert(yesFair) + clampD(yesFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.008 + newsY);
+      noFair = clampP(revert(noFair) + clampD(noFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.008 + newsN);
       yesFlow *= 0.4;
       noFlow *= 0.4;
       // arbitrage pulls the complement back toward 100¢ only when it leaves the band
