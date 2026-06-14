@@ -1,15 +1,18 @@
 import { formatUnits, parseUnits } from "viem";
 
 /**
- * Price model: rate per tick — price (USDC per WETH) = 1 + 0.001 * tick.
- * One tick = $0.001. Tick 3,999,000 = $4,000.00.
+ * Geometric Frontier price model: price = 1.0001^tick.
+ * Tick ~82,947 is about $4,000.
  */
+const GEOM_BASE = 1.0001;
+const LOG_GEOM_BASE = Math.log(GEOM_BASE);
+
 export function tickToPrice(tick: number): number {
-  return 1 + 0.001 * tick;
+  return GEOM_BASE ** tick;
 }
 
 export function priceToTick(price: number): number {
-  return Math.round((price - 1) * 1000);
+  return Math.round(Math.log(price) / LOG_GEOM_BASE);
 }
 
 /** Round a tick down to the nearest multiple of spacing (toward -inf). */
