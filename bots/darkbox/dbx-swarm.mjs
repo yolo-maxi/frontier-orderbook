@@ -509,6 +509,18 @@ async function main() {
   if (mmTimer) clearInterval(mmTimer);
   log("stop", "duration reached — draining in-flight…");
   for (let i = 0; i < 30 && M.inflight > 0; i++) await sleep(500);
+  // settle: leave both books on a clean two-sided quote so the final on-chain
+  // state is tight and complementary (YES + NO ≈ 100¢), not a half-finished cycle.
+  if (cfg.live && !cfg.noMm) {
+    log("stop", "settling books to a clean complementary quote…");
+    try {
+      await recenter(mmYes, "YES", yesFair);
+      await recenter(mmNo, "NO", noFair);
+      log("stop", `final: YES ${(yesFair * 100).toFixed(1)}¢  NO ${(noFair * 100).toFixed(1)}¢  sum ${((yesFair + noFair) * 100).toFixed(1)}¢`);
+    } catch (e) {
+      log("stop", "settle error", safe(e.message).slice(0, 60));
+    }
+  }
   report(true);
 }
 
