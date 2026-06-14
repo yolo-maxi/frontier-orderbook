@@ -220,6 +220,25 @@ export function MarketTicket({
     return { loTick, hiTick, levels, liqPerLevel, fn, escrow, error, loProb, hiProb };
   }, [mode, rangeLo, rangeHi, amountShares?.toString(), side, selected, baseDec]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // sensible defaults when entering a resting-order mode (and flip the band to the
+  // correct side of the market when you toggle buy/sell)
+  useEffect(() => {
+    if (mode === "market") return;
+    const m = selected.prob ? Math.round(selected.prob * 100) : 50;
+    if (mode === "limit") {
+      setLimitCentsStr(String(side === "buy" ? Math.max(1, m - 1) : Math.min(99, m + 1)));
+    } else {
+      if (side === "buy") {
+        setRangeLoStr(String(Math.max(1, m - 6)));
+        setRangeHiStr(String(Math.max(2, m - 1)));
+      } else {
+        setRangeLoStr(String(Math.min(98, m + 1)));
+        setRangeHiStr(String(Math.min(99, m + 6)));
+      }
+    }
+    setAmountStr((a) => a || "100");
+  }, [mode, side]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // project the order onto the depth view
   useEffect(() => {
     if (!onPreview) return;

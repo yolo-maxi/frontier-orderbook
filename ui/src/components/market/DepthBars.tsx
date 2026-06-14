@@ -1,11 +1,12 @@
 import { fmtCents, fmtPct, type Outcome, type OrderPreview, type PredictionBook, type PredictionLevel } from "../../lib/prediction";
 
 /**
- * Liquidity depth view — bids (green) left of the median, asks (red) right, bar
- * height = resting size. When you're composing an order it projects onto the
- * book: a market order shades the levels it sweeps and marks its average fill; a
- * limit order drops a marker where it would rest. A plain-English line spells out
- * exactly what the order does.
+ * Liquidity depth view — bars positioned on an explicit price axis (mid centered,
+ * bids green left / asks red right, height = resting size). The order you're
+ * composing is drawn as a YELLOW BOX over the exact price region it occupies
+ * (the band for a range, a thin slot for a limit, the swept span for a market
+ * order), sitting under the bars so you can see both — i.e. literally where your
+ * liquidity lands, even in empty space.
  */
 export function DepthBars({
   outcome,
@@ -21,30 +22,31 @@ export function DepthBars({
   preview?: OrderPreview | null;
 }) {
   const book = outcome === "YES" ? yes : no;
-  const bids = book.bidDepth.slice().sort((a, b) => a.probability - b.probability); // low → high price
-  const asks = book.askDepth.slice().sort((a, b) => a.probability - b.probability);
-  const maxSize = Math.max(1, ...bids.map((l) => l.size), ...asks.map((l) => l.size));
-  const mid = book.prob;
-  const empty = bids.length === 0 && asks.length === 0;
+  const bids = book.bidDepth;
+  const asks = book.askDepth;
+  const all = [...bids, ...asks];
+  const empty = all.length === 0;
+  const mid = book.prob ?? 0.5;
   const pv = preview && preview.outcome === outcome ? preview : null;
 
-  // which side/levels does the pending order touch?
-  const hit = (l: PredictionLevel, side: "bid" | "ask"): boolean => {
-    if (!pv) return false;
-    if (pv.mode === "market") {
-      if (pv.side === "buy") return side === "ask" && l.probability <= pv.toProb + 1e-9;
-      return side === "bid" && l.probability >= pv.toProb - 1e-9;
-    }
-    if (pv.mode === "range") {
-      const lo = Math.min(pv.fromProb, pv.toProb);
-      const hi = Math.max(pv.fromProb, pv.toProb);
-      const bandSide = pv.side === "buy" ? "bid" : "ask";
-      return side === bandSide && l.probability >= lo - 1e-9 && l.probability <= hi + 1e-9;
-    }
-    return false;
-  };
-  // a limit order rests on one side at a single price
-  const limitSide: "bid" | "ask" | null = pv?.mode === "limit" ? (pv.side === "buy" ? "bid" : "ask") : null;
+  // symmetric price axis centred on mid, wide enough for every bar + the order
+  const spans = [
+    ...all.map((l) => Math.abs(l.probability - mid)),
+    ...(pv ? [Math.abs(pv.fromProb - mid), Math.abs(pv.toProb - mid)] : []),
+  ];
+  const half = Math.max(0.006, ...spans) * 1.14;
+  const pMin = mid - half;
+  const pMax = mid + half;
+  const x = (p: number) => Math.max(0, Math.min(100, ((p - pMin) / (2 * half)) * 100));
+  const maxSize = Math.max(1, ...all.map((l) => l.size));
+  const barW = Math.max(1.6, Math.min(4.5, 64 / Math.max(8, all.length)));
+
+  // the yellow order box
+  const lo = pv ? Math.min(pv.fromProb, pv.toProb) : 0;
+  const hi = pv ? Math.max(pv.fromProb, pv.toProb) : 0;
+  const boxLeft = x(lo);
+  const boxW = pv ? Math.max(1.2, x(hi) - boxLeft) : 0; // min width so a limit slot is visible
+  const boxLabel = pv?.mode === "range" ? "your range" : pv?.mode === "limit" ? "your limit" : "fills here";
 
   return (
     <section className="dbx-depth panel">
@@ -63,28 +65,31 @@ export function DepthBars({
         </div>
       </div>
 
-      <div className="dbx-depth-plot">
+      <div className="dbx-depth-plot2">
         {empty ? (
           <div className="dbx-depth-empty">No resting liquidity yet — awaiting market makers.</div>
         ) : (
-          <div className="dbx-depth-bars">
-            <div className="dbx-depth-half bids">
-              {bids.map((l, i) => (
-                <Bar key={`b${i}`} level={l} maxSize={maxSize} side="bid" hit={hit(l, "bid")} />
-              ))}
-              {limitSide === "bid" && <Marker side="bid" />}
-            </div>
-            <div className="dbx-depth-center" title={`median ${fmtCents(mid)}`}>
-              <span className="dbx-depth-center-px num">{fmtCents(mid)}</span>
-            </div>
-            <div className="dbx-depth-half asks">
-              {limitSide === "ask" && <Marker side="ask" />}
-              {asks.map((l, i) => (
-                <Bar key={`a${i}`} level={l} maxSize={maxSize} side="ask" hit={hit(l, "ask")} />
-              ))}
-            </div>
-          </div>
+          <>
+            {pv && (
+              <div className={`dbx-range-box ${pv.side}`} style={{ left: `${boxLeft}%`, width: `${boxW}%` }}>
+                <span className="dbx-range-box-label">{boxLabel}</span>
+              </div>
+            )}
+            <div className="dbx-mid-line" style={{ left: `${x(mid)}%` }} />
+            {bids.map((l, i) => (
+              <Bar key={`b${i}`} level={l} x={x(l.probability)} w={barW} h={(l.size / maxSize) * 100} side="bid" />
+            ))}
+            {asks.map((l, i) => (
+              <Bar key={`a${i}`} level={l} x={x(l.probability)} w={barW} h={(l.size / maxSize) * 100} side="ask" />
+            ))}
+          </>
         )}
+      </div>
+
+      <div className="dbx-depth-axis2 num">
+        <span>{fmtCents(pMin, 0)}</span>
+        <span className="dbx-axis-mid">{fmtCents(mid)}</span>
+        <span>{fmtCents(pMax, 0)}</span>
       </div>
 
       {pv ? (
@@ -110,40 +115,27 @@ export function DepthBars({
             <>
               <span className="dbx-order-tag">Range {pv.side}</span>
               <span className="num">
-                {pv.shares.toFixed(1)} sh across{" "}
-                <strong>
-                  {fmtCents(Math.min(pv.fromProb, pv.toProb), 0)}–{fmtCents(Math.max(pv.fromProb, pv.toProb), 0)}
-                </strong>{" "}
-                · {pv.side === "buy" ? `escrow ${fmtUsdShort(pv.cost)}` : `provide ${pv.shares.toFixed(1)} sh`}
+                {pv.shares.toFixed(1)} sh across <strong>{fmtCents(lo, 0)}–{fmtCents(hi, 0)}</strong> ·{" "}
+                {pv.side === "buy" ? `escrow ${fmtUsdShort(pv.cost)}` : `provide ${pv.shares.toFixed(1)} sh`}
               </span>
             </>
           )}
         </div>
       ) : (
-        <div className="dbx-depth-axis num">
-          <span>{bids.length ? fmtCents(bids[0].probability, 0) : "—"}</span>
-          <span className="dim">resting liquidity · type an order to preview where it lands</span>
-          <span>{asks.length ? fmtCents(asks[asks.length - 1].probability, 0) : "—"}</span>
-        </div>
+        <div className="dbx-depth-hint dim">resting liquidity · type an order to see where it lands</div>
       )}
     </section>
   );
 }
 
-function Bar({ level, maxSize, side, hit }: { level: PredictionLevel; maxSize: number; side: "bid" | "ask"; hit: boolean }) {
-  const h = Math.max(4, (level.size / maxSize) * 100);
+function Bar({ level, x, w, h, side }: { level: PredictionLevel; x: number; w: number; h: number; side: "bid" | "ask" }) {
   return (
     <div
-      className={`dbx-depth-col ${side} ${hit ? "hit" : ""}`}
+      className={`dbx-bar2 ${side}`}
       title={`${fmtCents(level.probability, 1)} · ${level.size.toLocaleString("en-US", { maximumFractionDigits: 1 })} sh`}
-    >
-      <div className="dbx-depth-bar" style={{ height: `${h}%` }} />
-    </div>
+      style={{ left: `${x - w / 2}%`, width: `${w}%`, height: `${Math.max(3, h)}%` }}
+    />
   );
-}
-
-function Marker({ side }: { side: "bid" | "ask" }) {
-  return <div className={`dbx-depth-marker ${side}`} title="your limit order rests here" />;
 }
 
 function fmtUsdShort(n: number): string {
