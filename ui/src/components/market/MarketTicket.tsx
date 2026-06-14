@@ -230,10 +230,12 @@ export function MarketTicket({
     if (mode === "limit") {
       setLimitCentsStr(String(side === "buy" ? Math.max(1, m - 1) : Math.min(99, m + 1)));
     } else {
+      // band just below/above the touch — a concentrated LP position you can then
+      // drag wider on the ladder; kept near the touch so it doesn't blow out the axis
       if (side === "buy") {
-        setBand({ lo: String(Math.max(1, m - 6)), hi: String(Math.max(2, m - 1)) });
+        setBand({ lo: String(Math.max(1, m - 4)), hi: String(Math.max(2, m - 1)) });
       } else {
-        setBand({ lo: String(Math.min(98, m + 1)), hi: String(Math.min(99, m + 6)) });
+        setBand({ lo: String(Math.min(98, m + 1)), hi: String(Math.min(99, m + 4)) });
       }
     }
     setAmountStr((a) => a || "100");

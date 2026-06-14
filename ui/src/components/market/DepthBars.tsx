@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { fmtCents, fmtPct, type Outcome, type OrderPreview, type PredictionBook, type PredictionLevel } from "../../lib/prediction";
 
 /**
@@ -31,14 +31,26 @@ export function DepthBars({
   const mid = book.prob ?? 0.5;
   const pv = preview && preview.outcome === outcome ? preview : null;
 
+  // ── drag the range box ──────────────────────────────────────────────
+  const [dragging, setDragging] = useState(false);
+  const plotRef = useRef<HTMLDivElement>(null);
+  const axisRef = useRef({ pMin: 0, half: 1 });
+  const frozen = useRef<{ pMin: number; half: number } | null>(null);
+  const drag = useRef<null | { part: "lo" | "hi" | "move"; startLo: number; startHi: number; grab: number }>(null);
+
+  // The price axis normally fits the bars (and the preview box, so you see where a
+  // far order lands). But while you DRAG the box we freeze the axis — otherwise the
+  // box would chase a rescaling axis and the drag would feel elastic and jumpy.
   const spans = [
     ...all.map((l) => Math.abs(l.probability - mid)),
     ...(pv ? [Math.abs(pv.fromProb - mid), Math.abs(pv.toProb - mid)] : []),
   ];
-  const half = Math.max(0.006, ...spans) * 1.14;
-  const pMin = mid - half;
-  const pMax = mid + half;
+  const liveHalf = Math.max(0.006, ...spans) * 1.16;
+  const half = dragging && frozen.current ? frozen.current.half : liveHalf;
+  const pMin = dragging && frozen.current ? frozen.current.pMin : mid - half;
+  const pMax = pMin + 2 * half;
   const x = (p: number) => Math.max(0, Math.min(100, ((p - pMin) / (2 * half)) * 100));
+  axisRef.current = { pMin, half };
   const maxSize = Math.max(1, ...all.map((l) => l.size));
   const barW = Math.max(1.6, Math.min(4.5, 64 / Math.max(8, all.length)));
 
@@ -48,12 +60,6 @@ export function DepthBars({
   const boxW = pv ? Math.max(1.2, x(hi) - boxLeft) : 0;
   const boxLabel = pv?.mode === "range" ? "your range" : pv?.mode === "limit" ? "your limit" : "fills here";
   const draggable = !!(pv && pv.mode === "range" && onDragRange);
-
-  // ── drag the range box ──────────────────────────────────────────────
-  const plotRef = useRef<HTMLDivElement>(null);
-  const axisRef = useRef({ pMin, half });
-  axisRef.current = { pMin, half };
-  const drag = useRef<null | { part: "lo" | "hi" | "move"; startLo: number; startHi: number; grab: number }>(null);
 
   const priceAt = (clientX: number) => {
     const r = plotRef.current?.getBoundingClientRect();
@@ -68,6 +74,12 @@ export function DepthBars({
     const rel = r.width ? (e.clientX - r.left) / r.width : 0.5;
     const part = rel < 0.28 ? "lo" : rel > 0.72 ? "hi" : "move";
     e.currentTarget.setPointerCapture(e.pointerId);
+    // freeze a roomy axis (centred on mid) for the whole gesture so the mapping is
+    // stable and the box has space to be dragged outward without the axis rescaling
+    const fHalf = liveHalf * 1.3;
+    frozen.current = { pMin: mid - fHalf, half: fHalf };
+    axisRef.current = frozen.current;
+    setDragging(true);
     drag.current = { part, startLo: lo, startHi: hi, grab: priceAt(e.clientX) };
   };
   const onMove = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -89,6 +101,8 @@ export function DepthBars({
   };
   const onUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     drag.current = null;
+    setDragging(false);
+    frozen.current = null; // re-fit the axis to the bars + final box
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
