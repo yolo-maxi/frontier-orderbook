@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {GeometricFrontierBook} from "../src/GeometricFrontierBook.sol";
 import {FrontierLens} from "../src/periphery/FrontierLens.sol";
 import {newBookWithFees, newGeoBookWithFees} from "./utils/BookFab.sol";
@@ -31,7 +31,7 @@ contract MakerTakerFeesFuzzTest is Test {
         vm.stopPrank();
     }
 
-    function _newLinear(uint16 makerFeeBps, uint16 takerFeeBps) internal returns (RollingFrontierBook book) {
+    function _newLinear(uint16 makerFeeBps, uint16 takerFeeBps) internal returns (UniformFrontierBook book) {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
         book = newBookWithFees(
@@ -76,7 +76,7 @@ contract MakerTakerFeesFuzzTest is Test {
         takerFeeBps = uint16(bound(takerFeeBps, 0, 1_000));
         uint128 size = uint128(bound(rawSize, 1e6, 1e24));
         int24 width = int24(uint24(bound(rawWidth, 1, 20)));
-        RollingFrontierBook book = _newLinear(makerFeeBps, takerFeeBps);
+        UniformFrontierBook book = _newLinear(makerFeeBps, takerFeeBps);
 
         vm.prank(maker);
         uint256 id = book.deposit(101, 101 + width, size);
@@ -104,7 +104,7 @@ contract MakerTakerFeesFuzzTest is Test {
         takerFeeBps = uint16(bound(takerFeeBps, 0, 1_000));
         uint128 size = uint128(bound(rawSize, 1e6, 1e24));
         int24 width = int24(uint24(bound(rawWidth, 1, 20)));
-        RollingFrontierBook book = _newLinear(makerFeeBps, takerFeeBps);
+        UniformFrontierBook book = _newLinear(makerFeeBps, takerFeeBps);
         int24 lower = 100 - width;
 
         vm.prank(maker);

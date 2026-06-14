@@ -3,11 +3,10 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
-import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {FrontierHookFlags} from "../src/hooks/IFrontierHooks.sol";
 import {GatedVolumeHook} from "../src/hooks/examples/ExampleHooks.sol";
-import {newFactory} from "./utils/BookFab.sol";
+import {newBook} from "./utils/BookFab.sol";
 
 /// @notice v4-style hooks: permissions live in the hook contract's ADDRESS
 /// low bits; callbacks must return their selector; flagless addresses are
@@ -15,9 +14,8 @@ import {newFactory} from "./utils/BookFab.sol";
 contract HooksTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
-    FrontierBookFactory internal factory;
     GatedVolumeHook internal hook;
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
 
     address internal mm;
     address internal taker;
@@ -29,7 +27,6 @@ contract HooksTest is Test {
         taker = makeAddr("taker");
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        factory = newFactory(address(0));
 
         // deploy the hook at an address with its permission flags encoded
         uint160 flags = FrontierHookFlags.BEFORE_DEPOSIT_FLAG | FrontierHookFlags.AFTER_SWEEP_FLAG;
@@ -37,7 +34,7 @@ contract HooksTest is Test {
         deployCodeTo("ExampleHooks.sol:GatedVolumeHook", abi.encode(address(this)), hookAddr);
         hook = GatedVolumeHook(hookAddr);
 
-        book = RollingFrontierBook(factory.createBookWithHooks(address(t0), address(t1), 1, 0, hookAddr));
+        book = newBook(address(t0), address(t1), 1, 0, hookAddr, address(0));
 
         t0.mint(mm, 1e30);
         vm.prank(mm);
@@ -83,7 +80,7 @@ contract HooksTest is Test {
     }
 
     function testHooklessBookUntouched() public {
-        RollingFrontierBook plain = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 0));
+        UniformFrontierBook plain = newBook(address(t0), address(t1), 1, 0, address(0), address(0));
         vm.prank(mm);
         t0.approve(address(plain), type(uint256).max);
         vm.prank(mm);

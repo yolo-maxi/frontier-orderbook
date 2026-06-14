@@ -1,5 +1,11 @@
 # Range Take-Profit Order Book — Prototype
 
+> Note: the rolling/linear/shaped-ladder book described in parts of this
+> document was the original prototype and is now archived on the
+> `archive/rolling-frontier-book` branch. The shipped product is the
+> geometric/uniform path: `GeometricFrontierBook` (extends
+> `UniformFrontierBook`) created through `FrontierGeoBookFactory`.
+
 Working prototype for the requirements package in the parent folder
 (`../requirements.md`, `../invariants.md`, `../test-plan.md`,
 `../accounting-scenarios.md`): one-way range take-profit sell orders with
@@ -41,7 +47,7 @@ trade-off).
 ## Layout
 
 - `src/RangeTakeProfitBook.sol` — standalone production candidate (fill-clock design)
-- `src/RollingFrontierBook.sol` — width-O(1) candidate (frontier deltas + witness claims)
+- `src/UniformFrontierBook.sol` — width-O(1) core book (frontier deltas + witness claims, uniform ask ladders); `src/GeometricFrontierBook.sol` extends it with the `1.0001^tick` curve (the shipped product). The original rolling/linear/shaped book is archived on `archive/rolling-frontier-book`
 - `src/RangeTakeProfitHook.sol` — the same mechanism as a real Uniswap v4 hook (+ `MarketSwapper`)
 - `src/ReferenceBook.sol` — eager O(users) correctness oracle
 - `src/IRangeOrderBook.sol` — shared interface that makes the three cross-testable
@@ -66,8 +72,9 @@ FORK=true forge test --match-contract ForkBaseHookTest -vv   # Base mainnet fork
 
 User-facing ticks stay THIN — full price precision — while settlement work
 is compressed. Mechanism in three sentences: between two order endpoints,
-the active liquidity ladder is a straight line (constant per level, or
-linear for shaped orders), so a taker sweep settles the whole run with one
+the active liquidity ladder is a straight line (constant per level on the
+shipped uniform book; the archived prototype also supported linear shaped
+orders), so a taker sweep settles the whole run with one
 closed-form sum instead of one state transition per tick. The sweep only
 touches points where the book's composition actually changes (order
 endpoints, found via bitmap), and writes survivors once at the end.
@@ -105,6 +112,8 @@ down-sweeps are not yet telescoped.
 
 Nonzero-fee pools for the v4 hook (needs a small per-fill record),
 multi-pool hook instances, keeper/batch claiming (spec Q8, one-line change),
-shaped bids (asks have shapes; the bid mirror is mechanical), sub-tick
-partial fills (designed and parked — `NOTES-partial-fills.md`). See the gaps
-sections in `IMPLEMENTATION.md` and `TESTING.md`.
+sub-tick partial fills (designed and parked — `NOTES-partial-fills.md`). The
+shipped book uses uniform ask ladders only — approximate a sloped profile
+with a few uniform ladders; the shaped-ladder surface is archived on
+`archive/rolling-frontier-book`. See the gaps sections in
+`IMPLEMENTATION.md` and `TESTING.md`.

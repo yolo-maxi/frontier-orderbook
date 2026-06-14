@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {newBook} from "./utils/BookFab.sol";
 
 /// @notice Fills the measurement gaps for the comprehensive gas comparison:
@@ -11,7 +11,7 @@ import {newBook} from "./utils/BookFab.sol";
 contract GasMatrixTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
 
     address internal mm;
     address internal taker;
@@ -110,17 +110,6 @@ contract GasMatrixTest is Test {
         console2.log("up-sweep 20 flat ask levels:", flat20, "per level:", flat20 / 20);
         assertEq(got0, 20 * uint256(L), "swept all 20 levels");
         assertGt(paid1, 0, "real token1 paid");
-
-        // 20 shaped ask levels
-        _fresh(0);
-        vm.prank(mm);
-        book.depositShaped(1, 21, 20 * L, -int128(L));
-        vm.prank(taker);
-        g = gasleft();
-        (, paid1, got0) = book.sweepWithLimits(21, type(uint256).max, type(uint256).max, 0, block.timestamp);
-        uint256 shaped20 = g - gasleft();
-        console2.log("up-sweep 20 shaped ask levels:", shaped20, "per level:", shaped20 / 20);
-        assertEq(got0, 210 * uint256(L), "swept the whole 20+19+..+1 ladder");
 
         // 20 bid levels
         _fresh(100);

@@ -20,8 +20,11 @@ Caddyfile backed up (.bak.clob-full-*).
   (PermissionRegistry selector grants — the fast path never holds custody);
   fills force the owner-key settle path. `clob-taker-bot` sends randomized
   market orders through the FrontierRouter to generate flow.
-- Deploy/redeploy: `./deploy-devnet.sh` (forge create + cast; forge script
-  refuses to broadcast because the factory exceeds EIP-170 — see below).
+- Deploy/redeploy: `FOUNDRY_PROFILE=deploy forge script
+  script/DeployFrontier.s.sol:DeployFrontier --rpc-url <RPC> --broadcast`
+  (the geometric book is under EIP-170, so forge script broadcasts directly
+  — see below). The old `deploy-devnet.sh` linear path is archived on
+  `archive/rolling-frontier-book`.
 
 ## Base Sepolia (ready, needs a funded key)
 
@@ -29,17 +32,20 @@ No funded testnet key exists on this machine (checked all .envs; faucets
 are login-gated). Once any key holds ~0.05 Base Sepolia ETH:
 
     cd prototype
-    RPC=https://sepolia.base.org DEPLOYER_KEY=0x... ./deploy-devnet.sh
+    RPC_URL=https://sepolia.base.org DEPLOYER_KEY=0x... \
+      TOKEN0=0x... TOKEN1=0x... TICK_SPACING=60 START_TICK=0 \
+      FOUNDRY_PROFILE=deploy forge script \
+      script/DeployFrontier.s.sol:DeployFrontier --rpc-url "$RPC_URL" --broadcast
 
-KNOWN BLOCKER for real chains: `RollingFrontierBook` runtime code is
-~24-44KB at current optimizer settings — above EIP-170. Production
-hardening options (not yet done): split the book into core + external
-libraries, lower optimizer runs for deploy profile, or factory-via-
-CREATE2-pointer. The devnet runs with the size limit disabled.
+EIP-170 status: the deployed `GeometricFrontierBook` runtime is ~21.7KB,
+under the EIP-170 24,576-byte limit (~2.8KB headroom), built with
+`FOUNDRY_PROFILE=deploy`. The production deploy path is
+`script/DeployFrontier.s.sol` (geometric); it broadcasts on real chains
+without disabling the size limit.
 
 ## Demo price model
 
-Both demo tokens are 18 decimals; the book's linear rate curve maps
-price = 1 + 0.001 x tick USDC/WETH, so $4,000 = tick 3,999,000 and one
-tick = $0.001 (ultra-thin: ±0.1% = ±4,000 ticks — showcasing that
-endpoint-telescoped sweeps make tick fineness free for takers).
+The old linear demo path (`DeployDemo.s.sol`, `deploy-devnet.sh`) has been
+removed; the demo/linear book is archived on `archive/rolling-frontier-book`.
+The current deploy path is `DeployFrontier.s.sol` (geometric), which prices
+levels on the `1.0001^tick` curve.

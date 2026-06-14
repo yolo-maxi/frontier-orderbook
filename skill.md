@@ -15,9 +15,10 @@ Canonical deploy path:
 - Use explicit deployed `book`, `router`, `lens`, `factory`, and `registry` addresses in agents.
 - Use immutable per-book maker/taker fees. Zero fees are supported; nonzero fees require a fee recipient.
 
+Create all geometric markets — production and tests alike — through `FrontierGeoBookFactory`.
+
 Do not use these for production market creation unless you are deliberately testing:
 
-- `FrontierBookFactory` linear-curve market creation, unless this is explicitly a test/experiment.
 - Mock-token demo deployment scripts.
 - Hook-enabled books without a dedicated audit.
 - Singleton/global-credit prototype branches.
@@ -34,7 +35,6 @@ Frontier is a range-order book.
 - Ticks must be aligned to `tickSpacing`.
 - The geometric book prices levels using the `1.0001^tick` curve.
 - Claims settle filled proceeds; cancels settle filled proceeds plus unfilled inventory/refunds.
-- Internal balances are per-book credits that can be recycled into new orders or withdrawn.
 
 ## Contract roles
 
@@ -126,17 +126,6 @@ Why this is good:
 - Preserves zero-fee behavior.
 - Useful for early liquidity bootstrapping or internal testing.
 
-### Negative example: creating a linear market for a real deployment
-
-```solidity
-address book = factory.createBook(TOKEN0, TOKEN1, 1, 100);
-```
-
-Why this is bad for real markets:
-
-- The linear curve exists for testing and simple reasoning.
-- Real deploys should use the geometric price curve.
-
 ### Negative example: relying on default book lookup when multiple books may exist
 
 ```solidity
@@ -188,23 +177,6 @@ Why this is good:
 - Approval is for the input asset: `token0`.
 - The agent stores `positionId` for future claim/cancel/requote.
 
-### Ask maker shaped order
-
-Use shaped asks for a ladder whose level size changes linearly.
-
-```solidity
-uint256 positionId = book.depositShaped({
-    lower: lower,
-    upper: upper,
-    liquidity: 1 ether,
-    slope: int128(uint128(0.05 ether))
-});
-```
-
-Positive slope increases size per level. Negative slope decreases size per level.
-
-Only use shaped orders when every level remains positive.
-
 ### Bid maker flow: buy token0 below or at current price
 
 Use bids when the maker wants to buy `token0` as price moves down.
@@ -241,24 +213,6 @@ uint256 netToken0 = book.claimBid(positionId);
 ```
 
 With maker fees, claim functions return net proceeds after maker fee. `claimable(...)` and `bidClaimable(...)` also return net amounts.
-
-### Maker internal-credit flow
-
-Use this for active market makers that want to recycle inventory instead of withdrawing every fill.
-
-```solidity
-book.claimInternal(askPositionId);       // credits token1 internally
-book.recycleAskIntoBid(askPositionId, lower, upper, liquidity);
-
-book.claimBidInternal(bidPositionId);    // credits token0 internally
-book.recycleBidIntoAsk(bidPositionId, lower, upper, liquidity, slope);
-```
-
-Why this is good:
-
-- Avoids wallet round trips.
-- Reuses per-book credits.
-- Reduces approval/transfer friction for repeat makers.
 
 ### Maker cancel flow
 
@@ -297,19 +251,6 @@ Why this is bad:
 
 - The returned `positionId` is required for claim, cancel, transfer, and requote.
 - Agents must persist it together with owner, book, side, range, and strategy metadata.
-
-### Negative maker example: assuming internal credits are global
-
-```solidity
-bookA.claimInternal(positionId);
-bookB.depositBid(lower, upper, liquidity);
-```
-
-Why this is bad:
-
-- Internal balances are per book.
-- Credits from `bookA` cannot be spent directly in `bookB`.
-- Withdraw from `bookA` and approve/deposit into `bookB`, or use future global-credit infrastructure when it exists.
 
 ## Taker guide
 
@@ -506,7 +447,7 @@ Run this before telling agents or users the market is live:
 High confidence:
 
 - Geometric book creation through factory.
-- Maker ask/bid placement, claim, cancel, internal claim, and recycle paths.
+- Maker ask/bid placement, claim, and cancel paths.
 - Router exact-input buy/sell with lens quotes.
 - Zero-fee behavior.
 - Simple immutable maker/taker fee behavior after the fee-fuzz branch.

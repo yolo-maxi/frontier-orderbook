@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {RollingFrontierBook} from "../RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../UniformFrontierBook.sol";
 import {IERC20Minimal} from "../RangeTakeProfitBook.sol";
 
 /// @title RangeLP — Uniswap-style passive liquidity ON the orderbook.
@@ -14,7 +14,7 @@ import {IERC20Minimal} from "../RangeTakeProfitBook.sol";
 /// AMM rebalancing — see EXPERIMENTS.md for what this does and doesn't
 /// replicate). Coexists with ordinary limit orders on the same book.
 contract RangeLP {
-    RollingFrontierBook public immutable book;
+    UniformFrontierBook public immutable book;
     address public immutable owner;
     IERC20Minimal public immutable token0;
     IERC20Minimal public immutable token1;
@@ -40,7 +40,7 @@ contract RangeLP {
         _;
     }
 
-    constructor(RollingFrontierBook _book, address _owner) {
+    constructor(UniformFrontierBook _book, address _owner) {
         book = _book;
         owner = _owner;
         token0 = _book.token0();
@@ -130,7 +130,7 @@ contract RangeLP {
             uint256 cost;
             while (n < levelsPerSide) {
                 int24 lvl = upper - int24(n + 1) * s;
-                uint256 levelCost = (uint256(sizePerLevel) * _rate(lvl) + 1e18 - 1) / 1e18;
+                uint256 levelCost = (uint256(sizePerLevel) * book.rateAt(lvl) + 1e18 - 1) / 1e18;
                 if (cost + levelCost > budget) break;
                 cost += levelCost;
                 n++;
@@ -139,12 +139,6 @@ contract RangeLP {
                 bidId = book.depositBid(upper - int24(n) * s, upper, sizePerLevel);
             }
         }
-    }
-
-    function _rate(int24 t) internal pure returns (uint256) {
-        int256 r = int256(1e18) + int256(t) * 1e15;
-        require(r > 0, "rate underflow");
-        return uint256(r);
     }
 
     function _alignUp(int24 x, int24 s) internal pure returns (int24) {
@@ -170,7 +164,7 @@ contract RangeLPFactory {
 
     mapping(address => address[]) public vaultsOf;
 
-    function createVault(RollingFrontierBook book) external returns (address vault) {
+    function createVault(UniformFrontierBook book) external returns (address vault) {
         vault = address(new RangeLP(book, msg.sender));
         vaultsOf[msg.sender].push(vault);
         emit VaultCreated(vault, msg.sender, address(book));

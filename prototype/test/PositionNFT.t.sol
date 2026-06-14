@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {FrontierPositionNFT} from "../src/periphery/FrontierPositionNFT.sol";
 import {PermissionRegistry} from "../src/permissions/PermissionRegistry.sol";
 import {newBook} from "./utils/BookFab.sol";
@@ -14,7 +14,7 @@ contract PositionNFTTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
     PermissionRegistry internal registry;
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
     FrontierPositionNFT internal nft;
 
     address internal alice = makeAddr("alice");
@@ -45,7 +45,7 @@ contract PositionNFTTest is Test {
 
     function testMintClaimFollowsHolder() public {
         vm.prank(alice);
-        uint256 tokenId = nft.mintAsk(1, 101, L, 0);
+        uint256 tokenId = nft.mintAsk(1, 101, L);
         assertEq(nft.ownerOf(tokenId), alice);
 
         vm.prank(taker);
@@ -68,7 +68,7 @@ contract PositionNFTTest is Test {
 
     function testCancelPaysHolderBothLegs() public {
         vm.prank(alice);
-        uint256 tokenId = nft.mintAsk(1, 101, L, 0);
+        uint256 tokenId = nft.mintAsk(1, 101, L);
 
         vm.prank(taker);
         book.moveTickTo(51);

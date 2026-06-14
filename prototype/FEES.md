@@ -23,7 +23,7 @@ The book emits:
 
 The fee config is immutable on both the book and its matching maker-ops companion. This is required because cancels run through `delegatecall` and the companion reads its own immutables.
 
-Deploy-day geometric markets use `FrontierGeoBookFactory.createGeoBookWithFees(...)` or `createGeoBook(...)`. The broader `FrontierBookFactory` still supports linear/geometric and hook-aware variants for tests and experiments. Both factories memoize maker-ops companions by immutable config so companion immutables match the book.
+Geometric markets — production and tests alike — use `FrontierGeoBookFactory.createGeoBookWithFees(...)` or `createGeoBook(...)`. The factory memoizes maker-ops companions by immutable config so companion immutables match the book.
 
 ## Referrer Codes
 

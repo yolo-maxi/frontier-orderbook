@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ScenarioSuite} from "./Scenarios.t.sol";
 import {IRangeOrderBook} from "../src/IRangeOrderBook.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {newBook} from "./utils/BookFab.sol";
 
 /// @notice The full spec scenario suite against the rolling-frontier book
@@ -18,8 +18,8 @@ contract FrontierScenariosTest is ScenarioSuite {
         return IRangeOrderBook(address(newBook(token0, token1_, spacing_, startTick, address(0), address(0))));
     }
 
-    function _frontierBook() internal view returns (RollingFrontierBook) {
-        return RollingFrontierBook(address(book));
+    function _frontierBook() internal view returns (UniformFrontierBook) {
+        return UniformFrontierBook(address(book));
     }
 
     // ------------------------------------------------------------------

@@ -3,20 +3,24 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
-import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
+import {GeometricFrontierBook} from "../src/GeometricFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
+import {FrontierBookBase} from "../src/FrontierBookBase.sol";
+import {FrontierGeoBookFactory} from "../src/FrontierGeoBookFactory.sol";
 import {FrontierRouter} from "../src/periphery/FrontierRouter.sol";
 import {FrontierLens} from "../src/periphery/FrontierLens.sol";
+import {newBook, newFactory} from "./utils/BookFab.sol";
 
 /// @notice Periphery: aggregator-shaped router (v2-style path swaps with
-/// exact-in semantics + refunds) and the lens (depth + to-the-wei quotes).
+/// exact-in semantics + refunds) and the lens (depth + to-the-wei quotes),
+/// driven against the production geometric book.
 contract PeripheryTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
-    FrontierBookFactory internal factory;
+    FrontierGeoBookFactory internal factory;
     FrontierRouter internal router;
     FrontierLens internal lens;
-    RollingFrontierBook internal book;
+    GeometricFrontierBook internal book;
 
     address internal mm;
     address internal trader;
@@ -31,7 +35,7 @@ contract PeripheryTest is Test {
         factory = newFactory(address(0));
         lens = new FrontierLens();
         router = new FrontierRouter(address(factory), lens);
-        book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 100));
+        book = GeometricFrontierBook(factory.createGeoBook(address(t0), address(t1), 1, 100));
 
         t0.mint(mm, 1e30);
         t1.mint(mm, 1e30);
@@ -49,10 +53,6 @@ contract PeripheryTest is Test {
         t0.approve(address(router), type(uint256).max);
         t1.approve(address(router), type(uint256).max);
         vm.stopPrank();
-    }
-
-    function rate(int24 t) internal pure returns (uint256) {
-        return uint256(int256(1e18) + int256(t) * 1e15);
     }
 
     function testV2StyleBuyMatchesLensQuote() public {
@@ -118,12 +118,11 @@ contract PeripheryTest is Test {
 }
 
 import {FrontierMakerKit} from "../src/periphery/FrontierMakerKit.sol";
-import {newFactory} from "./utils/BookFab.sol";
 
 contract MakerKitTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
     FrontierMakerKit internal kit;
     address internal mm;
 
@@ -131,8 +130,7 @@ contract MakerKitTest is Test {
         mm = makeAddr("mm");
         t0 = new MockERC20("WETH", "WETH");
         t1 = new MockERC20("USDC", "USDC");
-        FrontierBookFactory factory = newFactory(address(0));
-        book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 100));
+        book = newBook(address(t0), address(t1), 1, 100, address(0), address(0));
         kit = new FrontierMakerKit();
         t0.mint(mm, 1e30);
         t1.mint(mm, 1e30);
@@ -143,16 +141,17 @@ contract MakerKitTest is Test {
     }
 
     function testPlaceWholeCurveInOneTx() public {
-        // a 3-segment quoting curve: front-loaded asks, flat far asks, bids
+        // a 3-segment quoting curve out of uniform ladders: near asks, far
+        // asks, bids
         FrontierMakerKit.Segment[] memory segs = new FrontierMakerKit.Segment[](3);
-        segs[0] = FrontierMakerKit.Segment(101, 111, 10e18, -1e18, false); // 10..1 decaying
-        segs[1] = FrontierMakerKit.Segment(111, 121, 1e18, 0, false); // flat tail
-        segs[2] = FrontierMakerKit.Segment(90, 100, 2e18, 0, true); // bids
+        segs[0] = FrontierMakerKit.Segment(101, 111, 10e18, false); // near asks
+        segs[1] = FrontierMakerKit.Segment(111, 121, 1e18, false); // flat tail
+        segs[2] = FrontierMakerKit.Segment(90, 100, 2e18, true); // bids
 
         vm.prank(mm);
         uint256[] memory ids = kit.placeCurve(book, segs);
 
-        assertEq(book.activeLiquidity(101), 10e18, "shaped segment live");
+        assertEq(book.activeLiquidity(101), 10e18, "near segment live");
         assertEq(book.activeLiquidity(111), 1e18, "flat segment live");
         assertEq(book.bidLiquidity(95), 2e18, "bid segment live");
         // positions belong to the CALLER, not the kit
@@ -181,10 +180,8 @@ contract MakerKitTest is Test {
     }
 }
 
-import {GeometricFrontierBook} from "../src/GeometricFrontierBook.sol";
-
-/// @notice Same periphery, production curve: the lens detects geoD() and
-/// quotes geometric books with the book's exact telescoped rounding.
+/// @notice Same periphery, exercising the lens's curve detection and the
+/// production telescoped rounding end to end.
 contract GeoPeripheryTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
@@ -202,7 +199,7 @@ contract GeoPeripheryTest is Test {
         trader = makeAddr("trader");
         t0 = new MockERC20("WETH", "WETH");
         t1 = new MockERC20("USDC", "USDC");
-        FrontierBookFactory factory = newFactory(address(0));
+        FrontierGeoBookFactory factory = newFactory(address(0));
         lens = new FrontierLens();
         router = new FrontierRouter(address(factory), lens);
         book = GeometricFrontierBook(factory.createGeoBook(address(t0), address(t1), 1, 100));
@@ -225,18 +222,18 @@ contract GeoPeripheryTest is Test {
     }
 
     function testGeoCurveDetected() public {
-        FrontierLens.Curve memory c = lens.curveOf(RollingFrontierBook(address(book)));
+        FrontierLens.Curve memory c = lens.curveOf(book);
         assertTrue(c.geo, "geometric book detected");
         assertEq(c.d, book.geoD(), "denominator read");
         FrontierLens.Curve memory lin =
-            lens.curveOf(RollingFrontierBook(address(new FrontierLens()))); // any non-book: no geoD
+            lens.curveOf(FrontierBookBase(address(new FrontierLens()))); // any non-book: no geoD
         assertTrue(!lin.geo, "non-geo contract is linear-classed");
     }
 
     function testGeoBuyMatchesLensQuote() public {
         // 3.7 * L: lands mid-run, forcing the budget subdivision + ceil path
         uint256 amountIn = 37 * uint256(L) / 10;
-        (uint256 q0, uint256 q1,) = lens.quoteBuy(RollingFrontierBook(address(book)), amountIn);
+        (uint256 q0, uint256 q1,) = lens.quoteBuy(book, amountIn);
         assertGt(q0, 0, "quote fills something");
 
         address[] memory path = new address[](2);
@@ -251,14 +248,14 @@ contract GeoPeripheryTest is Test {
 
     function testGeoBuyExhaustsBookWithRefund() public {
         uint256 amountIn = 20 * uint256(L); // all 10 asks cost ~10.6 L
-        (uint256 q0, uint256 q1,) = lens.quoteBuy(RollingFrontierBook(address(book)), amountIn);
+        (uint256 q0, uint256 q1,) = lens.quoteBuy(book, amountIn);
         assertEq(q0, 10 * uint256(L), "all asks consumed");
         assertLt(q1, amountIn, "partial spend quoted");
 
         uint256 bal1 = t1.balanceOf(trader);
         vm.prank(trader);
         (uint256 paid, uint256 received) =
-            router.buyExactIn(RollingFrontierBook(address(book)), amountIn, q0, trader, block.timestamp);
+            router.buyExactIn(book, amountIn, q0, trader, block.timestamp);
         assertEq(received, q0, "received == quote");
         assertEq(paid, q1, "paid == quote");
         assertEq(bal1 - t1.balanceOf(trader), q1, "unspent refunded");
@@ -267,7 +264,7 @@ contract GeoPeripheryTest is Test {
     function testGeoSellMatchesLensQuote() public {
         // 4.5 * L: partial bid run, exercising the one-division subdivision
         uint256 amountIn = 45 * uint256(L) / 10;
-        (uint256 q1, uint256 q0,) = lens.quoteSell(RollingFrontierBook(address(book)), amountIn, 100);
+        (uint256 q1, uint256 q0,) = lens.quoteSell(book, amountIn, 100);
         assertGt(q1, 0, "quote fills something");
 
         address[] memory path = new address[](2);

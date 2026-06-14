@@ -12,8 +12,10 @@ Four independent implementations of one interface, cross-checked:
 2. **RangeTakeProfitBook** — the lazy fill-clock design.
 3. **RangeTakeProfitHook** — the same design on a real v4 PoolManager with
    real tick math.
-4. **RollingFrontierBook** — the width-O(1) frontier-delta design with
-   witness-based claims.
+4. **UniformFrontierBook** / **GeometricFrontierBook** — the width-O(1)
+   frontier-delta design with witness-based claims (the shipped book;
+   `GeometricFrontierBook` extends `UniformFrontierBook`). The original
+   rolling/linear/shaped variant is archived on `archive/rolling-frontier-book`.
 
 The spec scenario suite (`ScenarioSuite`) is abstract and runs against ALL
 FOUR via inheritance — so the oracle itself is pinned to the spec, and the
@@ -102,19 +104,6 @@ tested), requote into/below the price reverts, delta conservation holds
 across resizing requotes. A 40-update drifting-market session averages
 71,802 gas per requote.
 
-### `test/FrontierShape.t.sol` — shaped (linear-ladder) orders
-
-Six tests for the second-order-delta shape upgrade: a 10..1 decaying ladder
-deposits the exact triangular principal, shows the right per-level aggregate
-sizes, fills with the taker receiving exactly the shaped sizes, and claims
-match brute-force per-level sums computed in the test; shaped cancel
-returns the exact tail with value AND slope ledgers fully conserved; a
-mixed book (decaying + rising + uniform, overlapping) aggregates and pays
-each maker exactly; shaped deposit (255,316) and requote (151,330) are
-bit-identical at widths 100 and 10,000; re-shaping on requote settles only
-the size difference; the level-size >= 1 floor is enforced (protects the
-bitmap-driven sweep).
-
 ### `test/FrontierTwoSided.t.sol` — bids, two-sided structure, taker limits
 
 Thirteen tests. Bid side (the descending mirror, token0-denominated sizes):
@@ -131,8 +120,10 @@ maxPay in both directions (resumable), reverts on minOut shortfall and
 expired deadlines. Conservation: both delta ledgers sum to zero after full
 settlement, zero stranded token0, wei-dust token1.
 
-### `test/FrontierRecycle.t.sol` — internal-balance recycling
+### `test/FrontierRecycle.t.sol` — internal-balance recycling (archived)
 
+Note: internal-balance recycling was removed from the shipped book; this
+suite and the surface it exercises live on `archive/rolling-frontier-book`.
 Seven tests for the internal ledger: a maker who has NEVER approved token0
 recycles a filled bid's earnings straight into a new ask
 (`recycleBidIntoAsk`) with the wallet untouched — the zero-approval setup
@@ -156,9 +147,10 @@ wei vs brute force; sweep gas independent of tick fineness for one order
 (50 vs 5,000 levels: +43k, all bitmap word-walk — growth asserted
 word-bounded, never per-level); freshness + no-resurrection across
 telescoped sweeps and lifecycles; maxPay parks MID-RUN at the exact
-affordable thin tick via closed-form subdivision and resumes exactly;
-shaped 500-level ladders settle as one quadratic-series run (150,396 gas),
-exact to the wei. The differential fuzz (2,000 runs) passes unchanged —
+affordable thin tick via closed-form subdivision and resumes exactly.
+(The archived shaped book settled 500-level shaped ladders as one
+quadratic-series run, 150,396 gas, exact to the wei.)
+The differential fuzz (2,000 runs) passes unchanged —
 telescoped settlement is outcome-identical to per-level. Sweep budget
 (`maxFills`) now counts endpoint-steps, not levels; adjacent same-size
 single-level orders coalesce into one run automatically.
@@ -220,15 +212,17 @@ per-level (~44k/level); the ask side demonstrates the mechanism.
 ### Corrected headline numbers (isolated, per-transaction)
 
 Frontier book, maker ops: deposit flat 228,913 (1 bitmap word) / 250,825
-(2 words, widths 1k-100k identical); deposit shaped 296,214; deposit bid
+(2 words, widths 1k-100k identical); deposit bid
 228,054 (10 lvls) / 249,978 (10k lvls); requote flat 104,053 (repeats cost
 the same — there is NO warm steady state across transactions); requote
-shaped 189,565; requote bid 116,505; witness-claim 65,956 any width (48,885
+bid 116,505; witness-claim 65,956 any width (48,885
 when the recipient token balance slot is already nonzero); witness-cancel
 85,697-89,537; scan claim/cancel at width 1000: 73,434 / 84,292; canary
-70,756 flat at K=2/40; recycleBidIntoAsk 181,891 vs 251,057 round trip.
+70,756 flat at K=2/40. (The shaped-deposit/requote and internal-recycle
+numbers belonged to the archived rolling/shaped book on
+`archive/rolling-frontier-book`.)
 
-Frontier book, taker: ~46,241/level flat asks, ~61,070/level shaped asks,
+Frontier book, taker: ~46,241/level flat asks,
 ~43,673/level bids (20-level sweeps incl. fixed overhead); empty-gap
 traversal 161,806 over 2,560 ticks / 2,513,068 over 256,000.
 
@@ -257,7 +251,7 @@ Scalability (standalone book, spacing 1; gas is bit-identical, not approximately
 | hook swap gas, 1 vs 25 users behind crossed ticks (real pool) | 180,526 both |
 | swap gas vs crossed intervals 1 / 10 / 50 (allowed by S5) | 81,074 / 312,239 / 1,339,639 |
 
-Rolling-frontier book (width-O(1) — the R9 "desired" property, proven):
+Frontier book (`UniformFrontierBook`/`GeometricFrontierBook`, width-O(1) — the R9 "desired" property, proven):
 
 | Operation | width 10 | width 1,000 | width 100,000 |
 |---|---|---|---|

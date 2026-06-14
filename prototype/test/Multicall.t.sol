@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {newBook} from "./utils/BookFab.sol";
 
 /// @notice Mixed-settlement test: verify claim + cancel + requote compose correctly.
@@ -11,7 +11,7 @@ import {newBook} from "./utils/BookFab.sol";
 contract MulticallTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
 
     address internal mm = makeAddr("mm");
     address internal taker = makeAddr("taker");

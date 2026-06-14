@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {RollingFrontierBook} from "../RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../UniformFrontierBook.sol";
 import {FrontierLens} from "./FrontierLens.sol";
 import {GeoTickMath} from "../curve/GeoTickMath.sol";
 import {IERC20Minimal} from "../RangeTakeProfitBook.sol";
@@ -41,7 +41,7 @@ contract FrontierRouter {
         uint256 deadline
     ) external returns (uint256[] memory amounts) {
         require(path.length == 2, "2-hop paths only");
-        RollingFrontierBook book = _bookFor(path[0], path[1]);
+        UniformFrontierBook book = _bookFor(path[0], path[1]);
         bool buying = path[0] == address(book.token1()); // token1 in -> token0 out
         (uint256 paid, uint256 received) =
             buying ? _buy(book, amountIn, amountOutMin, to, deadline) : _sell(book, amountIn, amountOutMin, to, deadline);
@@ -61,7 +61,7 @@ contract FrontierRouter {
         returns (uint256[] memory amounts)
     {
         require(path.length == 2, "2-hop paths only");
-        RollingFrontierBook book = _bookFor(path[0], path[1]);
+        UniformFrontierBook book = _bookFor(path[0], path[1]);
         bool buying = path[0] == address(book.token1());
         uint256 received;
         uint256 spent;
@@ -77,7 +77,7 @@ contract FrontierRouter {
     // ------------------------------------------------------------------
 
     /// @notice Spend up to `amount1In` token1 buying token0 from the asks.
-    function buyExactIn(RollingFrontierBook book, uint256 amount1In, uint256 minOut0, address to, uint256 deadline)
+    function buyExactIn(UniformFrontierBook book, uint256 amount1In, uint256 minOut0, address to, uint256 deadline)
         public
         returns (uint256 paid1, uint256 received0)
     {
@@ -85,7 +85,7 @@ contract FrontierRouter {
     }
 
     /// @notice Spend up to `amount0In` token0 selling into the bids.
-    function sellExactIn(RollingFrontierBook book, uint256 amount0In, uint256 minOut1, address to, uint256 deadline)
+    function sellExactIn(UniformFrontierBook book, uint256 amount0In, uint256 minOut1, address to, uint256 deadline)
         public
         returns (uint256 paid0, uint256 received1)
     {
@@ -94,7 +94,7 @@ contract FrontierRouter {
 
     // ------------------------------------------------------------------
 
-    function _buy(RollingFrontierBook book, uint256 amountIn, uint256 minOut, address to, uint256 deadline)
+    function _buy(UniformFrontierBook book, uint256 amountIn, uint256 minOut, address to, uint256 deadline)
         internal
         returns (uint256 paid, uint256 received)
     {
@@ -109,7 +109,7 @@ contract FrontierRouter {
         if (paid < amountIn) require(t1.transfer(msg.sender, amountIn - paid), "refund failed");
     }
 
-    function _sell(RollingFrontierBook book, uint256 amountIn, uint256 minOut, address to, uint256 deadline)
+    function _sell(UniformFrontierBook book, uint256 amountIn, uint256 minOut, address to, uint256 deadline)
         internal
         returns (uint256 paid, uint256 received)
     {
@@ -124,11 +124,11 @@ contract FrontierRouter {
         if (paid < amountIn) require(t0.transfer(msg.sender, amountIn - paid), "refund failed");
     }
 
-    function _bookFor(address a, address b) internal view returns (RollingFrontierBook book) {
+    function _bookFor(address a, address b) internal view returns (UniformFrontierBook book) {
         address addr = factory.defaultBook(a, b);
         if (addr == address(0)) addr = factory.defaultBook(b, a);
         require(addr != address(0), "no book for pair");
-        book = RollingFrontierBook(addr);
+        book = UniformFrontierBook(addr);
     }
 
     function _ensureApproved(IERC20Minimal token, address spender) internal {
@@ -145,7 +145,7 @@ contract FrontierRouter {
 
     /// @dev curve-aware sweep window: geometric books live on ±200k ticks
     /// (GeoTickMath domain), the linear demo curve on [-800, 8.388M).
-    function _clampTick(RollingFrontierBook book, int256 t, int24 s) internal view returns (int24) {
+    function _clampTick(UniformFrontierBook book, int256 t, int24 s) internal view returns (int24) {
         FrontierLens.Curve memory c = lens.curveOf(book);
         int256 max;
         int256 min;
