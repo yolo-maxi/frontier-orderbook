@@ -14,10 +14,13 @@ tape. Testnet only — never run against anything holding real value.
    the geometric frontier from the construction tick (200000) into the
    probability band with `moveTickTo`, and rest a 2-sided ladder around the fair
    price on both the YES and NO books.
-3. **Drives takers.** The remaining bots fire randomized `buyExactIn` /
-   `sellExactIn` (YES & NO) plus occasional `split` / `merge`, with a slow random
-   walk so net flow moves the price and the chart breathes. Makers re-center
-   every few seconds.
+3. **Drives takers + arbitrage.** The remaining bots fire randomized `buyExactIn`
+   / `sellExactIn` on each book — **independent price discovery per leg**, each
+   with its own maker fair and spread, so the two are NOT hard-coupled. An
+   arbitrage strategy keeps YES + NO ≈ 100¢ the way real prediction markets do:
+   when the pair trades under 100¢ an arber buys both legs and **merges** the set
+   for risk-free profit; when over 100¢ it **splits** a set and sells both legs.
+   Deviations only persist inside a small no-arb band (~1.5¢).
 
 Price model is the real on-chain one: geometric book, `price = 1.0001^tick`,
 where the price **is** the implied probability (30¢ ⇒ 30%).
