@@ -34,12 +34,16 @@ export function MarketTicket({
   yes,
   no,
   onPreview,
+  band,
+  setBand,
 }: {
   outcome: Outcome;
   onOutcome: (o: Outcome) => void;
   yes: PredictionBook;
   no: PredictionBook;
   onPreview?: (p: OrderPreview | null) => void;
+  band: { lo: string; hi: string };
+  setBand: (b: { lo: string; hi: string }) => void;
 }) {
   const { cfg, client, wallet, addr, balances, sendTx, busy } = useApp();
   const baseDec = baseDecimals(cfg);
@@ -50,8 +54,6 @@ export function MarketTicket({
   const [mode, setMode] = useState<Mode>("market");
   const [amountStr, setAmountStr] = useState("");
   const [limitCentsStr, setLimitCentsStr] = useState("");
-  const [rangeLoStr, setRangeLoStr] = useState("");
-  const [rangeHiStr, setRangeHiStr] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteErr, setQuoteErr] = useState<string | null>(null);
   const [allowance, setAllowance] = useState<bigint | null>(null);
@@ -195,8 +197,8 @@ export function MarketTicket({
 
   // ---- range order: rest liquidity across a [from, to] price band (Frontier's
   // concentrated-liquidity primitive — deposit/depositBid take a tick range).
-  const rangeLo = Number(rangeLoStr);
-  const rangeHi = Number(rangeHiStr);
+  const rangeLo = Number(band.lo);
+  const rangeHi = Number(band.hi);
   const rangePlan = useMemo(() => {
     if (mode !== "range" || amountShares === null || amountShares === 0n) return null;
     const loProb = rangeLo / 100;
@@ -229,11 +231,9 @@ export function MarketTicket({
       setLimitCentsStr(String(side === "buy" ? Math.max(1, m - 1) : Math.min(99, m + 1)));
     } else {
       if (side === "buy") {
-        setRangeLoStr(String(Math.max(1, m - 6)));
-        setRangeHiStr(String(Math.max(2, m - 1)));
+        setBand({ lo: String(Math.max(1, m - 6)), hi: String(Math.max(2, m - 1)) });
       } else {
-        setRangeLoStr(String(Math.min(98, m + 1)));
-        setRangeHiStr(String(Math.min(99, m + 6)));
+        setBand({ lo: String(Math.min(98, m + 1)), hi: String(Math.min(99, m + 6)) });
       }
     }
     setAmountStr((a) => a || "100");
@@ -434,8 +434,8 @@ export function MarketTicket({
                 className="num"
                 inputMode="numeric"
                 placeholder="from"
-                value={rangeLoStr}
-                onChange={(e) => setRangeLoStr(e.target.value.replace(/[^\d]/g, ""))}
+                value={band.lo}
+                onChange={(e) => setBand({ ...band, lo: e.target.value.replace(/[^\d]/g, "") })}
               />
               <span className="suffix">¢</span>
             </div>
@@ -445,8 +445,8 @@ export function MarketTicket({
                 className="num"
                 inputMode="numeric"
                 placeholder="to"
-                value={rangeHiStr}
-                onChange={(e) => setRangeHiStr(e.target.value.replace(/[^\d]/g, ""))}
+                value={band.hi}
+                onChange={(e) => setBand({ ...band, hi: e.target.value.replace(/[^\d]/g, "") })}
               />
               <span className="suffix">¢</span>
             </div>

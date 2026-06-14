@@ -1,12 +1,12 @@
+import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { fmtCents, fmtPct, type Outcome, type OrderPreview, type PredictionBook, type PredictionLevel } from "../../lib/prediction";
 
 /**
- * Liquidity depth view — bars positioned on an explicit price axis (mid centered,
- * bids green left / asks red right, height = resting size). The order you're
- * composing is drawn as a YELLOW BOX over the exact price region it occupies
- * (the band for a range, a thin slot for a limit, the swept span for a market
- * order), sitting under the bars so you can see both — i.e. literally where your
- * liquidity lands, even in empty space.
+ * Liquidity depth view — bars on an explicit price axis (mid centred, bids green
+ * left / asks red right, height = resting size). The order you're composing is a
+ * YELLOW BOX over the exact price region it occupies, under the bars. When it's a
+ * range order the box is DRAGGABLE: grab an edge to resize the band or the middle
+ * to slide it, and the ticket's from/to follow.
  */
 export function DepthBars({
   outcome,
@@ -14,12 +14,14 @@ export function DepthBars({
   yes,
   no,
   preview,
+  onDragRange,
 }: {
   outcome: Outcome;
   onOutcome: (o: Outcome) => void;
   yes: PredictionBook;
   no: PredictionBook;
   preview?: OrderPreview | null;
+  onDragRange?: (loCents: number, hiCents: number) => void;
 }) {
   const book = outcome === "YES" ? yes : no;
   const bids = book.bidDepth;
@@ -29,7 +31,6 @@ export function DepthBars({
   const mid = book.prob ?? 0.5;
   const pv = preview && preview.outcome === outcome ? preview : null;
 
-  // symmetric price axis centred on mid, wide enough for every bar + the order
   const spans = [
     ...all.map((l) => Math.abs(l.probability - mid)),
     ...(pv ? [Math.abs(pv.fromProb - mid), Math.abs(pv.toProb - mid)] : []),
@@ -41,12 +42,59 @@ export function DepthBars({
   const maxSize = Math.max(1, ...all.map((l) => l.size));
   const barW = Math.max(1.6, Math.min(4.5, 64 / Math.max(8, all.length)));
 
-  // the yellow order box
   const lo = pv ? Math.min(pv.fromProb, pv.toProb) : 0;
   const hi = pv ? Math.max(pv.fromProb, pv.toProb) : 0;
   const boxLeft = x(lo);
-  const boxW = pv ? Math.max(1.2, x(hi) - boxLeft) : 0; // min width so a limit slot is visible
+  const boxW = pv ? Math.max(1.2, x(hi) - boxLeft) : 0;
   const boxLabel = pv?.mode === "range" ? "your range" : pv?.mode === "limit" ? "your limit" : "fills here";
+  const draggable = !!(pv && pv.mode === "range" && onDragRange);
+
+  // ── drag the range box ──────────────────────────────────────────────
+  const plotRef = useRef<HTMLDivElement>(null);
+  const axisRef = useRef({ pMin, half });
+  axisRef.current = { pMin, half };
+  const drag = useRef<null | { part: "lo" | "hi" | "move"; startLo: number; startHi: number; grab: number }>(null);
+
+  const priceAt = (clientX: number) => {
+    const r = plotRef.current?.getBoundingClientRect();
+    if (!r || r.width === 0) return mid;
+    const pct = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    return axisRef.current.pMin + pct * 2 * axisRef.current.half;
+  };
+  const onDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!draggable) return;
+    e.preventDefault();
+    const r = e.currentTarget.getBoundingClientRect();
+    const rel = r.width ? (e.clientX - r.left) / r.width : 0.5;
+    const part = rel < 0.28 ? "lo" : rel > 0.72 ? "hi" : "move";
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = { part, startLo: lo, startHi: hi, grab: priceAt(e.clientX) };
+  };
+  const onMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d || !onDragRange) return;
+    const clamp = (v: number) => Math.max(0.01, Math.min(0.99, v));
+    const p = priceAt(e.clientX);
+    let nlo = d.startLo;
+    let nhi = d.startHi;
+    if (d.part === "lo") nlo = clamp(p);
+    else if (d.part === "hi") nhi = clamp(p);
+    else {
+      const delta = p - d.grab;
+      nlo = clamp(d.startLo + delta);
+      nhi = clamp(d.startHi + delta);
+    }
+    if (nlo > nhi) [nlo, nhi] = [nhi, nlo];
+    onDragRange(Math.round(nlo * 100), Math.round(nhi * 100));
+  };
+  const onUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    drag.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
 
   return (
     <section className="dbx-depth panel">
@@ -65,15 +113,31 @@ export function DepthBars({
         </div>
       </div>
 
-      <div className="dbx-depth-plot2">
+      <div className="dbx-depth-plot2" ref={plotRef}>
         {empty ? (
           <div className="dbx-depth-empty">No resting liquidity yet — awaiting market makers.</div>
         ) : (
           <>
             {pv && (
-              <div className={`dbx-range-box ${pv.side}`} style={{ left: `${boxLeft}%`, width: `${boxW}%` }}>
-                <span className="dbx-range-box-label">{boxLabel}</span>
-              </div>
+              <>
+                {/* yellow fill — sits under the bars */}
+                <div className={`dbx-range-box ${pv.side}`} style={{ left: `${boxLeft}%`, width: `${boxW}%` }} />
+                {/* transparent grab layer — sits above the bars so the box can be dragged */}
+                <div
+                  className={`dbx-range-grab ${draggable ? "on" : ""}`}
+                  style={{ left: `${boxLeft}%`, width: `${boxW}%` }}
+                  onPointerDown={draggable ? onDown : undefined}
+                  onPointerMove={draggable ? onMove : undefined}
+                  onPointerUp={draggable ? onUp : undefined}
+                >
+                  {draggable && <span className="dbx-box-edge l" />}
+                  <span className="dbx-range-box-label">
+                    {boxLabel}
+                    {draggable ? " ⇆" : ""}
+                  </span>
+                  {draggable && <span className="dbx-box-edge r" />}
+                </div>
+              </>
             )}
             <div className="dbx-mid-line" style={{ left: `${x(mid)}%` }} />
             {bids.map((l, i) => (

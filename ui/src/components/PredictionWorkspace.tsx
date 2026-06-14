@@ -20,6 +20,9 @@ export function PredictionWorkspace() {
   const question = marketQuestion(cfg);
   const [outcome, setOutcome] = useState<Outcome>("YES");
   const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
+  // range-order band (cents), shared so both the ticket inputs and dragging the
+  // box on the depth ladder edit the same order
+  const [band, setBand] = useState<{ lo: string; hi: string }>({ lo: "", hi: "" });
 
   const [yes, no] = useMemo(
     () => buildPredictionBooks(summary, depth, noSummary, noDepth, baseDec),
@@ -33,7 +36,14 @@ export function PredictionWorkspace() {
       <div className="dbx-main">
         <MarketHeader />
         <ProbabilityChart yes={yes} />
-        <DepthBars outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} preview={orderPreview} />
+        <DepthBars
+          outcome={outcome}
+          onOutcome={setOutcome}
+          yes={yes}
+          no={no}
+          preview={orderPreview}
+          onDragRange={(lo, hi) => setBand({ lo: String(lo), hi: String(hi) })}
+        />
         <OrderBookCard outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} />
         <ActivityFeed />
         <MarketInfoCards />
@@ -46,7 +56,15 @@ export function PredictionWorkspace() {
             <span className="dbx-ticket-q">{question}</span>
             <span className="dbx-ticket-price num">{fmtCents(selected.prob)}</span>
           </div>
-          <MarketTicket outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} onPreview={setOrderPreview} />
+          <MarketTicket
+            outcome={outcome}
+            onOutcome={setOutcome}
+            yes={yes}
+            no={no}
+            onPreview={setOrderPreview}
+            band={band}
+            setBand={setBand}
+          />
         </div>
 
         <LiquidityCard />

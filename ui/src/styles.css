@@ -2985,3 +2985,49 @@ body {
   border-top: 1px solid var(--border-soft);
   text-align: center;
 }
+
+/* ── draggable range box: fill stays under the bars, a transparent grab layer
+      sits above them to catch the pointer ─────────────────────────────────── */
+.dbx-range-box {
+  pointer-events: none;
+}
+.dbx-range-grab {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+.dbx-range-grab.on {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+.dbx-range-grab.on:active {
+  cursor: grabbing;
+}
+.dbx-box-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: ew-resize;
+}
+.dbx-box-edge.l {
+  left: -5px;
+}
+.dbx-box-edge.r {
+  right: -5px;
+}
+.dbx-box-edge::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(240, 185, 11, 0.75);
+}

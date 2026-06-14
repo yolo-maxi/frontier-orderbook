@@ -212,7 +212,9 @@ async function splitInventory(bot, usdc, skipIfStocked = false) {
 
 // ── market making: open + maintain a 2-sided book straddling fair ─────---
 const LADDER = 320; // ticks of depth per order (~3.2¢ — wide enough to show a profile)
-const OFFSET = 140; // ticks between frontier and the inside quote (buffer vs taker races)
+const OFFSET = 40; // ticks frontier→inside quote (~0.4¢) so the bid/ask spread stays <1¢ and the
+                   // two clusters sit close; bounded sweeps keep the frontier from blowing out, so
+                   // the big race buffer that forced 140 is no longer needed
 const MM_SIZE = 1500000n; // token0 per level — thick book so heavy taker flow can't drain a side
 //                           between the (3s) maker refreshes
 const rsize = () => (MM_SIZE * BigInt(65 + Math.floor(Math.random() * 70))) / 100n; // 0.65×–1.35×
@@ -280,6 +282,19 @@ async function recenter(bot, side, prob) {
   const { book } = BOOKS[side];
   const target = probToTick(prob);
   const st = mmState[side];
+  const askBase = rsize();
+  const bidBase = rsize();
+  // Restock FIRST, before pegging. Asks SELL token0, so when inventory runs low the
+  // maker re-splits sUSDC into a fresh YES+NO set. Doing that split AFTER pegging put
+  // a ~1.5s tx right in the critical window between the peg and the ask deposit —
+  // long enough for taker buy-flow to push the frontier past askLo and revert the
+  // deposit, leaving the buy side empty. Out of the critical path it goes.
+  try {
+    const have = await pub.readContract({ address: BOOKS[side].token, abi: erc20Abi, functionName: "balanceOf", args: [bot.addr] });
+    if (have < askBase * BigInt(LADDER) * 2n) await splitInventory(bot, 1000);
+  } catch {
+    /* best-effort restock */
+  }
   // settle prior quotes — each cancel is an independent tx, so a cancel that
   // reverts (the position was already consumed by a taker) doesn't block the rest.
   for (const [k, fn] of [["askId", "cancel"], ["bidId", "cancelBid"]]) {
@@ -303,9 +318,12 @@ async function recenter(bot, side, prob) {
       cur = target;
     } catch (e) {
       log("mm", side, "moveTickTo fail", safe(e.shortMessage || e.message || "").slice(0, 60));
-      cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
     }
   }
+  // Re-read the frontier right before posting, with no tx in between. askLo/bidHi
+  // then get the FULL OFFSET buffer measured from the freshest tick (post-peg taker
+  // drift included), so a small OFFSET still survives to the deposit's mine time.
+  cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
   // Never post at an out-of-band frontier. If moveTickTo failed and cur is still
   // ≥ 0 (price ≥ 1), posting an ask here drops an orphan near tick 200000 that
   // then blocks the NEXT moveTickTo (it crosses a resting ask → revert) — the
@@ -316,19 +334,6 @@ async function recenter(bot, side, prob) {
   }
   const askLo = cur + OFFSET;
   const bidHi = cur - OFFSET;
-  // shaped ask: thick near the touch, tapering ~to a third at the far edge, with
-  // a randomized base size so the book looks organic instead of a uniform wall.
-  const askBase = rsize();
-  const bidBase = rsize();
-  // keep the maker stocked — asks SELL token0, so when its inventory runs low
-  // re-split sUSDC into a fresh YES+NO set, otherwise ask deposits start failing
-  // (insufficient balance) and the buy side of the book goes empty.
-  try {
-    const have = await pub.readContract({ address: BOOKS[side].token, abi: erc20Abi, functionName: "balanceOf", args: [bot.addr] });
-    if (have < askBase * BigInt(LADDER) * 2n) await splitInventory(bot, 1000);
-  } catch {
-    /* best-effort restock */
-  }
   try {
     const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "deposit", args: [askLo, askLo + LADDER, askBase], account: bot.account });
     st.askId = sim.result;
