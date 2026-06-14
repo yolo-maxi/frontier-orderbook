@@ -360,7 +360,6 @@ async function recenter(bot, side, prob) {
     return;
   }
   const askLo = cur + OFFSET;
-  const bidHi = cur - OFFSET;
   try {
     const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "deposit", args: [askLo, askLo + LADDER, askBase], account: bot.account });
     await bot.send(book, bookAbi, "deposit", [askLo, askLo + LADDER, askBase]);
@@ -370,6 +369,13 @@ async function recenter(bot, side, prob) {
     bump("mm-ask", false);
     log("mm", side, "ask fail", safe(e.shortMessage || e.message || "").slice(0, 60));
   }
+  // Re-read the frontier before the bid. The bid posts AFTER the ask (same wallet →
+  // serialized), so taker flow in between can move cur and leave a stale bidHi above
+  // the new frontier, which reverts — that lag is why bids failed far more than asks
+  // and the bid side kept going empty.
+  cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
+  if (cur >= 0) return;
+  const bidHi = cur - OFFSET;
   try {
     const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "depositBid", args: [bidHi - LADDER, bidHi, bidBase], account: bot.account });
     await bot.send(book, bookAbi, "depositBid", [bidHi - LADDER, bidHi, bidBase]);
