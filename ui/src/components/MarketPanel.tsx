@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp, type PositionRow } from "../state/app";
 import { fmtAmount, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
+import { baseDecimals, baseSymbol, quoteDecimals, quoteSymbol } from "../lib/config";
 
 export function MarketPanel() {
-  const { summary, priceHistory, fills, makerEvents } = useApp();
+  const { cfg, summary, priceHistory, fills, makerEvents } = useApp();
+  const base = baseSymbol(cfg);
+  const quoteSym = quoteSymbol(cfg);
+  const baseDec = baseDecimals(cfg);
+  const quoteDec = quoteDecimals(cfg);
   const [feedTab, setFeedTab] = useState<"trades" | "makers">("trades");
 
   const last = summary ? tickToPrice(summary.currentTick) : null;
@@ -38,7 +43,7 @@ export function MarketPanel() {
           >
             {last !== null ? fmtPrice(last, 3) : "—"}
           </span>
-          <span className="ph-sub">USDC per WETH</span>
+          <span className="ph-sub">{quoteSym} per {base}</span>
         </div>
         <div className="ph-stats num">
           <div className="ph-stat">
@@ -90,8 +95,8 @@ export function MarketPanel() {
               <span>Side</span>
               <span className="ta-r">Avg Px</span>
               <span>Price Range</span>
-              <span className="ta-r">Size (WETH)</span>
-              <span className="ta-r">Value (USDC)</span>
+              <span className="ta-r">Size ({base})</span>
+              <span className="ta-r">Value ({quoteSym})</span>
               <span className="ta-r">Lvls</span>
             </div>
             <div className="fills-body">
@@ -114,8 +119,8 @@ export function MarketPanel() {
                     <span className="dim"> → </span>
                     {fmtPrice(f.priceHi, 3)}
                   </span>
-                  <span className="ta-r">{fmtAmount(f.size0, 4)}</span>
-                  <span className="ta-r">{fmtAmount(f.value1, 2)}</span>
+                  <span className="ta-r">{fmtAmount(f.size0, 4, baseDec)}</span>
+                  <span className="ta-r">{fmtAmount(f.value1, 2, quoteDec)}</span>
                   <span className="ta-r dim">{f.levels}</span>
                 </div>
               ))}
@@ -129,7 +134,7 @@ export function MarketPanel() {
               <span className="ta-r">#</span>
               <span>Range</span>
               <span className="ta-r">Size × Lvls</span>
-              <span className="ta-r">Total (WETH)</span>
+              <span className="ta-r">Total ({base})</span>
               <span className="ta-r">Payout</span>
             </div>
             <div className="fills-body">
@@ -160,19 +165,19 @@ export function MarketPanel() {
                   <span className="ta-r">
                     {e.size0 !== null && e.levels !== null ? (
                       <>
-                        {fmtAmount(e.size0, 4)} <span className="dim">× {e.levels}</span>
+                        {fmtAmount(e.size0, 4, baseDec)} <span className="dim">× {e.levels}</span>
                       </>
                     ) : (
                       <span className="dim">—</span>
                     )}
                   </span>
-                  <span className="ta-r">{e.total0 !== null ? fmtAmount(e.total0, 4) : <span className="dim">—</span>}</span>
+                  <span className="ta-r">{e.total0 !== null ? fmtAmount(e.total0, 4, baseDec) : <span className="dim">—</span>}</span>
                   <span className="ta-r">
                     {e.payout !== null && (e.payout > 0n || e.refund === null) ? (
-                      <span className="up">{fmtAmount(e.payout, 4)}</span>
+                      <span className="up">{fmtAmount(e.payout, 4, baseDec)}</span>
                     ) : null}
                     {e.refund !== null && e.refund > 0n ? (
-                      <span className="dim"> +{fmtAmount(e.refund, 4)} rfnd</span>
+                      <span className="dim"> +{fmtAmount(e.refund, 4, quoteDec)} rfnd</span>
                     ) : e.payout === null ? (
                       <span className="dim">—</span>
                     ) : null}
@@ -206,12 +211,12 @@ function smoothPath(xs: number[], ys: number[]): string {
   return d;
 }
 
-const toF = (v: bigint) => Number(v) / 1e18;
+const toF = (v: bigint, decimals = 18) => Number(v) / 10 ** decimals;
 
 /** Total principal of a (possibly shaped) ladder, in token0 float. */
-function ladderTotal(liquidity: bigint, slope: bigint, n: number): number {
+function ladderTotal(liquidity: bigint, slope: bigint, n: number, baseDec: number): number {
   const nb = BigInt(n);
-  return toF(liquidity * nb + (slope * nb * (nb - 1n)) / 2n);
+  return toF(liquidity * nb + (slope * nb * (nb - 1n)) / 2n, baseDec);
 }
 
 interface Band {
@@ -223,14 +228,14 @@ interface Band {
   label: string;
 }
 
-function positionBands(positions: PositionRow[]): Band[] {
+function positionBands(positions: PositionRow[], baseDec: number): Band[] {
   return positions
     .filter((p) => p.live)
     .slice(0, 8)
     .map((p) => {
       const n = p.upper - p.lower;
-      const total = ladderTotal(p.liquidity, p.slope, n);
-      const unfilled = toF(p.unfilled);
+      const total = ladderTotal(p.liquidity, p.slope, n, baseDec);
+      const unfilled = toF(p.unfilled, baseDec);
       const frac = total > 0 ? Math.min(1, Math.max(0, 1 - unfilled / total)) : 0;
       return {
         key: p.id.toString() + (p.isBid ? "b" : "a"),
@@ -252,7 +257,8 @@ function positionBands(positions: PositionRow[]): Band[] {
  *  - the execution range of a live Trade quote, as a bracket to its end price
  */
 function BookChart() {
-  const { priceHistory, depth, summary, positions, preview, makeFocus } = useApp();
+  const { cfg, priceHistory, depth, summary, positions, preview, makeFocus } = useApp();
+  const baseDec = baseDecimals(cfg);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(760);
   // Make mode: the BOOK's share of the chart expands — the price line
@@ -322,7 +328,7 @@ function BookChart() {
     // your open positions are ALWAYS in view: the Y domain stretches to
     // cover every band (a far ladder compresses the price line — that is
     // the correct trade: you can't manage what you can't see)
-    const allBands = positionBands(positions);
+    const allBands = positionBands(positions, baseDec);
     for (const b of allBands) {
       min = Math.min(min, b.pLo);
       max = Math.max(max, b.pHi);
@@ -352,8 +358,8 @@ function BookChart() {
       const price = tickToPrice(lv.tick);
       if (price < min || price >= max) continue;
       const bi = Math.min(BUCKETS - 1, Math.max(0, Math.floor(((max - price) / (max - min)) * BUCKETS)));
-      askB[bi] += toF(lv.askSize);
-      bidB[bi] += toF(lv.bidSize);
+      askB[bi] += toF(lv.askSize, baseDec);
+      bidB[bi] += toF(lv.bidSize, baseDec);
     }
 
     // ----- make-preview ladder → same buckets (comparable scale)
@@ -364,8 +370,8 @@ function BookChart() {
       preview.upperTick !== undefined &&
       preview.sizePerLevel !== undefined
     ) {
-      const L0 = toF(preview.sizePerLevel);
-      const slope = toF(preview.slope ?? 0n);
+      const L0 = toF(preview.sizePerLevel, baseDec);
+      const slope = toF(preview.slope ?? 0n, baseDec);
       const nLv = preview.upperTick - preview.lowerTick;
       const step = Math.max(1, Math.floor(nLv / 400)); // sample big ladders
       for (let k = 0; k < nLv; k += step) {
@@ -391,8 +397,8 @@ function BookChart() {
       preview.upperTick !== undefined &&
       preview.sizePerLevel !== undefined
     ) {
-      const L0 = toF(preview.sizePerLevel);
-      const slope = toF(preview.slope ?? 0n);
+      const L0 = toF(preview.sizePerLevel, baseDec);
+      const slope = toF(preview.slope ?? 0n, baseDec);
       const nLv = preview.upperTick - preview.lowerTick;
       const step = Math.max(1, Math.ceil(nLv / 120));
       const bucketSpan = (max - min) / BUCKETS;
@@ -426,7 +432,7 @@ function BookChart() {
       bands, offAbove, offBelow, grid, mid,
       midY: sy(mid),
     };
-  }, [priceHistory, depth, summary, positions, preview, width, GUT, H]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [priceHistory, depth, summary, positions, preview, width, GUT, H, baseDec]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!model) {
     return (

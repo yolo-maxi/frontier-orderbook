@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef } from "react";
 import { useApp } from "../state/app";
 import { fmtPrice, niceStep, stepDecimals, tickToPrice } from "../lib/format";
+import { baseDecimals, baseSymbol, quoteSymbol } from "../lib/config";
 import { formatUnits } from "viem";
 
 interface Bucket {
@@ -34,7 +35,10 @@ function bucketize(
 }
 
 export function OrderBook() {
-  const { summary, depth, preview } = useApp();
+  const { cfg, summary, depth, preview } = useApp();
+  const base = baseSymbol(cfg);
+  const quoteSym = quoteSymbol(cfg);
+  const baseDec = baseDecimals(cfg);
   // price range of the ladder being configured in Make (if any)
   const previewRange =
     preview?.kind === "make" && preview.lowerTick !== undefined && preview.upperTick !== undefined
@@ -69,10 +73,10 @@ export function OrderBook() {
     const bids: { price: number; size: number }[] = [];
     for (const l of depth) {
       if (l.askSize > 0n) {
-        asks.push({ price: tickToPrice(l.tick), size: Number(formatUnits(l.askSize, 18)) });
+        asks.push({ price: tickToPrice(l.tick), size: Number(formatUnits(l.askSize, baseDec)) });
       }
       if (l.bidSize > 0n) {
-        bids.push({ price: tickToPrice(l.tick), size: Number(formatUnits(l.bidSize, 18)) });
+        bids.push({ price: tickToPrice(l.tick), size: Number(formatUnits(l.bidSize, baseDec)) });
       }
     }
     const sideSpan = (xs: { price: number }[]) =>
@@ -154,8 +158,8 @@ export function OrderBook() {
       <section className="panel book-panel">
         <div className="panel-title">Order Book</div>
         <div className="book-head num">
-          <span>Price (USDC)</span>
-          <span>Size (WETH)</span>
+          <span>Price ({quoteSym})</span>
+          <span>Size ({base})</span>
           <span>Total</span>
         </div>
         <div className="book-body">
@@ -199,8 +203,8 @@ export function OrderBook() {
         )}
       </div>
       <div className="book-head num">
-        <span>Price (USDC)</span>
-        <span>Size (WETH)</span>
+        <span>Price ({quoteSym})</span>
+        <span>Size ({base})</span>
         <span>Total</span>
       </div>
       <div className="book-body">

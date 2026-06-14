@@ -2,7 +2,8 @@ import { useState } from "react";
 import { encodeFunctionData } from "viem";
 import { useApp } from "../state/app";
 import { bookAbi } from "../abi/book";
-import { alignTick, fmtAmount, fmtPrice, parseAmount, priceToTick, tickToPrice } from "../lib/format";
+import { alignTick, amountToInput, fmtAmount, fmtPrice, parseAmount, priceToTick, tickToPrice } from "../lib/format";
+import { baseDecimals, baseSymbol, quoteDecimals, quoteSymbol } from "../lib/config";
 
 interface Editor {
   id: string; // position id as string
@@ -19,6 +20,10 @@ export function PositionsPanel() {
   const spacing = summary?.tickSpacing ?? 1;
   const curTick = summary?.currentTick ?? null;
   const mid = curTick !== null ? tickToPrice(curTick) : null;
+  const base = baseSymbol(cfg);
+  const quoteSym = quoteSymbol(cfg);
+  const baseDec = baseDecimals(cfg);
+  const quoteDec = quoteDecimals(cfg);
 
   const onClaim = async (id: bigint, isBid: boolean) => {
     await sendTx(`Claim #${id}`, () =>
@@ -100,18 +105,18 @@ export function PositionsPanel() {
       mode: "move",
       from: tickToPrice(p.lower).toFixed(3),
       to: tickToPrice(p.upper).toFixed(3),
-      size: (Number(p.liquidity) / 1e18).toString(),
+      size: amountToInput(p.liquidity, baseDec),
     });
 
   const openRecycle = (p: { id: bigint; isBid: boolean; claimable: bigint }) => {
     if (mid === null) return;
-    // recycle flips sides: a filled bid's WETH becomes an ask, a filled
-    // ask's USDC becomes a bid — prefill one level at the touch
+    // recycle flips sides: a filled bid's base token becomes an ask, a filled
+    // ask's quote token becomes a bid — prefill one level at the touch
     const from = p.isBid ? mid + 0.01 : mid - 0.011;
     const to = p.isBid ? mid + 0.011 : mid - 0.01;
     const size = p.isBid
-      ? Number(p.claimable) / 1e18 // WETH directly
-      : Number(p.claimable) / 1e18 / mid; // USDC -> WETH at ~mid
+      ? Number(amountToInput(p.claimable, baseDec)) // base directly
+      : Number(amountToInput(p.claimable, quoteDec)) / mid; // quote -> base at ~mid
     setEditor({
       id: p.id.toString(),
       mode: "recycle",
@@ -125,7 +130,7 @@ export function PositionsPanel() {
     if (!editor) return;
     const loP = Math.min(Number(editor.from), Number(editor.to));
     const hiP = Math.max(Number(editor.from), Number(editor.to));
-    const size = parseAmount(editor.size);
+    const size = parseAmount(editor.size, baseDec);
     if (!Number.isFinite(loP) || !Number.isFinite(hiP) || size === null || size === 0n) return;
     const lower = alignTick(priceToTick(loP), spacing, false);
     let upper = alignTick(priceToTick(hiP), spacing, true);
@@ -181,8 +186,8 @@ export function PositionsPanel() {
       {positions.map((p) => {
         const lo = tickToPrice(p.lower);
         const hi = tickToPrice(p.upper);
-        const claimSym = p.isBid ? "WETH" : "USDC";
-        const restSym = p.isBid ? "USDC" : "WETH";
+        const claimSym = p.isBid ? base : quoteSym;
+        const restSym = p.isBid ? quoteSym : base;
         const ed = editor !== null && editor.id === p.id.toString() ? editor : null;
         return (
           <div className={`pos-card ${p.live ? "" : "pos-dead"}`} key={p.id.toString()}>
@@ -201,24 +206,24 @@ export function PositionsPanel() {
             <div className="pos-grid num">
               <div>
                 <span className="dim">Size / level</span>
-                <span>{fmtAmount(p.liquidity, 4)} WETH</span>
+                <span>{fmtAmount(p.liquidity, 4, baseDec)} {base}</span>
               </div>
               <div>
                 <span className="dim">Resting</span>
                 <span>
-                  {fmtAmount(p.unfilled, p.isBid ? 2 : 4)} {restSym}
+                  {fmtAmount(p.unfilled, p.isBid ? 2 : 4, p.isBid ? quoteDec : baseDec)} {restSym}
                 </span>
               </div>
               <div>
                 <span className="dim">Claimable</span>
                 <span className={p.claimable > 0n ? "up" : ""}>
-                  {fmtAmount(p.claimable, p.isBid ? 4 : 2)} {claimSym}
+                  {fmtAmount(p.claimable, p.isBid ? 4 : 2, p.isBid ? baseDec : quoteDec)} {claimSym}
                 </span>
               </div>
               {p.slope !== 0n && (
                 <div>
                   <span className="dim">Slope</span>
-                  <span>{fmtAmount(p.slope < 0n ? -p.slope : p.slope, 4)}/lvl{p.slope < 0n ? " ↓" : " ↑"}</span>
+                  <span>{fmtAmount(p.slope < 0n ? -p.slope : p.slope, 4, baseDec)}/lvl{p.slope < 0n ? " ↓" : " ↑"}</span>
                 </div>
               )}
             </div>
