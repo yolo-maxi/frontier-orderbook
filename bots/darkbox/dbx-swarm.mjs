@@ -212,28 +212,37 @@ async function splitInventory(bot, usdc, skipIfStocked = false) {
 }
 
 // ── market making: open + maintain a 2-sided book straddling fair ─────---
-const LADDER = 150; // ticks of depth per order (~1.5¢)
-const OFFSET = 8; // ticks between frontier and the inside quote
-const MM_SIZE = 250000n; // token0 per level (≈0.25 share/level → ~37 shares/order)
+const LADDER = 200; // ticks of depth per order (~2¢)
+const OFFSET = 25; // ticks between frontier and the inside quote (buffer vs taker races)
+const MM_SIZE = 700000n; // token0 per level (≈0.7 share/level → ~140 shares/order, thick enough
+//                          that a single taker buy can't punch the frontier out of band)
 const mmState = { YES: { askId: 0n, bidId: 0n }, NO: { askId: 0n, bidId: 0n } };
 
 /** Cancel this maker's own resting positions left over from earlier runs, so the
  * frontier peg (moveTickTo) never has to cross stale liquidity. */
 async function reclaim(bot, book) {
-  let logs = [];
-  try {
-    const latest = await pub.getBlockNumber();
-    const from = latest > 60000n ? latest - 60000n : 0n;
-    logs = await pub.getContractEvents({
-      address: book,
-      abi: bookAbi,
-      eventName: "Deposit",
-      args: { owner: bot.addr },
-      fromBlock: from,
-      toBlock: latest,
-    });
-  } catch {
-    return;
+  const latest = await pub.getBlockNumber().catch(() => 0n);
+  if (!latest) return;
+  const span = 240000n;
+  const win = 45000n;
+  const start = latest > span ? latest - span : 0n;
+  const logs = [];
+  for (let f = start; f <= latest; f += win + 1n) {
+    const t = f + win > latest ? latest : f + win;
+    try {
+      logs.push(
+        ...(await pub.getContractEvents({
+          address: book,
+          abi: bookAbi,
+          eventName: "Deposit",
+          args: { owner: bot.addr },
+          fromBlock: f,
+          toBlock: t,
+        })),
+      );
+    } catch {
+      /* skip window */
+    }
   }
   const ids = [...new Set(logs.map((l) => l.args.positionId))];
   let n = 0;
@@ -241,11 +250,17 @@ async function reclaim(bot, book) {
     try {
       const p = await pub.readContract({ address: book, abi: bookAbi, functionName: "positions", args: [id] });
       if (!p[7]) continue; // not live
-      await bot.send(book, bookAbi, p[8] ? "cancelBid" : "cancel", [id]);
+      const isBid = p[8];
+      const lower = p[1]; // exact tick → correct witness if plain cancel reverts
+      try {
+        await bot.send(book, bookAbi, isBid ? "cancelBid" : "cancel", [id]);
+      } catch {
+        await bot.send(book, bookAbi, isBid ? "cancelBidWithWitness" : "cancelWithWitness", [id, lower]);
+      }
       M.attempts++;
       n++;
     } catch {
-      /* already consumed / raced */
+      /* already consumed / unrecoverable — band-gating hides it anyway */
     }
   }
   if (n) log("mm", `reclaimed ${n} stale position(s) on ${book.slice(0, 10)}…`);
@@ -312,7 +327,7 @@ async function takerTrade(bot) {
   const buy = Math.random() < 0.5;
   const dl = await chainDeadline(pub, 300);
   if (buy) {
-    const amt1 = BigInt(rint(500000, 6000000)); // 0.5–6 sUSDC
+    const amt1 = BigInt(rint(500000, 3500000)); // 0.5–3.5 sUSDC (small vs maker depth)
     const type = `buy-${side}`;
     if (!cfg.live) return dryQuote(book, "quoteBuy", [book, amt1], type);
     addFlow(side, Number(amt1) / 1e6); // buying pressures this leg up
@@ -513,13 +528,20 @@ async function main() {
   // state is tight and complementary (YES + NO ≈ 100¢), not a half-finished cycle.
   if (cfg.live && !cfg.noMm) {
     log("stop", "settling books to a clean complementary quote…");
-    try {
-      await recenter(mmYes, "YES", yesFair);
-      await recenter(mmNo, "NO", noFair);
-      log("stop", `final: YES ${(yesFair * 100).toFixed(1)}¢  NO ${(noFair * 100).toFixed(1)}¢  sum ${((yesFair + noFair) * 100).toFixed(1)}¢`);
-    } catch (e) {
-      log("stop", "settle error", safe(e.message).slice(0, 60));
+    for (const [bot, side, prob] of [
+      [mmYes, "YES", yesFair],
+      [mmNo, "NO", noFair],
+    ]) {
+      for (let a = 0; a < 2; a++) {
+        try {
+          await recenter(bot, side, prob);
+          break;
+        } catch (e) {
+          log("stop", `settle ${side} retry`, safe(e.message).slice(0, 50));
+        }
+      }
     }
+    log("stop", `final: YES ${(yesFair * 100).toFixed(1)}¢  NO ${(noFair * 100).toFixed(1)}¢  sum ${((yesFair + noFair) * 100).toFixed(1)}¢`);
   }
   report(true);
 }

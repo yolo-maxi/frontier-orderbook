@@ -73,6 +73,8 @@ export const bookAbi = parseAbi([
   "function depositBid(int24 lower, int24 upper, uint128 liquidity) returns (uint256)",
   "function cancel(uint256 id) returns (uint256, uint256)",
   "function cancelBid(uint256 id) returns (uint256, uint256)",
+  "function cancelWithWitness(uint256 id, int24 witness) returns (uint256, uint256)",
+  "function cancelBidWithWitness(uint256 id, int24 witness) returns (uint256, uint256)",
   "function claim(uint256 id) returns (uint256)",
   "function claimBid(uint256 id) returns (uint256)",
   "function moveTickTo(int24 target)",
