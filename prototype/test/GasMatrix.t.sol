@@ -38,6 +38,10 @@ contract GasMatrixTest is Test {
         vm.stopPrank();
     }
 
+    function rate(int24 tick) internal pure returns (uint256) {
+        return uint256(int256(1e18) + int256(tick) * 1e15);
+    }
+
     function testBidOperationCosts() public {
         _fresh(100);
         vm.prank(mm);
@@ -78,6 +82,18 @@ contract GasMatrixTest is Test {
         assertEq(proceeds0, 0, "proceeds already claimed");
         assertGt(refund1, 0, "cancel measured a real refund");
         assertEq(t1.balanceOf(mm) - mm1Before, refund1, "token1 actually transferred");
+    }
+
+    function testBidDepositCost() public {
+        _fresh(120); // price above the intended bid range
+
+        uint256 wallet1Before = t1.balanceOf(mm);
+        vm.prank(mm);
+        uint256 g = gasleft();
+        book.depositBid(101, 111, L);
+        console2.log("bid deposit (10 levels):", g - gasleft());
+
+        assertLt(t1.balanceOf(mm), wallet1Before, "token1 pulled for bid");
     }
 
     function testTakerCostPerLevel() public {

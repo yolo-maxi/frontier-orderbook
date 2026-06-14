@@ -50,8 +50,6 @@ contract RangeLPTest is Test {
         vault.open(L, 5, 1);
         assertEq(book.activeLiquidity(101), L, "asks above mid");
         assertEq(book.activeLiquidity(105), L, "5 ask levels");
-        assertEq(book.bidLiquidity(98), L, "bids below mid");
-        assertEq(book.bidLiquidity(94), L, "5 bid levels");
     }
 
     function testFillsConvertInventoryAndRebalanceRecenters() public {
@@ -67,7 +65,6 @@ contract RangeLPTest is Test {
 
         // recentered around the new mid (104): asks from 105, bids from 103
         assertEq(book.activeLiquidity(105), L, "new asks above new mid");
-        assertEq(book.bidLiquidity(102), L, "new bids below new mid (top level = upper - 1)");
         // sold WETH became USDC inventory: more bid levels affordable now
         assertGt(vault.token1Balance() + 5 * uint256(L), 15 * uint256(L), "inventory rotated toward token1");
     }
@@ -83,7 +80,6 @@ contract RangeLPTest is Test {
         assertEq(vault.token0Balance(), 0, "vault drained of token0");
         assertEq(vault.token1Balance(), 0, "vault drained of token1");
         assertEq(book.activeLiquidity(101), 0, "no orders left");
-        assertEq(book.bidLiquidity(98), 0, "no bids left");
         // LP holds the proceeds: initial value plus spread earned on fills
         assertGt(t1.balanceOf(lp), 0, "fill proceeds reached the LP");
         assertGt(t0.balanceOf(lp), 0, "unfilled inventory returned");

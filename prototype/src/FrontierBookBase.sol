@@ -29,10 +29,20 @@ abstract contract FrontierBookBase {
     IFrontierHooks public immutable hooks;
     /// delegatable permissions (ERC Approval Registry); 0 = owner-only
     IPermissionRegistry public immutable permissions;
+    /// fee recipient for this experimental branch; zero only when both fees are zero
+    address public immutable feeRecipient;
+    /// maker fee charged from claim proceeds, in basis points
+    uint16 public immutable makerFeeBps;
+    /// taker fee charged on sweep input, in basis points
+    uint16 public immutable takerFeeBps;
 
     int24 internal _currentTick;
     uint64 public fillClock;
-    uint256 public nextPositionId = 1;
+    uint64 internal _nextPositionId = 1;
+
+    function nextPositionId() public view returns (uint256) {
+        return _nextPositionId;
+    }
 
     // signed: +L at live frontiers, -L at order uppers; rolls self-cancel
     mapping(int24 => int256) public frontierDelta;
@@ -47,6 +57,7 @@ abstract contract FrontierBookBase {
     // skip empty price regions in O(1) per 256 intervals instead of one SLOAD
     // per interval (which would brick sweeps across wide gaps)
     mapping(int16 => uint256) public tickBitmap;
+
     // ASK-side fill records: ONE entry per liquidity-moving up-sweep instead
     // of a clock stamp per level ("endpoint sweeps"). Entries keep clocks
     // strictly increasing and highs strictly decreasing (dominated entries
@@ -83,32 +94,81 @@ abstract contract FrontierBookBase {
     LowWater[] internal _lowWaters;
 
     // lowest/highest boundaries ever used; only for the O(width) view scans
-    int24 internal _minBoundary;
-    bool internal _minBoundarySet;
-    int24 internal _maxBoundary;
-    bool internal _maxBoundarySet;
+    int24 internal _minBoundary = type(int24).max;
+    int24 internal _maxBoundary = type(int24).min;
 
     struct Position {
         address owner;
         int24 lower;
         int24 upper;
-        uint128 liquidity; // size at `lower` (L0)
-        int128 slope; // per-level size increment; size at level j = L0 + slope*j
-        uint64 depositClock;
         // asks: proceeds paid for [lower, cursor); bids: paid for [cursor, upper)
         int24 claimedUpper;
         bool live;
         bool isBid;
+        uint128 liquidity; // size at `lower` (L0)
+        uint64 depositClock;
     }
 
-    mapping(uint256 => Position) public positions;
+    mapping(uint256 => Position) internal _positions;
+    // Ask-only per-level size increment; bids and flat asks leave this slot
+    // unset, saving one fresh position SSTORE on the hot flat paths.
+    mapping(uint256 => int128) internal _positionSlope;
 
-    // Internal balance ledger: proceeds/refunds can be credited here instead
-    // of transferred out, and every deposit path spends credit FIRST, pulling
-    // only the shortfall via transferFrom. This is what lets earned balances
-    // recycle into new orders with zero token transfers.
-    mapping(address => uint256) public internalBalance0;
-    mapping(address => uint256) public internalBalance1;
+    function positions(uint256 positionId)
+        public
+        view
+        returns (
+            address owner,
+            int24 lower,
+            int24 upper,
+            uint128 liquidity,
+            int128 slope,
+            uint64 depositClock,
+            int24 claimedUpper,
+            bool live,
+            bool isBid
+        )
+    {
+        Position storage p = _positions[positionId];
+        return (
+            p.owner,
+            p.lower,
+            p.upper,
+            p.liquidity,
+            _positionSlope[positionId],
+            p.depositClock,
+            p.claimedUpper,
+            p.live,
+            p.isBid
+        );
+    }
+
+    function _storePosition(
+        uint256 positionId,
+        address owner,
+        int24 lower,
+        int24 upper,
+        uint128 liquidity,
+        uint64 depositClock,
+        int24 claimedUpper,
+        bool isBid
+    ) internal {
+        uint256 word0 = uint256(uint160(owner)) | (uint256(uint24(lower)) << 160) | (uint256(uint24(upper)) << 184)
+            | (uint256(uint24(claimedUpper)) << 208) | (uint256(1) << 232) | (isBid ? (uint256(1) << 240) : 0);
+        uint256 word1 = uint256(liquidity) | (uint256(depositClock) << 128);
+        assembly ("memory-safe") {
+            mstore(0, positionId)
+            mstore(32, _positions.slot)
+            let slot := keccak256(0, 64)
+            sstore(slot, word0)
+            sstore(add(slot, 1), word1)
+        }
+    }
+
+    // Internal balance ledger: kept for storage-layout compatibility; no
+    // public-facing accumulation paths exist in the deploy-facing book.
+    mapping(address => uint256) internal internalBalance0;
+    mapping(address => uint256) internal internalBalance1;
 
     event Deposit(uint256 indexed positionId, address indexed owner, int24 lower, int24 upper, uint128 liquidity);
     event IntervalFilled(int24 indexed lowerTick, uint128 liquidity, uint256 proceeds1, uint64 clock);
@@ -117,10 +177,26 @@ abstract contract FrontierBookBase {
     event Cancel(uint256 indexed positionId, uint256 proceeds1, uint256 principal0);
     event Requote(uint256 indexed positionId, int24 lower, int24 upper, uint128 liquidity);
     event PositionTransferred(uint256 indexed positionId, address indexed from, address indexed to);
-    event InternalCredit(address indexed user, uint256 amount0, uint256 amount1);
-    event InternalWithdraw(address indexed user, uint256 amount0, uint256 amount1);
+    event MakerFee(
+        uint256 indexed positionId,
+        address indexed token,
+        uint256 grossProceeds,
+        uint256 fee,
+        uint256 netProceeds,
+        address recipient
+    );
+    event TakerFee(
+        address indexed payer,
+        address indexed token,
+        uint256 grossInput,
+        uint256 fee,
+        uint256 totalPaid,
+        address recipient
+    );
 
     uint256 internal constant PRICE_SCALE = 1e18;
+    uint256 public constant FEE_BPS_DENOMINATOR = 10_000;
+    uint16 public constant MAX_FEE_BPS = 1_000;
 
     constructor(
         address _token0,
@@ -128,15 +204,23 @@ abstract contract FrontierBookBase {
         int24 _tickSpacing,
         int24 _initialTick,
         address _hooks,
-        address _permissions
+        address _permissions,
+        address _feeRecipient,
+        uint16 _makerFeeBps,
+        uint16 _takerFeeBps
     ) {
         require(_tickSpacing > 0, "bad spacing");
+        require(_makerFeeBps <= MAX_FEE_BPS && _takerFeeBps <= MAX_FEE_BPS, "fee too high");
+        require(_feeRecipient != address(0) || (_makerFeeBps == 0 && _takerFeeBps == 0), "fee recipient required");
         token0 = IERC20Minimal(_token0);
         token1 = IERC20Minimal(_token1);
         tickSpacing = _tickSpacing;
         _currentTick = _initialTick;
         hooks = IFrontierHooks(_hooks);
         permissions = IPermissionRegistry(_permissions);
+        feeRecipient = _feeRecipient;
+        makerFeeBps = _makerFeeBps;
+        takerFeeBps = _takerFeeBps;
     }
 
     // ------------------------------------------------------------------
@@ -154,28 +238,6 @@ abstract contract FrontierBookBase {
     }
 
     // ------------------------------------------------------------------
-    // Batching: settle a whole portfolio in one transaction. Delegatecall
-    // to self preserves msg.sender AND msg.sig (per inner call), so
-    // authorization is byte-identical to separate transactions; the
-    // savings are one 21k intrinsic + cold account/token access per
-    // extra call. No function here is payable, so msg.value reuse — the
-    // classic multicall hazard — does not apply.
-    // ------------------------------------------------------------------
-
-    function multicall(bytes[] calldata data) external returns (bytes[] memory results) {
-        results = new bytes[](data.length);
-        for (uint256 i = 0; i < data.length; i++) {
-            (bool ok, bytes memory ret) = address(this).delegatecall(data[i]);
-            if (!ok) {
-                assembly ("memory-safe") {
-                    revert(add(ret, 32), mload(ret))
-                }
-            }
-            results[i] = ret;
-        }
-    }
-
-    // ------------------------------------------------------------------
     // Hook dispatch (skipped when the hook itself is the caller)
     // ------------------------------------------------------------------
 
@@ -184,6 +246,33 @@ abstract contract FrontierBookBase {
         if (h == address(0) || !h.hasFlag(flag) || msg.sender == h) return;
         (bool ok, bytes memory ret) = h.call(data);
         require(ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == expected, "hook rejected");
+    }
+
+    function _callBeforeDepositHook(
+        address owner,
+        int24 lower,
+        int24 upper,
+        uint128 liquidity,
+        int128 slope,
+        bool isBid
+    ) internal {
+        address h = address(hooks);
+        if (h == address(0) || !h.hasFlag(FrontierHookFlags.BEFORE_DEPOSIT_FLAG) || msg.sender == h) return;
+        (bool ok, bytes memory ret) =
+            h.call(abi.encodeCall(IFrontierHooks.beforeDeposit, (owner, lower, upper, liquidity, slope, isBid)));
+        require(
+            ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == IFrontierHooks.beforeDeposit.selector,
+            "hook rejected"
+        );
+    }
+
+    function _callAfterDepositHook(address owner, uint256 positionId, bool isBid) internal {
+        address h = address(hooks);
+        if (h == address(0) || !h.hasFlag(FrontierHookFlags.AFTER_DEPOSIT_FLAG) || msg.sender == h) return;
+        (bool ok, bytes memory ret) = h.call(abi.encodeCall(IFrontierHooks.afterDeposit, (owner, positionId, isBid)));
+        require(
+            ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == IFrontierHooks.afterDeposit.selector, "hook rejected"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -227,10 +316,7 @@ abstract contract FrontierBookBase {
             _writeSlope(lower + tickSpacing, frontierSlope[lower + tickSpacing] + int256(slope));
             _writeSlope(upper, frontierSlope[upper] - int256(slope));
         }
-        if (!_minBoundarySet || lower < _minBoundary) {
-            _minBoundary = lower;
-            _minBoundarySet = true;
-        }
+        if (lower < _minBoundary) _minBoundary = lower;
     }
 
     /// @dev Remove an order's remaining tail [frontier, upper). At an
@@ -253,12 +339,145 @@ abstract contract FrontierBookBase {
         if (slope != 0) _writeSlope(upper, frontierSlope[upper] + int256(slope));
     }
 
+    // ------------------------------------------------------------------
+    // UNIFORM-ONLY ask helpers (no slope). These are the slope == 0
+    // specializations of the shaped machinery above, used by the deployed
+    // uniform-curve book/ops (UniformFrontierBook / UniformMakerOps and the
+    // geometric pair built on them). They never touch frontierSlope or
+    // _positionSlope, so a book whose reachable call graph uses only these
+    // links no slope code into its runtime. The shaped contracts never call
+    // them, so they are dead-stripped from the linear book/ops.
+    // ------------------------------------------------------------------
+
+    /// @dev Flat-order endpoint write: keeps the ask bitmap in sync against
+    /// frontierDelta ALONE. A uniform book has no slope-only endpoints (every
+    /// covered level carries nonzero frontierDelta after the roll), so the
+    /// bit is set iff frontierDelta != 0 — no frontierSlope read.
+    function _writeFlatDelta(int24 t, int256 newVal) internal {
+        int256 old = frontierDelta[t];
+        if (old == newVal) return;
+        frontierDelta[t] = newVal;
+        if (old == 0 || newVal == 0) {
+            int24 c = t / tickSpacing; // exact: t is always spacing-aligned
+            int16 wordPos = int16(c >> 8);
+            uint8 bitPos = uint8(uint24(c));
+            if (newVal != 0) tickBitmap[wordPos] |= (uint256(1) << bitPos);
+            else tickBitmap[wordPos] &= ~(uint256(1) << bitPos);
+        }
+    }
+
+    /// @dev Uniform mirror of _addOrder: two endpoint writes, size `liquidity`
+    /// at every covered level.
+    function _addFlatOrder(int24 lower, int24 upper, uint128 liquidity) internal {
+        int256 liq = int256(uint256(liquidity));
+        _writeFlatDelta(lower, frontierDelta[lower] + liq);
+        _writeFlatDelta(upper, frontierDelta[upper] - liq);
+        if (lower < _minBoundary) _minBoundary = lower;
+    }
+
+    /// @dev Uniform mirror of _removeOrderAt: every covered level holds the
+    /// same `liquidity`, so the frontier/rolled-into distinction collapses —
+    /// the remaining tail [frontier, upper) is just -liq at the frontier and
+    /// +liq at the upper.
+    function _removeFlatOrderAt(int24 frontier, int24 upper, uint128 liquidity) internal {
+        int256 liq = int256(uint256(liquidity));
+        _writeFlatDelta(frontier, frontierDelta[frontier] - liq);
+        _writeFlatDelta(upper, frontierDelta[upper] + liq);
+    }
+
+    /// @dev Uniform ask run [e, e+n*s): token0 sold and token1 collected
+    /// (ceil, contract-favorable) for `n` levels of constant size `a0`. The
+    /// slope == 0 specialization of _runAmounts. Virtual so the curve mixin
+    /// swaps in its closed form.
+    function _askRun(int24 e, int256 a0, uint256 n) internal view virtual returns (uint256 out0, uint256 cost1) {
+        require(a0 >= 0, "negative run");
+        int256 ni = int256(n);
+        int256 sumK = (ni * (ni - 1)) / 2;
+        int256 c0 = int256(PRICE_SCALE) + int256(e) * 1e15;
+        int256 c1 = int256(tickSpacing) * 1e15;
+        int256 val = a0 * c0 * ni + a0 * c1 * sumK;
+        require(val >= 0, "negative run");
+        out0 = uint256(a0 * ni);
+        cost1 = (uint256(val) + PRICE_SCALE - 1) / PRICE_SCALE;
+    }
+
+    /// @dev Uniform claim span: token1 proceeds (floor) for the position's
+    /// levels in [a, b) at constant size p.liquidity. The slope == 0
+    /// specialization of _spanAmt1. Virtual so the curve mixin swaps its form.
+    function _askSpan(Position storage p, int24 a, int24 b) internal view virtual returns (uint256) {
+        int256 sp = int256(tickSpacing);
+        int256 ja = (int256(a) - int256(p.lower)) / sp;
+        int256 n = (int256(b) - int256(a)) / sp;
+        int256 jb = ja + n; // exclusive
+        int256 sj = ((ja + jb - 1) * n) / 2;
+        int256 l0 = int256(uint256(p.liquidity));
+        int256 c0 = int256(PRICE_SCALE) + int256(p.lower) * 1e15;
+        int256 c1 = sp * 1e15;
+        int256 total = l0 * c0 * n + l0 * c1 * sj;
+        require(total >= 0, "rate underflow");
+        return uint256(total) / PRICE_SCALE;
+    }
+
     function _addBid(int24 lower, int24 upper, uint128 liquidity) internal {
-        _writeBidDelta(upper - tickSpacing, bidDelta[upper - tickSpacing] + int256(uint256(liquidity)));
-        _writeBidDelta(lower - tickSpacing, bidDelta[lower - tickSpacing] - int256(uint256(liquidity)));
-        if (!_maxBoundarySet || upper > _maxBoundary) {
-            _maxBoundary = upper;
-            _maxBoundarySet = true;
+        int24 upperT = upper - tickSpacing;
+        int24 lowerT = lower - tickSpacing;
+        int256 liq = int256(uint256(liquidity));
+        int256 oldUpper = bidDelta[upperT];
+        int256 newUpper = oldUpper + liq;
+        int256 oldLower = bidDelta[lowerT];
+        int256 newLower = oldLower - liq;
+        bidDelta[upperT] = newUpper;
+        bidDelta[lowerT] = newLower;
+        if (oldUpper == 0 && oldLower == 0) {
+            int24 cUpper = upperT / tickSpacing;
+            int24 cLower = lowerT / tickSpacing;
+            int16 wordUpper = int16(cUpper >> 8);
+            uint256 maskUpper = uint256(1) << uint8(uint24(cUpper));
+            uint256 maskLower = uint256(1) << uint8(uint24(cLower));
+            int16 wordLower = int16(cLower >> 8);
+            if (wordUpper == wordLower) {
+                bidBitmap[wordUpper] |= maskUpper | maskLower;
+            } else {
+                bidBitmap[wordUpper] |= maskUpper;
+                bidBitmap[wordLower] |= maskLower;
+            }
+            return;
+        }
+        _syncBidBitsAfterTwo(upperT, oldUpper, newUpper, lowerT, oldLower, newLower);
+    }
+
+    function _syncBidBitsAfterTwo(int24 a, int256 oldA, int256 newA, int24 b, int256 oldB, int256 newB) internal {
+        bool touchA = oldA == 0 || newA == 0;
+        bool touchB = oldB == 0 || newB == 0;
+        if (!touchA && !touchB) return;
+
+        int24 cA = a / tickSpacing;
+        int16 wordA = int16(cA >> 8);
+        uint256 maskA = uint256(1) << uint8(uint24(cA));
+        if (touchB) {
+            int24 cB = b / tickSpacing;
+            int16 wordB = int16(cB >> 8);
+            uint256 maskB = uint256(1) << uint8(uint24(cB));
+            if (wordA == wordB) {
+                uint256 word = bidBitmap[wordA];
+                if (touchA) word = newA != 0 ? word | maskA : word & ~maskA;
+                word = newB != 0 ? word | maskB : word & ~maskB;
+                bidBitmap[wordA] = word;
+                return;
+            }
+            if (touchA) _syncBidBit(wordA, maskA, newA != 0);
+            _syncBidBit(wordB, maskB, newB != 0);
+            return;
+        }
+        _syncBidBit(wordA, maskA, newA != 0);
+    }
+
+    function _syncBidBit(int16 wordPos, uint256 mask, bool set) internal {
+        uint256 word = bidBitmap[wordPos];
+        if (set) {
+            if (word & mask == 0) bidBitmap[wordPos] = word | mask;
+        } else {
+            if (word & mask != 0) bidBitmap[wordPos] = word & ~mask;
         }
     }
 
@@ -350,13 +569,15 @@ abstract contract FrontierBookBase {
     /// @dev token1 value of `size` token0-units per level over [a, b) at the
     /// linear rate curve; ceil = book-favorable (bid deposits), floor = payouts.
     function _uniformSpanValue(int24 a, int24 b, uint128 size, bool roundUp) internal view virtual returns (uint256) {
-        int256 sp = int256(tickSpacing);
-        int256 n = (int256(b) - int256(a)) / sp;
-        int256 tickSum = n * int256(a) + (sp * n * (n - 1)) / 2;
-        int256 rateSum = n * int256(PRICE_SCALE) + tickSum * 1e15;
-        require(rateSum > 0, "rate underflow");
-        uint256 v = uint256(size) * uint256(rateSum);
-        return roundUp ? (v + PRICE_SCALE - 1) / PRICE_SCALE : v / PRICE_SCALE;
+        unchecked {
+            int256 sp = int256(tickSpacing);
+            int256 n = (int256(b) - int256(a)) / sp;
+            int256 tickSum = n * int256(a) + (sp * n * (n - 1)) / 2;
+            int256 rateSum = n * int256(PRICE_SCALE) + tickSum * 1e15;
+            require(rateSum > 0, "rate underflow");
+            uint256 v = uint256(size) * uint256(rateSum);
+            return roundUp ? (v + PRICE_SCALE - 1) / PRICE_SCALE : v / PRICE_SCALE;
+        }
     }
 
     function _rate(int24 t) internal pure virtual returns (uint256) {
@@ -390,12 +611,7 @@ abstract contract FrontierBookBase {
     /// @dev token0 collected and token1 paid out (floor, contract-favorable)
     /// for a uniform descending run of `n` levels starting at level `e` with
     /// per-level size `a0`. Rate linear in tick => arithmetic series.
-    function _bidRunAmounts(int24 e, int256 a0, uint256 n)
-        internal
-        view
-        virtual
-        returns (uint256 in0, uint256 out1)
-    {
+    function _bidRunAmounts(int24 e, int256 a0, uint256 n) internal view virtual returns (uint256 in0, uint256 out1) {
         int256 ni = int256(n);
         int256 sumK = (ni * (ni - 1)) / 2;
         int256 tot0 = a0 * ni;
@@ -407,27 +623,53 @@ abstract contract FrontierBookBase {
         out1 = uint256(val) / PRICE_SCALE;
     }
 
-    /// @dev Spend the payer's internal token0 credit first; transferFrom
-    /// only the shortfall.
     function _pull0(address payer, uint256 amount) internal {
-        uint256 credit = internalBalance0[payer];
-        if (credit >= amount) {
-            internalBalance0[payer] = credit - amount;
-            return;
-        }
-        if (credit > 0) internalBalance0[payer] = 0;
-        require(token0.transferFrom(payer, address(this), amount - credit), "transfer in failed");
+        _transferInExact(token0, payer, amount, "non-exact token0 transfer");
     }
 
-    /// @dev Mirror for token1.
     function _pull1(address payer, uint256 amount) internal {
-        uint256 credit = internalBalance1[payer];
-        if (credit >= amount) {
-            internalBalance1[payer] = credit - amount;
-            return;
-        }
-        if (credit > 0) internalBalance1[payer] = 0;
-        require(token1.transferFrom(payer, address(this), amount - credit), "transfer in failed");
+        _transferInExact(token1, payer, amount, "non-exact token1 transfer");
+    }
+
+    function _transferInExact(IERC20Minimal token, address payer, uint256 amount, string memory err) internal {
+        if (amount == 0) return;
+        uint256 beforeBal = token.balanceOf(address(this));
+        require(token.transferFrom(payer, address(this), amount), "transfer in failed");
+        require(token.balanceOf(address(this)) - beforeBal == amount, err);
+    }
+
+    function _feeAmount(uint256 amount, uint16 feeBps) internal pure returns (uint256) {
+        return (amount * feeBps) / FEE_BPS_DENOMINATOR;
+    }
+
+    function _maxGrossForTotal(uint256 maxTotal, uint16 feeBps) internal pure returns (uint256) {
+        if (feeBps == 0 || maxTotal == type(uint256).max) return maxTotal;
+        uint256 denominator = FEE_BPS_DENOMINATOR + uint256(feeBps);
+        return
+            (maxTotal / denominator) * FEE_BPS_DENOMINATOR + ((maxTotal % denominator) * FEE_BPS_DENOMINATOR)
+                / denominator;
+    }
+
+    function _chargeMakerFee(IERC20Minimal token, uint256 positionId, uint256 grossProceeds)
+        internal
+        returns (uint256 netProceeds, uint256 fee)
+    {
+        fee = _feeAmount(grossProceeds, makerFeeBps);
+        netProceeds = grossProceeds - fee;
+        if (fee > 0) require(token.transfer(feeRecipient, fee), "fee transfer failed");
+        if (makerFeeBps > 0) emit MakerFee(positionId, address(token), grossProceeds, fee, netProceeds, feeRecipient);
+    }
+
+    function _takerTotal(uint256 grossInput) internal view returns (uint256 totalPaid, uint256 fee) {
+        fee = _feeAmount(grossInput, takerFeeBps);
+        totalPaid = grossInput + fee;
+    }
+
+    function _payTakerFee(IERC20Minimal token, address payer, uint256 grossInput, uint256 fee, uint256 totalPaid)
+        internal
+    {
+        if (fee > 0) require(token.transfer(feeRecipient, fee), "fee transfer failed");
+        if (takerFeeBps > 0) emit TakerFee(payer, address(token), grossInput, fee, totalPaid, feeRecipient);
     }
 
     /// @dev Single write paths for the ask ledgers, keeping the bitmap in
@@ -581,7 +823,7 @@ abstract contract FrontierBookBase {
     /// the sum is a quadratic series, floored ONCE over the whole span (the
     /// single rounding is what makes O(1) payouts possible).
     /// rate(t) = 1e18 + t*1e15, same linear curve as RangeTakeProfitBook.
-    function _spanAmt1(Position storage p, int24 a, int24 b) internal view virtual returns (uint256) {
+    function _spanAmt1(Position storage p, int128 slope, int24 a, int24 b) internal view virtual returns (uint256) {
         int256 sp = int256(tickSpacing);
         int256 ja = (int256(a) - int256(p.lower)) / sp;
         int256 n = (int256(b) - int256(a)) / sp;
@@ -592,7 +834,7 @@ abstract contract FrontierBookBase {
         int256 sj2 = ((jb - 1) * jb * (2 * jb - 1) - (ja - 1) * ja * (2 * ja - 1)) / 6;
         // size(j) = L0 + m*j ; rate(j) = C0 + C1*j, with C0 = 1e18 + lower*1e15, C1 = s*1e15
         int256 l0 = int256(uint256(p.liquidity));
-        int256 m = int256(p.slope);
+        int256 m = int256(slope);
         int256 c0 = int256(PRICE_SCALE) + int256(p.lower) * 1e15;
         int256 c1 = sp * 1e15;
         int256 total = l0 * c0 * s1 + (l0 * c1 + m * c0) * sj + m * c1 * sj2;

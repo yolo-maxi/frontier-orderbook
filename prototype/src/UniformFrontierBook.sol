@@ -5,60 +5,23 @@ import {IRangeOrderBook} from "./IRangeOrderBook.sol";
 import {FrontierBookBase} from "./FrontierBookBase.sol";
 import {IFrontierHooks, FrontierHookFlags} from "./hooks/IFrontierHooks.sol";
 
-/// @title RollingFrontierBook — width-O(1) production candidate
+/// @title UniformFrontierBook — uniform-only sibling of RollingFrontierBook
 ///
-/// Exploits a property the fill-clock book leaves on the table: because a
-/// valid sell-above position is born with `lower > currentTick`, its personal
-/// filled region can never fragment — it is always a contiguous prefix
-/// `[lower, frontier)` of its range. (The GLOBAL set of intervals filled
-/// since a timestamp fragments under price oscillation, but any one
-/// position's view of it is prefix-shaped: to fill a higher interval of the
-/// range, price must first have crossed every lower one after the deposit.)
+/// Same width-O(1) rolling-frontier venue as RollingFrontierBook, but the ASK
+/// side carries NO shaped-ladder (slope) machinery: ladders are uniform-only.
+/// This is the base the deployed GeometricFrontierBook builds on, so the
+/// production book's runtime links no slope arithmetic, no second-order
+/// frontierSlope roll, no _positionSlope, and exposes no depositShaped /
+/// requoteShaped surface. (RollingFrontierBook keeps the full shaped path for
+/// the linear demo curve and the differential/shape test suites.)
 ///
-/// So instead of materializing per-interval buckets at deposit, each order
-/// contributes two endpoint deltas:
-///
-///   frontierDelta[lower] += L      (its current unfilled frontier)
-///   frontierDelta[upper] -= L
-///
-/// When price fully crosses interval [t, t+s), the liquidity whose frontier
-/// is t — exactly `frontierDelta[t]`, since earlier crossings rolled
-/// everyone else forward — is consumed, and the surviving suffix rolls:
-/// `frontierDelta[t+s] += frontierDelta[t]`. A fully consumed order's +L
-/// rolls into its own upper and cancels against its -L. Filled liquidity
-/// ceases to exist at the interval, so no-resurrection holds by construction,
-/// same as the bucket design — the bucket is just implicit now.
-///
-/// Eligibility uses the same global fill clock, keyed by UPPER boundary:
-/// `boundaryFillClock[u] > depositClock` proves interval [u-s, u) filled
-/// after deposit; prefix-contiguity then proves everything below it in the
-/// range filled too. Hence O(1) claims/cancels against a caller-supplied
-/// boundary witness, or O(log width) without one (binary search over the
-/// prefix-monotone fill predicate).
-///
-/// Complexity: deposit O(1), requote O(1), claimTo/cancelWithWitness O(1),
-/// sweeps O(endpoints crossed + bitmap words) — see _sweepUp/_sweepDown.
-///
-/// EIP-170: this contract is the deployed book; the cold maker-management
-/// surface (requotes, cancels, transfers) lives in a FrontierMakerOps
-/// companion reached via delegatecall — see FrontierBookBase for the
-/// layout-sharing contract.
-///
-/// Venue caveat: this CANNOT back a vanilla v4 hook holding real pool
-/// liquidity — only the frontier interval would be materialized in the pool,
-/// so a single swap sweeping several intervals would glide through the
-/// unmaterialized ones without converting them. It is a standalone venue
-/// (order book / vault / custom-accounting AMM).
-///
-/// Partial fills: whole-interval granularity by design ("thin ticks"); the
-/// watermark sub-interval design was prototyped and reverted — see
-/// NOTES-partial-fills.md.
-///
-/// Dust policy (differs from the bucket book): fills collect
-/// ceil(totalL * rate) per interval; claims pay floor(L * spanRate) over the
-/// claimed span in one rounding. Sum of span-floors <= sum of interval-ceils,
-/// so no overclaim; payouts remain claim-order independent per position.
-contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
+/// The bid side, the down-sweep, the sweep harness, and the maker-management
+/// forwarders are identical to RollingFrontierBook by construction — bids were
+/// always uniform — so only the ask-side deposit/claim/up-sweep/views differ
+/// (they call the flat `_addFlatOrder`/`_askRun`/`_askSpan` helpers in
+/// FrontierBookBase instead of the slope-bearing ones). Keep the two books'
+/// shared surface in lockstep when editing either.
+contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// @notice Companion contract executing requotes/cancels/transfers via
     /// delegatecall (same storage layout + immutables; see FrontierBookBase).
     address public immutable makerOps;
@@ -91,34 +54,22 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     // ------------------------------------------------------------------
-    // Orders
+    // Orders (ask side, uniform only)
     // ------------------------------------------------------------------
 
-    /// @notice O(1): two endpoint writes regardless of range width.
+    /// @notice O(1): two endpoint writes regardless of range width. `liquidity`
+    /// rests at every covered level (uniform ladder).
     function deposit(int24 lower, int24 upper, uint128 liquidity) external returns (uint256 positionId) {
-        return depositShaped(lower, upper, liquidity, 0);
-    }
-
-    /// @notice O(1) SHAPED ladder: size at level j is `liquidity + slope*j`
-    /// (piecewise-linear profiles compose from multiple positions). Four
-    /// endpoint writes regardless of range width. Every level's size must be
-    /// >= 1 so covered levels are always visible to the sweep bitmap.
-    function depositShaped(int24 lower, int24 upper, uint128 liquidity, int128 slope)
-        public
-        returns (uint256 positionId)
-    {
         require(liquidity > 0, "zero liquidity");
         _checkRange(lower, upper);
-        _checkShape(lower, upper, liquidity, slope);
-        if (address(hooks) != address(0)) _callBeforeDepositHook(msg.sender, lower, upper, liquidity, slope, false);
+        if (address(hooks) != address(0)) _callBeforeDepositHook(msg.sender, lower, upper, liquidity, 0, false);
 
-        _addOrder(lower, upper, liquidity, slope);
+        _addFlatOrder(lower, upper, liquidity);
 
         positionId = _nextPositionId++;
         _storePosition(positionId, msg.sender, lower, upper, liquidity, fillClock, lower, false);
-        if (slope != 0) _positionSlope[positionId] = slope;
 
-        uint256 amount0 = _principalSpan(liquidity, slope, 0, _levels(lower, upper));
+        uint256 amount0 = uint256(liquidity) * uint256(_levels(lower, upper));
         _pull0(msg.sender, amount0);
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
         if (address(hooks) != address(0)) _callAfterDepositHook(msg.sender, positionId, false);
@@ -137,7 +88,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         require((target - p.lower) % tickSpacing == 0, "unaligned target");
         require(_highSince(p.depositClock) >= target, "not filled");
 
-        (proceeds1,) = _chargeMakerFee(token1, positionId, _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, target));
+        (proceeds1,) = _chargeMakerFee(token1, positionId, _askSpan(p, p.claimedUpper, target));
         p.claimedUpper = target;
 
         if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
@@ -165,6 +116,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     // ------------------------------------------------------------------
     // BID side: buy token0 with token1, resting below the price
+    // (identical to RollingFrontierBook — bids are always uniform)
     // ------------------------------------------------------------------
 
     /// @notice O(1) bid: `liquidity` token0-units wanted per level over
@@ -235,11 +187,8 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     // ------------------------------------------------------------------
     // Maker management (requotes / cancels / transfers): delegated to the
-    // FrontierMakerOps companion. Each forwarder replays the exact calldata
-    // against the module's code in this contract's storage context, then
-    // returns/reverts with whatever the module produced. The assembly
-    // `return` exits before the declared return values are touched, so the
-    // signatures below are pure ABI surface.
+    // UniformMakerOps companion. Identical forwarding to RollingFrontierBook,
+    // minus the shaped requoteShaped entrypoint (uniform book has no shapes).
     // ------------------------------------------------------------------
 
     function transferPosition(uint256, address) external {
@@ -247,10 +196,6 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     function requote(uint256, int24, int24, uint128) external {
-        _makerOpsCall();
-    }
-
-    function requoteShaped(uint256, int24, int24, uint128, int128) external {
         _makerOpsCall();
     }
 
@@ -291,9 +236,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @notice Unbounded sweep (interface compatibility). Downward moves are
     /// free pointer retreats; depositors should BUNDLE a retreat with their
-    /// deposit (retreats change no fills, stamps, or deltas, so they are
-    /// harmless to third parties — and the bundle defeats pointer-pinning
-    /// griefing, since a pin cannot land inside someone else's transaction).
+    /// deposit (retreats change no fills, stamps, or deltas).
     function moveTickTo(int24 newTick) external {
         sweep(newTick, type(uint256).max);
     }
@@ -306,12 +249,8 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @notice Taker entry, both directions. UP-sweeps buy token0 from asks
     /// (pay token1); DOWN-sweeps sell token0 into bids (pay token0, receive
-    /// token1). Walks the side's tick bitmap so empty price regions cost one
-    /// word-read per 256 intervals. Crosses at most `maxFills` levels and
-    /// never commits more than `maxPay` of the input token: on either budget
-    /// the pointer parks adjacent to the first unfilled level and a later
-    /// sweep resumes exactly there. Reverts if total output < `minOut` or
-    /// past `deadline`. Never touches positions.
+    /// token1). Identical harness to RollingFrontierBook; only _sweepUp is
+    /// uniform here.
     function sweepWithLimits(int24 target, uint256 maxFills, uint256 maxPay, uint256 minOut, uint256 deadline)
         public
         returns (int24 reached, uint256 paid, uint256 received)
@@ -350,22 +289,14 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         );
     }
 
-    /// @dev ENDPOINT-TELESCOPED up-sweep ("tick ozempic"): between order
-    /// endpoints (set bits), aggregate liquidity evolves affinely
-    /// (A(e+k) = a0 + k*S), so a whole run of thin levels settles with ONE
-    /// closed-form series and ONE absorption — no per-level state
-    /// transitions. The storage end-state is identical to the per-level
-    /// roll (survivors materialize once at the sweep end / park point), so
-    /// claims, cancels, and views are unchanged. Per-boundary clock stamps
-    /// are replaced by one high-water record per liquidity-moving sweep.
-    /// Cost: O(endpoints crossed + bitmap words), independent of tick count.
-    ///
-    /// Mutable up-sweep state lives in memory, not the stack: the loop
-    /// plus the park branch otherwise exceeds via-ir's stack budget once the
-    /// optimizer inlines _runAmounts/_nextActive into it.
+    /// @dev ENDPOINT-TELESCOPED up-sweep, uniform-only. Between order endpoints
+    /// (set bits) aggregate ask liquidity is CONSTANT (no slope), so a whole
+    /// run of thin levels settles with ONE closed form and ONE absorption.
+    /// The storage end-state matches the per-level roll (survivors materialize
+    /// once at the sweep end / park point). One high-water record per
+    /// liquidity-moving sweep. Cost: O(endpoints crossed + bitmap words).
     struct UpSweep {
         int256 B; // rolled base: size sold at the previous level
-        int256 S; // absolute per-level slope in effect
         uint256 steps;
         uint64 clock;
         bool parked;
@@ -388,33 +319,26 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
             int24 runEnd = found2 ? e2 : target;
 
             // absorb endpoint e (locally; storage zeroed only if we proceed)
-            int256 S2 = S.S + frontierSlope[e];
-            int256 a0 = S.B + frontierDelta[e] + S2; // size sold at level e
+            int256 a0 = S.B + frontierDelta[e]; // uniform: size constant across the run
+            require(a0 >= 0, "negative run");
             uint256 n = uint256(uint24(runEnd - e)) / uint256(uint24(tickSpacing));
-            {
-                int256 aLast = a0 + int256(n - 1) * S2;
-                // endpoints of an affine run bound every level in it
-                require(a0 >= 0 && aLast >= 0, "negative run");
-            }
 
-            (uint256 out0, uint256 cost1) = _runAmounts(e, a0, S2, n);
+            (uint256 out0, uint256 cost1) = _askRun(e, a0, n);
 
             if (S.steps == maxSteps || S.owed1 + cost1 > maxPay) {
-                _parkUp(S, e, a0, S2, n, maxSteps, maxPay, oldTick);
+                _parkUp(S, e, a0, n, maxSteps, maxPay, oldTick);
                 break;
             }
 
-            _writeDelta(e, 0);
-            _writeSlope(e, 0);
+            _writeFlatDelta(e, 0);
             if (out0 > 0) {
                 S.owed0 += out0;
                 S.owed1 += cost1;
                 if (S.clock == 0) S.clock = ++fillClock;
-                emit RunFilled(e, runEnd, uint256(a0), S2, S.clock);
+                emit RunFilled(e, runEnd, uint256(a0), 0, S.clock);
             }
 
-            S.B = a0 + int256(n - 1) * S2; // arrival base at runEnd
-            S.S = S2;
+            S.B = a0; // uniform: arrival base at runEnd unchanged
             unchecked {
                 S.steps++;
             }
@@ -424,8 +348,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
         if (!S.parked) {
             // materialize survivors once at the sweep end
-            if (S.B != 0) _writeDelta(target, frontierDelta[target] + S.B);
-            if (S.S != 0) _writeSlope(target, frontierSlope[target] + S.S);
+            if (S.B != 0) _writeFlatDelta(target, frontierDelta[target] + S.B);
         }
         if (S.clock != 0) _pushHighWater(S.clock, S.reached);
         return (S.reached, S.owed1, S.owed0);
@@ -433,37 +356,27 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @dev Budget/step-limit exhausted at endpoint `e`: fill the affordable
     /// prefix of the run and park before the first unfilled level.
-    function _parkUp(
-        UpSweep memory S,
-        int24 e,
-        int256 a0,
-        int256 S2,
-        uint256 n,
-        uint256 maxSteps,
-        uint256 maxPay,
-        int24 oldTick
-    ) internal {
+    function _parkUp(UpSweep memory S, int24 e, int256 a0, uint256 n, uint256 maxSteps, uint256 maxPay, int24 oldTick)
+        internal
+    {
         uint256 fit = 0;
         if (S.steps != maxSteps && maxPay > S.owed1) {
-            fit = _maxAffordable(e, a0, S2, n, maxPay - S.owed1);
+            fit = _maxAffordable(e, a0, n, maxPay - S.owed1);
         }
         if (fit > 0) {
-            (uint256 fo0, uint256 fc1) = _runAmounts(e, a0, S2, fit);
+            (uint256 fo0, uint256 fc1) = _askRun(e, a0, fit);
             S.owed0 += fo0;
             S.owed1 += fc1;
             if (S.clock == 0) S.clock = ++fillClock;
             int24 park = e + int24(uint24(fit)) * tickSpacing;
-            emit RunFilled(e, park, uint256(a0), S2, S.clock);
-            _writeDelta(e, 0);
-            _writeSlope(e, 0);
+            emit RunFilled(e, park, uint256(a0), 0, S.clock);
+            _writeFlatDelta(e, 0);
             // survivors materialize at the park point, per-level-equivalent
-            _writeDelta(park, frontierDelta[park] + a0 + int256(fit - 1) * S2);
-            _writeSlope(park, frontierSlope[park] + S2);
+            _writeFlatDelta(park, frontierDelta[park] + a0);
             S.reached = park;
         } else {
             // park before this endpoint; leave the rolled state on it
-            if (S.B != 0) _writeDelta(e, frontierDelta[e] + S.B);
-            if (S.S != 0) _writeSlope(e, frontierSlope[e] + S.S);
+            if (S.B != 0) _writeFlatDelta(e, frontierDelta[e] + S.B);
             S.reached = e > oldTick ? e : oldTick;
         }
         S.parked = true;
@@ -471,34 +384,22 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @dev Largest prefix m <= n of the run whose cost fits the budget
     /// (binary search over the closed form).
-    function _maxAffordable(int24 e, int256 a0, int256 slope, uint256 n, uint256 budget)
-        internal
-        view
-        returns (uint256 m)
-    {
+    function _maxAffordable(int24 e, int256 a0, uint256 n, uint256 budget) internal view returns (uint256 m) {
         uint256 lo = 0;
         uint256 hi = n;
         while (lo < hi) {
             uint256 mid = (lo + hi + 1) / 2;
-            (, uint256 c) = _runAmounts(e, a0, slope, mid);
+            (, uint256 c) = _askRun(e, a0, mid);
             if (c <= budget) lo = mid;
             else hi = mid - 1;
         }
         return lo;
     }
 
-    /// @dev ENDPOINT-TELESCOPED down-sweep, exact mirror of _sweepUp: bid
-    /// sizes are uniform between endpoints (no shapes on the bid side), so
-    /// a whole run of thin levels settles with ONE arithmetic series and
-    /// ONE absorption, the rolled base carried locally. Storage end-state
-    /// is identical to the per-level roll (survivors materialize once at
-    /// the park point / sweep end). Per-boundary clock stamps are replaced
-    /// by one low-water record per liquidity-moving sweep.
-    /// Cost: O(endpoints crossed + bitmap words), independent of tick count.
-    ///
-    /// Mutable down-sweep state lives in memory, not the stack: the
-    /// loop plus the park branch otherwise exceeds via-ir's stack budget
-    /// once the optimizer inlines _bidRunAmounts/_prevActive into it.
+    /// @dev ENDPOINT-TELESCOPED down-sweep, exact mirror of RollingFrontierBook
+    /// (bids were always uniform). One arithmetic series + one absorption per
+    /// run, the rolled base carried locally; one low-water record per
+    /// liquidity-moving sweep.
     struct DownSweep {
         int256 B; // rolled base: size bought at the previous (higher) level
         uint256 steps;
@@ -612,7 +513,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         if (!p.live || p.isBid) return 0;
         int24 frontier = _frontier(p);
         if (frontier <= p.claimedUpper) return 0;
-        uint256 gross = _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier);
+        uint256 gross = _askSpan(p, p.claimedUpper, frontier);
         return gross - _feeAmount(gross, makerFeeBps);
     }
 
@@ -620,7 +521,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         Position storage p = _positions[positionId];
         if (!p.live || p.isBid) return 0;
         int24 frontier = _frontier(p);
-        return _principalSpan(p.liquidity, _positionSlope[positionId], _levelOf(p, frontier), _levels(p.lower, p.upper));
+        return uint256(p.liquidity) * uint256(_levels(p.lower, p.upper) - _levelOf(p, frontier));
     }
 
     function isConsumedFor(uint256 positionId, int24 lowerTick) external view returns (bool) {
@@ -629,8 +530,6 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     /// @notice The book's price curve at a tick (X18 token1 per token0).
-    /// Periphery contracts (YieldRangeLP, FrontierPositionNFT) need this for
-    /// cost estimation across curve types; FrontierLens uses it for quotes.
     function rateAt(int24 t) external view returns (uint256) {
         return _rate(t);
     }
@@ -669,16 +568,12 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     /// @dev Aggregate live liquidity covering [lowerTick, lowerTick+s) =
-    /// prefix sum of endpoint deltas: +L counted iff frontier <= t, -L
-    /// cancels it iff upper <= t — i.e. exactly orders with
-    /// frontier <= t < upper.
+    /// prefix sum of endpoint deltas (uniform: no slope accumulator).
     function activeLiquidity(int24 lowerTick) external view returns (uint128) {
         if (_minBoundary == type(int24).max || lowerTick < _minBoundary) return 0;
         int256 sum;
-        int256 slope;
         for (int24 u = _minBoundary; u <= lowerTick; u += tickSpacing) {
-            slope += frontierSlope[u];
-            sum += frontierDelta[u] + slope;
+            sum += frontierDelta[u];
         }
         require(sum >= 0, "negative active");
         return uint128(uint256(sum));

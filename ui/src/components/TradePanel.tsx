@@ -4,7 +4,8 @@ import { lensAbi } from "../abi/lens";
 import { erc20Abi } from "../abi/erc20";
 import { routerAbi } from "../abi/router";
 import { bookAbi } from "../abi/book";
-import { alignTick, fmtAmount, fmtPrice, parseAmount, priceToTick, tickToPrice } from "../lib/format";
+import { alignTick, amountToInput, fmtAmount, fmtPrice, parseAmount, priceToTick, tickToPrice } from "../lib/format";
+import { baseDecimals, quoteDecimals } from "../lib/config";
 
 type Side = "buy" | "sell";
 
@@ -20,6 +21,8 @@ const QUOTE_MAX_LEVELS = 500n;
 
 export function TradePanel() {
   const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview, market } = useApp();
+  const baseDec = baseDecimals(cfg);
+  const quoteDec = quoteDecimals(cfg);
   const [side, setSide] = useState<Side>("buy");
   const [mode, setMode] = useState<"market" | "limit">("market");
   const [amountStr, setAmountStr] = useState("");
@@ -41,7 +44,7 @@ export function TradePanel() {
   }, [mode, quote, side, setPreview]);
   useEffect(() => () => setPreview(null), [setPreview]);
 
-  const amountIn = parseAmount(amountStr);
+  const amountIn = parseAmount(amountStr, side === "buy" ? quoteDec : baseDec);
   const tokenIn = side === "buy" ? cfg.contracts.usdc : cfg.contracts.weth;
   const tokenOut = side === "buy" ? cfg.contracts.weth : cfg.contracts.usdc;
   const balanceIn = side === "buy" ? balances.usdc : balances.weth;
@@ -119,8 +122,8 @@ export function TradePanel() {
 
   const derived = useMemo(() => {
     if (!quote || amountIn === null || amountIn === 0n || quote.out === 0n) return null;
-    const inF = Number(quote.spent) / 1e18;
-    const outF = Number(quote.out) / 1e18;
+    const inF = Number(quote.spent) / 10 ** (side === "buy" ? quoteDec : baseDec);
+    const outF = Number(quote.out) / 10 ** (side === "buy" ? baseDec : quoteDec);
     const avgPrice = side === "buy" ? inF / outF : outF / inF;
     const impact =
       mid !== null && mid > 0
@@ -138,7 +141,7 @@ export function TradePanel() {
   // a hint to use Market (or a better price).
   const spacing = summary?.tickSpacing ?? 1;
   const curTick = summary?.currentTick ?? null;
-  const amountWeth = parseAmount(amountStr); // limit amounts are in WETH both sides
+  const amountWeth = parseAmount(amountStr, baseDec); // limit amounts are in base-token units both sides
   const limitPlan = useMemo(() => {
     if (mode !== "limit" || curTick === null) return null;
     const p = Number(limitPriceStr);
@@ -194,7 +197,7 @@ export function TradePanel() {
 
   const onPlaceLimit = async () => {
     if (!limitPlan || limitPlan.error !== null || amountWeth === null) return;
-    const label = `Limit ${side} ${fmtAmount(amountWeth, 4)} ${market.baseSymbol} @ ${fmtPrice(tickToPrice(limitPlan.tick), 3)}`;
+    const label = `Limit ${side} ${fmtAmount(amountWeth, 4, baseDec)} ${market.baseSymbol} @ ${fmtPrice(tickToPrice(limitPlan.tick), 3)}`;
     const ok = await sendTx(label, () =>
       wallet.writeContract({
         address: cfg.contracts.book,
@@ -265,7 +268,7 @@ export function TradePanel() {
 
   const setPct = (pct: number) => {
     const v = (balanceIn * BigInt(pct)) / 100n;
-    setAmountStr((Number(v) / 1e18).toString());
+    setAmountStr(amountToInput(v, side === "buy" ? quoteDec : baseDec));
   };
 
   return (
@@ -332,7 +335,7 @@ export function TradePanel() {
         <span className="field-label">
           {mode === "limit" ? <>Amount <span className="dim">({market.baseSymbol})</span></> : <>Spend <span className="dim">({side === "buy" ? market.quoteSymbol : market.baseSymbol})</span></>}
           <span className="field-bal num" onClick={() => setPct(100)}>
-            bal {fmtAmount(balanceIn, side === "buy" ? 2 : 4)}
+            bal {fmtAmount(balanceIn, side === "buy" ? 2 : 4, side === "buy" ? quoteDec : baseDec)}
           </span>
         </span>
         <input
@@ -362,7 +365,7 @@ export function TradePanel() {
           <div className="qrow">
             <span className="dim">You escrow</span>
             <span>
-              {limitPlan ? fmtAmount(limitPlan.cost, side === "buy" ? 2 : 4) : "—"}{" "}
+              {limitPlan ? fmtAmount(limitPlan.cost, side === "buy" ? 2 : 4, side === "buy" ? quoteDec : baseDec) : "—"}{" "}
               <span className="dim">{limitPaySymbol}</span>
             </span>
           </div>
@@ -371,8 +374,8 @@ export function TradePanel() {
             <span>
               {limitPlan && amountWeth !== null
                 ? side === "buy"
-                  ? `${fmtAmount(amountWeth, 4)} ${market.limitBuyReceive}`
-                  : `~${fmtAmount((amountWeth * (BigInt(1e18) + BigInt(limitPlan.tick) * BigInt(1e15))) / BigInt(1e18), 2)} ${market.limitSellReceive}`
+                  ? `${fmtAmount(amountWeth, 4, baseDec)} ${market.limitBuyReceive}`
+                  : `~${fmtAmount((amountWeth * (BigInt(1e18) + BigInt(limitPlan.tick) * BigInt(1e15))) / BigInt(1e18), 2, quoteDec)} ${market.limitSellReceive}`
                 : "—"}
             </span>
           </div>
@@ -386,7 +389,7 @@ export function TradePanel() {
         <div className="qrow">
           <span className="dim">Receive (est.)</span>
           <span>
-            {quote ? fmtAmount(quote.out, side === "buy" ? 5 : 2) : "—"}{" "}
+            {quote ? fmtAmount(quote.out, side === "buy" ? 5 : 2, side === "buy" ? baseDec : quoteDec) : "—"}{" "}
             <span className="dim">{side === "buy" ? market.baseSymbol : market.quoteSymbol}</span>
           </span>
         </div>
@@ -406,7 +409,7 @@ export function TradePanel() {
         </div>
         <div className="qrow">
           <span className="dim">Min received</span>
-          <span>{derived ? fmtAmount(derived.minOut, side === "buy" ? 5 : 2) : "—"}</span>
+          <span>{derived ? fmtAmount(derived.minOut, side === "buy" ? 5 : 2, side === "buy" ? baseDec : quoteDec) : "—"}</span>
         </div>
         <div className="qrow">
           <span className="dim">Slippage</span>
@@ -429,7 +432,7 @@ export function TradePanel() {
 
       {derived?.partial && mode === "market" && (
         <div className="note warn">
-          Book depth covers only {fmtAmount(quote!.spent, 2)} of your input — the remainder
+          Book depth covers only {fmtAmount(quote!.spent, 2, side === "buy" ? quoteDec : baseDec)} of your input — the remainder
           stays in your wallet.
         </div>
       )}

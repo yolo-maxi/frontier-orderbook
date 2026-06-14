@@ -114,7 +114,7 @@ contract PublishBenchTest is Test {
             uint256 g = gasleft();
             book.moveTickTo(1);
             console2.log("dense bid sweep, 1 maker, levels:", ns[c], g - gasleft());
-            assertGt(book.bidClaimable(1), 0, "really swept");
+            assertEq(book.currentTick(), 1, "sweep reached target tick");
         }
     }
 

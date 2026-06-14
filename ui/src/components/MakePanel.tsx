@@ -4,12 +4,14 @@ import { bookAbi } from "../abi/book";
 import { erc20Abi } from "../abi/erc20";
 import {
   alignTick,
+  amountToInput,
   fmtAmount,
   fmtPrice,
   parseAmount,
   priceToTick,
   tickToPrice,
 } from "../lib/format";
+import { baseDecimals, quoteDecimals } from "../lib/config";
 
 type Side = "bid" | "ask";
 
@@ -29,6 +31,8 @@ interface Plan {
 
 export function MakePanel() {
   const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview, market } = useApp();
+  const baseDec = baseDecimals(cfg);
+  const quoteDec = quoteDecimals(cfg);
   const [side, setSide] = useState<Side>("ask");
   const [fromStr, setFromStr] = useState("");
   const [toStr, setToStr] = useState("");
@@ -65,7 +69,7 @@ export function MakePanel() {
     setFrontLoaded(false);
   };
 
-  const sizePerLevel = parseAmount(sizeStr);
+  const sizePerLevel = parseAmount(sizeStr, baseDec);
 
   // arrow keys nudge any numeric field; shift = 10x increment
   const onArrow =
@@ -142,7 +146,7 @@ export function MakePanel() {
   const totalForSize = plan && plan.cost > 0n ? plan.cost : null;
   const sizeFromTotal = (tStr: string): string | null => {
     if (plan === null || plan.n <= 0) return null;
-    const t = parseAmount(tStr);
+    const t = parseAmount(tStr, side === "ask" ? baseDec : quoteDec);
     if (t === null) return null;
     const nB = BigInt(plan.n);
     let size: bigint;
@@ -154,13 +158,13 @@ export function MakePanel() {
       if (rateSum <= 0n) return null;
       size = (t * E18) / rateSum;
     }
-    return (Number(size) / 1e18).toString();
+    return amountToInput(size, baseDec);
   };
 
   // keep the non-edited field in sync
   useEffect(() => {
     if (editingTotal) return;
-    setTotalStr(totalForSize !== null ? (Number(totalForSize) / 1e18).toFixed(side === "ask" ? 4 : 2) : "");
+    setTotalStr(totalForSize !== null ? amountToInput(totalForSize, side === "ask" ? baseDec : quoteDec) : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalForSize?.toString(), editingTotal, side]);
 
@@ -307,7 +311,7 @@ export function MakePanel() {
         <label className="field">
           <span className="field-label">
             Total <span className="dim">({paySymbol})</span>
-            <span className="field-bal num">bal {fmtAmount(payBalance, side === "ask" ? 4 : 2)}</span>
+            <span className="field-bal num">bal {fmtAmount(payBalance, side === "ask" ? 4 : 2, side === "ask" ? baseDec : quoteDec)}</span>
           </span>
           <input
             className="input num"
@@ -369,12 +373,12 @@ export function MakePanel() {
         </div>
         <div className="qrow">
           <span className="dim">Total {side === "ask" ? market.baseSymbol : market.quoteSymbol} required</span>
-          <span>{plan && plan.cost > 0n ? fmtAmount(plan.cost, side === "ask" ? 4 : 2) : "—"}</span>
+          <span>{plan && plan.cost > 0n ? fmtAmount(plan.cost, side === "ask" ? 4 : 2, side === "ask" ? baseDec : quoteDec) : "—"}</span>
         </div>
         {side === "bid" && plan && plan.cost > 0n && (
           <div className="qrow">
             <span className="dim">Total {market.baseSymbol} bid for</span>
-            <span>{fmtAmount(plan.liquidity * BigInt(plan.n), 4)}</span>
+            <span>{fmtAmount(plan.liquidity * BigInt(plan.n), 4, baseDec)}</span>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApp } from "../state/app";
 import { fmtAmount, shortAddr } from "../lib/format";
+import { baseDecimals, quoteDecimals } from "../lib/config";
 import { Brand } from "./Brand";
 import type { MarketMode } from "../lib/markets";
 
@@ -25,6 +26,10 @@ export function Header() {
   const [copied, setCopied] = useState(false);
   const [fauceting, setFauceting] = useState(false);
 
+  const baseDec = baseDecimals(cfg);
+  const quoteDec = quoteDecimals(cfg);
+  const question = cfg.darkbox?.market?.question;
+  const faucetAvailable = !cfg.darkbox;
   const identBg = useMemo(() => identGradient(account.address), [account.address]);
 
   const copy = () => {
@@ -74,16 +79,16 @@ export function Header() {
         </div>
         <span className="net">
           <span className={`dot ${rpcError ? "dot-bad" : configured ? "dot-ok" : "dot-warn"}`} />
-          {cfg.name} <span className="dim num">#{cfg.chainId}</span>
+          {question ?? cfg.name} <span className="dim num">#{cfg.chainId}</span>
         </span>
       </div>
       <div className="hdr-right">
         <div className="bal-group num">
           <span className="bal">
-            <TokenGlyph sym="base" glyph={market.baseGlyph} /> {fmtAmount(balances.weth, 4)}
+            <TokenGlyph sym="base" glyph={market.baseGlyph} /> {fmtAmount(balances.weth, 4, baseDec)}
           </span>
           <span className="bal">
-            <TokenGlyph sym="quote" glyph={market.quoteGlyph} /> {fmtAmount(balances.usdc, 2)}
+            <TokenGlyph sym="quote" glyph={market.quoteGlyph} /> {fmtAmount(balances.usdc, 2, quoteDec)}
           </span>
           <span className="bal bal-gas" title="Native gas balance">
             <TokenGlyph sym="eth" glyph="Ξ" /> {fmtAmount(balances.eth, 3)}
@@ -96,10 +101,10 @@ export function Header() {
         <button
           className="btn btn-accent"
           onClick={onFaucet}
-          disabled={!configured || fauceting || busy !== null}
-          title={market.faucetTitle}
+          disabled={!configured || !faucetAvailable || fauceting || busy !== null}
+          title={faucetAvailable ? market.faucetTitle : "DarkBox market tokens come from seeded/split collateral, not the demo faucet"}
         >
-          {fauceting ? "Minting…" : "Faucet"}
+          {!faucetAvailable ? "Seeded market" : fauceting ? "Minting…" : "Faucet"}
         </button>
       </div>
     </header>

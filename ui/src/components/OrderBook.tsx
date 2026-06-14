@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef } from "react";
 import { useApp } from "../state/app";
 import { fmtPrice, niceStep, stepDecimals, tickToPrice } from "../lib/format";
+import { baseDecimals } from "../lib/config";
 import { formatUnits } from "viem";
 
 interface Bucket {
@@ -34,7 +35,8 @@ function bucketize(
 }
 
 export function OrderBook() {
-  const { summary, depth, preview, market } = useApp();
+  const { cfg, summary, depth, preview, market } = useApp();
+  const baseDec = baseDecimals(cfg);
   // price range of the ladder being configured in Make (if any)
   const previewRange =
     preview?.kind === "make" && preview.lowerTick !== undefined && preview.upperTick !== undefined
@@ -69,10 +71,10 @@ export function OrderBook() {
     const bids: { price: number; size: number }[] = [];
     for (const l of depth) {
       if (l.askSize > 0n) {
-        asks.push({ price: tickToPrice(l.tick), size: Number(formatUnits(l.askSize, 18)) });
+        asks.push({ price: tickToPrice(l.tick), size: Number(formatUnits(l.askSize, baseDec)) });
       }
       if (l.bidSize > 0n) {
-        bids.push({ price: tickToPrice(l.tick), size: Number(formatUnits(l.bidSize, 18)) });
+        bids.push({ price: tickToPrice(l.tick), size: Number(formatUnits(l.bidSize, baseDec)) });
       }
     }
     const sideSpan = (xs: { price: number }[]) =>

@@ -239,10 +239,13 @@ contract FrontierVenueTest is Test {
         vm.prank(taker);
         b.approve(address(geo), type(uint256).max);
 
-        // the geometric variant really is wired in: shaped ladders refused
-        vm.prank(bob);
-        vm.expectRevert(bytes("geometric: uniform only"));
-        geo.depositShaped(1, 4, L, 1);
+        // the geometric variant really is wired in: the shaped-ladder (slope)
+        // surface is absent from the uniform-only runtime — no depositShaped
+        // selector exists on the book at all.
+        (bool shapedOk,) = address(geo).call(
+            abi.encodeWithSignature("depositShaped(int24,int24,uint128,int128)", int24(1), int24(4), L, int128(1))
+        );
+        assertFalse(shapedOk, "shaped surface removed from geometric book");
 
         // end-to-end fill settles to the telescoped geometric value
         vm.prank(bob);

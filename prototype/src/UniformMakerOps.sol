@@ -4,20 +4,19 @@ pragma solidity ^0.8.24;
 import {FrontierBookBase} from "./FrontierBookBase.sol";
 import {FrontierHookFlags, IFrontierHooks} from "./hooks/IFrontierHooks.sol";
 
-/// @title FrontierMakerOps — the book's cold maker-management surface
+/// @title UniformMakerOps — uniform-only sibling of FrontierMakerOps
 ///
-/// EIP-170 companion to RollingFrontierBook: requotes, cancels, and
-/// position transfers execute here via delegatecall from the book, against
-/// the book's storage. Deployed with the same (token0, token1, spacing,
-/// hooks, permissions) immutables as the book(s) it serves — delegatecalled
-/// code reads its OWN immutables, so matching them is what makes this
-/// module shareable by every book with the same config (the factory
-/// memoizes one per config; the initial tick is irrelevant here).
+/// The cold maker-management companion for the uniform-curve book
+/// (UniformFrontierBook and the deployed GeometricFrontierBook). Same
+/// delegatecall contract as FrontierMakerOps, but the ASK-side requote/cancel
+/// carry no slope: ladders are uniform, so there is no requoteShaped surface
+/// and no _positionSlope / frontierSlope arithmetic. The bid-side ops are
+/// identical to FrontierMakerOps (bids were always uniform).
 ///
-/// Called directly (not via a book), every entrypoint hits empty storage
-/// and reverts on the `live` check — the module holds no funds and has no
-/// deposit surface, so it is inert standalone.
-contract FrontierMakerOps is FrontierBookBase {
+/// Deployed with the same immutables as the book(s) it serves (delegatecalled
+/// code reads its OWN immutables). Called directly it hits empty storage and
+/// reverts on the `live` check — it holds no funds and has no deposit surface.
+contract UniformMakerOps is FrontierBookBase {
     constructor(
         address _token0,
         address _token1,
@@ -34,8 +33,7 @@ contract FrontierMakerOps is FrontierBookBase {
     {}
 
     /// @notice Transfer position ownership (claims/refunds follow the new
-    /// owner). Makes positions composable assets: periphery contracts can
-    /// build positions and hand them to users; wrappers can tokenize them.
+    /// owner). Identical to FrontierMakerOps.
     function transferPosition(uint256 positionId, address to) external {
         Position storage p = _positions[positionId];
         require(p.live, "not live");
@@ -45,47 +43,32 @@ contract FrontierMakerOps is FrontierBookBase {
         emit PositionTransferred(positionId, msg.sender, to);
     }
 
-    /// @notice O(1) re-price for quoters: move a completely UNFILLED order to
-    /// a new range (and optionally new size) in place — four endpoint-delta
-    /// writes, no token transfers when the principal is unchanged. The
-    /// position's clock refreshes, so it joins the new levels' current
-    /// lifecycles exactly as a fresh deposit would. Reverts if any interval
-    /// has filled (settle via claim/cancel first).
+    /// @notice O(1) re-price (and optionally re-size) of a completely UNFILLED
+    /// uniform order; tokens settle difference-only, clock refreshes.
     function requote(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external {
-        requoteShaped(positionId, newLower, newUpper, newLiquidity, 0);
-    }
-
-    /// @notice O(1) re-price (and optionally re-shape/re-size) of a
-    /// completely unfilled order; tokens settle difference-only.
-    function requoteShaped(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity, int128 newSlope)
-        public
-    {
         Position storage p = _positions[positionId];
         require(p.live, "not live");
         require(!p.isBid, "use bid methods");
         _authOwner(p.owner);
+        require(newLiquidity > 0, "zero liquidity");
         // completely unfilled <=> first interval not filled since deposit
         // (prefix-contiguity: nothing above it can have filled either)
         require(_highSince(p.depositClock) < p.lower + tickSpacing, "partially filled");
         _checkRange(newLower, newUpper);
-        _checkShape(newLower, newUpper, newLiquidity, newSlope);
-        int128 oldSlope = _positionSlope[positionId];
 
         // remove old endpoint entries (order unfilled: frontier == lower),
         // place new ones
-        _removeOrderAt(p.lower, p.lower, p.upper, p.liquidity, oldSlope);
-        _addOrder(newLower, newUpper, newLiquidity, newSlope);
+        _removeFlatOrderAt(p.lower, p.upper, p.liquidity);
+        _addFlatOrder(newLower, newUpper, newLiquidity);
 
-        uint256 oldAmount0 = _principalSpan(p.liquidity, oldSlope, 0, _levels(p.lower, p.upper));
-        uint256 newAmount0 = _principalSpan(newLiquidity, newSlope, 0, _levels(newLower, newUpper));
+        uint256 oldAmount0 = uint256(p.liquidity) * uint256(_levels(p.lower, p.upper));
+        uint256 newAmount0 = uint256(newLiquidity) * uint256(_levels(newLower, newUpper));
 
         p.lower = newLower;
         p.upper = newUpper;
         p.liquidity = newLiquidity;
         p.depositClock = fillClock;
         p.claimedUpper = newLower;
-        if (newSlope == 0) delete _positionSlope[positionId];
-        else _positionSlope[positionId] = newSlope;
 
         if (newAmount0 > oldAmount0) {
             _pull0(msg.sender, newAmount0 - oldAmount0);
@@ -96,7 +79,7 @@ contract FrontierMakerOps is FrontierBookBase {
     }
 
     /// @notice O(1) re-price of a completely unfilled bid; token1 settles
-    /// difference-only; clock refresh preserves freshness.
+    /// difference-only. Identical to FrontierMakerOps.
     function requoteBid(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external {
         Position storage p = _positions[positionId];
         require(p.live, "not live");
@@ -152,19 +135,16 @@ contract FrontierMakerOps is FrontierBookBase {
         }
 
         if (frontier > p.claimedUpper) {
-            (proceeds1,) =
-                _chargeMakerFee(token1, positionId, _spanAmt1(p, _positionSlope[positionId], p.claimedUpper, frontier));
+            (proceeds1,) = _chargeMakerFee(token1, positionId, _askSpan(p, p.claimedUpper, frontier));
             p.claimedUpper = frontier;
         }
         if (frontier < p.upper) {
-            int128 slope = _positionSlope[positionId];
-            _removeOrderAt(frontier, p.lower, p.upper, p.liquidity, slope);
-            principal0 = _principalSpan(p.liquidity, slope, _levelOf(p, frontier), _levels(p.lower, p.upper));
+            _removeFlatOrderAt(frontier, p.upper, p.liquidity);
+            principal0 = uint256(p.liquidity) * uint256(_levels(p.lower, p.upper) - _levelOf(p, frontier));
         }
         // if frontier == upper the order fully consumed: its +L already rolled
         // into upper and self-cancelled against its -L; nothing to remove.
         p.live = false;
-        delete _positionSlope[positionId];
 
         if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
         if (principal0 > 0) require(token0.transfer(p.owner, principal0), "transfer out failed");
@@ -185,8 +165,8 @@ contract FrontierMakerOps is FrontierBookBase {
         return cancelWithWitness(positionId, _frontier(p));
     }
 
-    /// @notice O(1) bid cancel against a maximal-frontier witness: pays
-    /// unclaimed token0, refunds unfilled token1 (floor), retires the bid.
+    /// @notice O(1) bid cancel against a maximal-frontier witness. Identical to
+    /// FrontierMakerOps.
     function cancelBidWithWitness(uint256 positionId, int24 frontier)
         public
         returns (uint256 proceeds0, uint256 refund1)
