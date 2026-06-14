@@ -372,10 +372,13 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
         if (stop) return;
         setSummary(sum);
         setDepth(mergeDepth(askLevels, bidLevels));
-        setPriceHistory((h) => {
-          const next = [...h, { t: Date.now(), price: tickToPrice(cur) }];
-          return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
-        });
+        const curPx = tickToPrice(cur);
+        if (curPx > 0.005 && curPx < 0.995) {
+          setPriceHistory((h) => {
+            const next = [...h, { t: Date.now(), price: curPx }];
+            return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+          });
+        }
 
         // NO book — live second leg when the deployment ships a noBook.
         if (noBookAddr) {
@@ -417,6 +420,50 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       clearInterval(id);
     };
   }, [configured, client, cfg, noBookAddr, noteError, noteOk]);
+
+  // -------- one-time historical price seed: reconstruct the YES price path from
+  // on-chain RunFilled events so the chart shows real movement on load, instead
+  // of a flat session-only line that starts empty every visit.
+  useEffect(() => {
+    if (!configured) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const latest = await client.getBlockNumber();
+        const span = 12000n; // ~100 min at ~0.5s blocks
+        const from = latest > span ? latest - span : 0n;
+        const blk = await client.getBlock({ blockNumber: latest });
+        const latestTs = Number(blk.timestamp) * 1000;
+        const logs = await client.getLogs({
+          address: cfg.contracts.book,
+          event: runFilledEvent,
+          fromBlock: from,
+          toBlock: latest,
+        });
+        const pts: PricePoint[] = [];
+        for (const log of logs) {
+          const tb = (log.args as { toBoundary?: number }).toBoundary;
+          if (tb === undefined) continue;
+          const px = tickToPrice(Number(tb)); // price after the run = the new YES price
+          if (!(px > 0.005 && px < 0.995)) continue; // band-gate junk
+          const t = latestTs - (Number(latest) - Number(log.blockNumber ?? latest)) * 500;
+          pts.push({ t, price: px });
+        }
+        pts.sort((a, b) => a.t - b.t);
+        if (!cancelled && pts.length) {
+          setPriceHistory((h) => {
+            const merged = [...pts, ...h].sort((a, b) => a.t - b.t);
+            return merged.length > MAX_HISTORY ? merged.slice(merged.length - MAX_HISTORY) : merged;
+          });
+        }
+      } catch {
+        /* historical seed is best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [configured, client, cfg]);
 
   // -------- fills feed via log polling (2.5s)
   useEffect(() => {

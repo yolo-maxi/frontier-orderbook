@@ -494,9 +494,12 @@ async function main() {
   if (cfg.live && !cfg.noMm) {
     mmTimer = setInterval(async () => {
       if (stopping) return;
-      // each leg drifts on its OWN flow + noise — independent price discovery
-      yesFair = clampP(yesFair + clampD(yesFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.02);
-      noFair = clampP(noFair + clampD(noFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.02);
+      // each leg drifts on its OWN flow + noise — independent price discovery,
+      // with occasional "news" swings so the chart is varied, not a gentle creep
+      const newsY = Math.random() < 0.18 ? (Math.random() - 0.5) * 0.16 : 0;
+      const newsN = Math.random() < 0.18 ? (Math.random() - 0.5) * 0.16 : 0;
+      yesFair = clampP(yesFair + clampD(yesFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.05 + newsY);
+      noFair = clampP(noFair + clampD(noFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.05 + newsN);
       yesFlow *= 0.4;
       noFlow *= 0.4;
       // arbitrage pulls the complement back toward 100¢ only when it leaves the band
