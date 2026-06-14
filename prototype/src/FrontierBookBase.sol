@@ -170,9 +170,26 @@ abstract contract FrontierBookBase {
     mapping(address => uint256) internal internalBalance0;
     mapping(address => uint256) internal internalBalance1;
 
-    event Deposit(uint256 indexed positionId, address indexed owner, int24 lower, int24 upper, uint128 liquidity);
+    event Deposit(
+        uint256 indexed positionId, address indexed owner, int24 lower, int24 upper, uint128 liquidity, bool isBid
+    );
     event IntervalFilled(int24 indexed lowerTick, uint128 liquidity, uint256 proceeds1, uint64 clock);
     event RunFilled(int24 indexed fromLevel, int24 toBoundary, uint256 startSize, int256 slopePerLevel, uint64 clock);
+    /// @notice One summary per taker sweep. The per-run RunFilled events carry
+    /// neither the taker nor the token amounts that actually moved, so this is
+    /// what an indexer needs to attribute a trade: who swept, the price the book
+    /// moved through (tickBefore -> tickAfter, which also encodes direction:
+    /// tickAfter > tickBefore is an up-sweep buying token0), and the exact
+    /// amounts settled. amountIn includes takerFee; amountOut is the payout.
+    /// On up-sweeps amountIn is token1 / amountOut is token0; reversed on down.
+    event Swept(
+        address indexed taker,
+        int24 tickBefore,
+        int24 tickAfter,
+        uint256 amountIn,
+        uint256 amountOut,
+        uint256 takerFee
+    );
     event Claim(uint256 indexed positionId, uint256 proceeds1);
     event Cancel(uint256 indexed positionId, uint256 proceeds1, uint256 principal0);
     event Requote(uint256 indexed positionId, int24 lower, int24 upper, uint128 liquidity);

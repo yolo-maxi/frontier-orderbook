@@ -1,0 +1,27 @@
+{
+  "book": "0xA11d35fE4b9Ca9979F2FF84283a9Ce190F60Cd00",
+  "token0": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+  "token1": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+  "makerFeeBps": 0,
+  "takerFeeBps": 0,
+  "feeRecipient": "0x0000000000000000000000000000000000000000",
+  "positions": {
+    "1": {"owner":"0xD6B58c2Da790f9959527c44Dd2c0da554cf27373","isBid":false,"lower":1,"upper":11,"liquidity":"1000000000000000000"},
+    "2": {"owner":"0xA5eFe908726b09A92C20C733f2A66A04964701D2","isBid":false,"lower":5,"upper":15,"liquidity":"2000000000000000000"},
+    "3": {"owner":"0x030ebB05Cf0B748fb1F3D4A9cA1538E9F43F900e","isBid":true,"lower":-10,"upper":0,"liquidity":"1000000000000000000"},
+    "4": {"owner":"0x7240b687730BE024bcfD084621f794C2e4F8408f","isBid":false,"lower":200,"upper":210,"liquidity":"1000000000000000000","note":"requoted from [100,110), transferred from makerD"}
+  },
+  "trades": {
+    "upSweep": {"taker":"0x93646Ca7a11660aF7d74e9B08ef0aA99D1a69D81","direction":"up","tokenIn":"token1","tokenOut":"token0","paid":"13006401480200000000","received":"13000000000000000000"},
+    "downSweep": {"taker":"0xA7Ac1717F603F467272e59aDA1267c775348621D","direction":"down","tokenIn":"token0","tokenOut":"token1","paid":"5000000000000000000","received":"4998500349930020000"}
+  },
+  "claims": {
+    "makerA_ask": {"token":"token1","amount":"7002800560070000000"},
+    "makerC_bid": {"token":"token0","amount":"5000000000000000000"}
+  },
+  "cancelB": {"proceedsToken":"token1","proceeds":"6003600920130000000","principalToken":"token0","principal":"14000000000000000000"},
+  "progress": {
+    "pos1_ask": {"unfilledPrincipal0":"3000000000000000000","claimable1":"0"},
+    "pos3_bid": {"refundable1":"4996001849355170000","claimable0":"0"}
+  }
+}

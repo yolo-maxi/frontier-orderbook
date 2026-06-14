@@ -120,7 +120,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
         uint256 amount0 = _principalSpan(liquidity, slope, 0, _levels(lower, upper));
         _pull0(msg.sender, amount0);
-        emit Deposit(positionId, msg.sender, lower, upper, liquidity);
+        emit Deposit(positionId, msg.sender, lower, upper, liquidity, false);
         if (address(hooks) != address(0)) _callAfterDepositHook(msg.sender, positionId, false);
     }
 
@@ -188,7 +188,7 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
 
         uint256 amount1 = _uniformSpanValue(lower, upper, liquidity, true);
         _transferInExact(token1, msg.sender, amount1, "non-exact token1 transfer");
-        emit Deposit(positionId, msg.sender, lower, upper, liquidity);
+        emit Deposit(positionId, msg.sender, lower, upper, liquidity, true);
         if (address(hooks) != address(0)) _callAfterDepositHook(msg.sender, positionId, true);
     }
 
@@ -324,25 +324,25 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
             abi.encodeCall(IFrontierHooks.beforeSweep, (msg.sender, oldTick, target)),
             IFrontierHooks.beforeSweep.selector
         );
+        uint256 takerFee;
         if (target > oldTick) {
             (reached, paid, received) = _sweepUp(oldTick, target, maxFills, _maxGrossForTotal(maxPay, takerFeeBps));
-            uint256 fee;
-            (paid, fee) = _takerTotal(paid);
+            (paid, takerFee) = _takerTotal(paid);
             _currentTick = reached;
             require(received >= minOut, "insufficient output");
             if (paid > 0) _transferInExact(token1, msg.sender, paid, "non-exact token1 transfer");
-            _payTakerFee(token1, msg.sender, paid - fee, fee, paid);
+            _payTakerFee(token1, msg.sender, paid - takerFee, takerFee, paid);
             if (received > 0) require(token0.transfer(msg.sender, received), "fill payout failed");
         } else {
             (reached, paid, received) = _sweepDown(oldTick, target, maxFills, _maxGrossForTotal(maxPay, takerFeeBps));
-            uint256 fee;
-            (paid, fee) = _takerTotal(paid);
+            (paid, takerFee) = _takerTotal(paid);
             _currentTick = reached;
             require(received >= minOut, "insufficient output");
             if (paid > 0) _transferInExact(token0, msg.sender, paid, "non-exact token0 transfer");
-            _payTakerFee(token0, msg.sender, paid - fee, fee, paid);
+            _payTakerFee(token0, msg.sender, paid - takerFee, takerFee, paid);
             if (received > 0) require(token1.transfer(msg.sender, received), "fill payout failed");
         }
+        emit Swept(msg.sender, oldTick, reached, paid, received, takerFee);
         _callHook(
             FrontierHookFlags.AFTER_SWEEP_FLAG,
             abi.encodeCall(IFrontierHooks.afterSweep, (msg.sender, oldTick, reached, paid, received)),
