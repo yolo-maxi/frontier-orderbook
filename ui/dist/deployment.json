@@ -1,18 +1,36 @@
 {
-  "name": "Frontier Devnet",
-  "chainId": 84100,
-  "rpcUrl": "https://rpc-clob.repo.box",
-  "startTick": 1680125,
-  "faucetKey": "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a",
+  "name": "DarkBox Arc Testnet — YES/sUSDC",
+  "chainId": 5042002,
+  "rpcUrl": "https://rpc.testnet.arc.network",
   "contracts": {
-    "book": "0x3B5be1B72a1C40e73D415c71f4382EBcAb7B96A7",
-    "factory": "0x46d4674578a2daBbD0CEAB0500c6c7867999db34",
-    "router": "0xfB12F7170FF298CDed84C793dAb9aBBEcc01E798",
-    "lens": "0x9155497EAE31D432C0b13dBCc0615a37f55a2c87",
-    "registry": "0x6DcBc91229d812910b54dF91b5c2b592572CD6B0",
-    "lpFactory": "0xc1EeD9232A0A44c2463ACB83698c162966FBc78d",
-    "yieldVault": "0xC220Ed128102d888af857d137a54b9B7573A41b2",
-    "weth": "0x2498e8059929e18e2a2cED4e32ef145fa2F4a744",
-    "usdc": "0x447786d977Ea11Ad0600E193b2d07A06EfB53e5F"
+    "book": "0x8dF8bba836512dEFf4B3755EA0b0c5B81764a83D",
+    "router": "0x965648Aecdd23b91970E497f497D51AAFFFBEaDD",
+    "lens": "0x25C53b1E4f36B17187C6e0Bc27F59Ba9feb44a37",
+    "factory": "0xE391ab3eA709f66896eE774FBD16096b0e2972a6",
+    "weth": "0x206f4b9069757A82d2059C369A9ED0c66fc437ad",
+    "usdc": "0xfF3088439D59559eb3Ba740429eBBA5303FB3D80"
+  },
+  "tokens": {
+    "base": "YES",
+    "quote": "sUSDC",
+    "baseAddress": "0x206f4b9069757A82d2059C369A9ED0c66fc437ad",
+    "quoteAddress": "0xfF3088439D59559eb3Ba740429eBBA5303FB3D80",
+    "baseDecimals": 6,
+    "quoteDecimals": 6
+  },
+  "darkbox": {
+    "network": "arc-testnet",
+    "marketFactory": "0x23bc8FB74d4Bb89e899BC1558B08A843E6eE9796",
+    "syntheticUSDC": "0xfF3088439D59559eb3Ba740429eBBA5303FB3D80",
+    "selectedSide": "yes",
+    "market": {
+      "marketId": "0x411057b1581c43730758ee056a2a9f92c097dce4ad350b054e987742812184a9",
+      "market": "0x4fbe02ed6F654ce151f993EAaf4FB5b2a83B32E9",
+      "question": "Will DarkBox win a grant from ARC?",
+      "yesToken": "0x206f4b9069757A82d2059C369A9ED0c66fc437ad",
+      "noToken": "0x95c9e2D314166531DdF20d1a45b5dC3dc528bdC1",
+      "yesBook": "0x8dF8bba836512dEFf4B3755EA0b0c5B81764a83D",
+      "noBook": "0xb14cA2720F22E98aABce78a1F9f032D0dBaE5ED8"
+    }
   }
 }
