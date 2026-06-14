@@ -189,7 +189,7 @@ async function setupBot(bot, isMm) {
   await ensureApproval(bot, A.yesToken, A.router);
   await ensureApproval(bot, A.noToken, A.router);
   // give every bot YES/NO inventory so sells work immediately
-  await splitInventory(bot, isMm ? 600 : 250, true);
+  await splitInventory(bot, isMm ? 1400 : 250, true);
 }
 
 async function splitInventory(bot, usdc, skipIfStocked = false) {
@@ -212,9 +212,9 @@ async function splitInventory(bot, usdc, skipIfStocked = false) {
 
 // ── market making: open + maintain a 2-sided book straddling fair ─────---
 const LADDER = 320; // ticks of depth per order (~3.2¢ — wide enough to show a profile)
-const OFFSET = 25; // ticks between frontier and the inside quote (buffer vs taker races)
-const MM_SIZE = 700000n; // token0 per level (≈0.7 share/level → thick enough that a single taker
-//                          buy can't punch the frontier out of band)
+const OFFSET = 140; // ticks between frontier and the inside quote (buffer vs taker races)
+const MM_SIZE = 1500000n; // token0 per level — thick book so heavy taker flow can't drain a side
+//                           between the (3s) maker refreshes
 const rsize = () => (MM_SIZE * BigInt(65 + Math.floor(Math.random() * 70))) / 100n; // 0.65×–1.35×
 const mmState = { YES: { askId: 0n, bidId: 0n }, NO: { askId: 0n, bidId: 0n } };
 
@@ -319,12 +319,20 @@ async function recenter(bot, side, prob) {
   // shaped ask: thick near the touch, tapering ~to a third at the far edge, with
   // a randomized base size so the book looks organic instead of a uniform wall.
   const askBase = rsize();
-  const askSlope = -((askBase * 7n) / 10n) / BigInt(LADDER);
   const bidBase = rsize();
+  // keep the maker stocked — asks SELL token0, so when its inventory runs low
+  // re-split sUSDC into a fresh YES+NO set, otherwise ask deposits start failing
+  // (insufficient balance) and the buy side of the book goes empty.
   try {
-    const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "depositShaped", args: [askLo, askLo + LADDER, askBase, askSlope], account: bot.account });
+    const have = await pub.readContract({ address: BOOKS[side].token, abi: erc20Abi, functionName: "balanceOf", args: [bot.addr] });
+    if (have < askBase * BigInt(LADDER) * 2n) await splitInventory(bot, 1000);
+  } catch {
+    /* best-effort restock */
+  }
+  try {
+    const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "deposit", args: [askLo, askLo + LADDER, askBase], account: bot.account });
     st.askId = sim.result;
-    await bot.send(book, bookAbi, "depositShaped", [askLo, askLo + LADDER, askBase, askSlope]);
+    await bot.send(book, bookAbi, "deposit", [askLo, askLo + LADDER, askBase]);
     bump("mm-ask", true);
   } catch (e) {
     bump("mm-ask", false);
@@ -347,13 +355,15 @@ async function recenter(bot, side, prob) {
 const SWEEP_CAP = 400; // max ticks (~4¢) a single taker trade can move the frontier
 
 async function takerTrade(bot) {
-  const side = Math.random() < 0.5 ? "YES" : "NO";
+  // bias hard toward the reliable YES book (NO book is flaky) so visible activity
+  // and chart movement concentrate where they render
+  const side = Math.random() < 0.85 ? "YES" : "NO";
   const { book, token } = BOOKS[side];
   const buy = Math.random() < 0.5;
   const dl = await chainDeadline(pub, 300);
   const cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
   if (buy) {
-    const amt1 = BigInt(rint(500000, 3500000)); // 0.5–3.5 sUSDC
+    const amt1 = BigInt(rint(300000, 1500000)); // 0.3–1.5 sUSDC (small vs thick book → stays liquid)
     const type = `buy-${side}`;
     if (!cfg.live) return dryQuote(book, "quoteBuy", [book, amt1], type);
     addFlow(side, Number(amt1) / 1e6); // buying pressures this leg up
@@ -366,7 +376,7 @@ async function takerTrade(bot) {
       bump(type, false);
     }
   } else {
-    const shares = BigInt(rint(500000, 5000000)); // 0.5–5 shares
+    const shares = BigInt(rint(300000, 1500000)); // 0.3–1.5 shares
     const type = `sell-${side}`;
     const bal = await pub.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [bot.addr] });
     if (bal < shares) {
@@ -567,7 +577,7 @@ async function main() {
       } catch (e) {
         log("mm", "recenter cycle error", safe(e.message).slice(0, 70));
       }
-    }, 5000);
+    }, 3000);
   }
 
   await sleep(cfg.duration * 1000);
