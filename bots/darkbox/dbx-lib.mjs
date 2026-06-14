@@ -80,6 +80,7 @@ export const bookAbi = parseAbi([
   "function moveTickTo(int24 target)",
   "function sweepWithLimits(int24 target, uint256 maxFills, uint256 maxPay, uint256 minOut, uint256 deadline) returns (int24, uint256, uint256)",
   "function nextPositionId() view returns (uint256)",
+  "function multicall(bytes[] data) returns (bytes[] results)",
   "function positions(uint256) view returns (address owner, int24 lower, int24 upper, uint128 liquidity, int128 slope, uint64 depositClock, int24 claimedUpper, bool live, bool isBid)",
   "event Deposit(uint256 indexed positionId, address indexed owner, int24 lower, int24 upper, uint128 liquidity)",
 ]);

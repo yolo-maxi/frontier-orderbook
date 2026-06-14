@@ -106,10 +106,13 @@ export function buildPredictionBooks(
   baseDecimals = 6,
 ): [PredictionBook, PredictionBook] {
   const yes = bookFromSide("YES", yesSummary, yesDepth, baseDecimals);
-  if (noSummary) {
-    return [yes, bookFromSide("NO", noSummary, noDepth, baseDecimals)];
+  const live = noSummary ? bookFromSide("NO", noSummary, noDepth, baseDecimals) : null;
+  // Use the live NO book when it has a usable in-band market; otherwise (no NO
+  // book, or its frontier is parked out of band) derive NO ≈ 1 − YES so the UI
+  // always shows a sensible complementary price and the two sum to ~100¢.
+  if (live && live.prob !== null) {
+    return [yes, live];
   }
-  // synthetic complement fallback
   const noBid = yes.bestAsk === null ? null : clampProb(1 - yes.bestAsk);
   const noAsk = yes.bestBid === null ? null : clampProb(1 - yes.bestBid);
   const noMid = yes.prob === null ? null : clampProb(1 - yes.prob);
@@ -122,8 +125,8 @@ export function buildPredictionBooks(
     prob: noMid,
     last: yes.last === null ? null : clampProb(1 - yes.last),
     spread: noBid !== null && noAsk !== null ? Math.max(0, noAsk - noBid) : null,
-    bidDepth: invertDepth(yes.askDepth, "bid"),
-    askDepth: invertDepth(yes.bidDepth, "ask"),
+    bidDepth: live && live.bidDepth.length ? live.bidDepth : invertDepth(yes.askDepth, "bid"),
+    askDepth: live && live.askDepth.length ? live.askDepth : invertDepth(yes.bidDepth, "ask"),
   };
   return [yes, no];
 }

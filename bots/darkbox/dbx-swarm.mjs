@@ -35,6 +35,7 @@ import {
   log,
   safe,
 } from "./dbx-lib.mjs";
+import { encodeFunctionData } from "viem";
 
 // ── args ──────────────────────────────────────────────────────────────--
 const argv = process.argv.slice(2);
@@ -176,21 +177,19 @@ async function setupBot(bot, isMm) {
   // MM bots pay a one-time ~2.2M-gas moveTickTo to drag the frontier from the
   // construction tick (200000) into the probability band, so give them more gas.
   await ensureFunded(bot, cfg.fundUsdc, isMm ? Math.max(cfg.gasEth, 0.3) : cfg.gasEth);
-  // takers buy/sell via router and split via market
-  await ensureApproval(bot, A.usdc, A.router);
-  await ensureApproval(bot, A.usdc, A.market);
+  await ensureApproval(bot, A.usdc, A.market); // split/merge
+  await ensureApproval(bot, A.usdc, A.router); // arb buys
+  // Every bot now trades directly on the books via BOUNDED sweepWithLimits (the
+  // router's fixed 200000-tick SWEEP_WINDOW could otherwise punch the frontier
+  // out of band on a thin book), so all bots need book approvals on both sides.
+  await ensureApproval(bot, A.usdc, A.yesBook);
+  await ensureApproval(bot, A.usdc, A.noBook);
+  await ensureApproval(bot, A.yesToken, A.yesBook);
+  await ensureApproval(bot, A.noToken, A.noBook);
   await ensureApproval(bot, A.yesToken, A.router);
   await ensureApproval(bot, A.noToken, A.router);
-  // give every bot a little YES/NO inventory so sells work immediately
-  await splitInventory(bot, 200, true);
-  if (isMm) {
-    // makers also rest liquidity directly on the books
-    await ensureApproval(bot, A.usdc, A.yesBook);
-    await ensureApproval(bot, A.usdc, A.noBook);
-    await ensureApproval(bot, A.yesToken, A.yesBook);
-    await ensureApproval(bot, A.noToken, A.noBook);
-    await splitInventory(bot, 600, true);
-  }
+  // give every bot YES/NO inventory so sells work immediately
+  await splitInventory(bot, isMm ? 600 : 250, true);
 }
 
 async function splitInventory(bot, usdc, skipIfStocked = false) {
@@ -266,11 +265,22 @@ async function reclaim(bot, book) {
   if (n) log("mm", `reclaimed ${n} stale position(s) on ${book.slice(0, 10)}…`);
 }
 
+async function isLive(book, id) {
+  if (!id) return false;
+  try {
+    const p = await pub.readContract({ address: book, abi: bookAbi, functionName: "positions", args: [id] });
+    return p[7];
+  } catch {
+    return false;
+  }
+}
+
 async function recenter(bot, side, prob) {
   const { book } = BOOKS[side];
   const target = probToTick(prob);
   const st = mmState[side];
-  // settle prior quotes (filled or stale)
+  // settle prior quotes — each cancel is an independent tx, so a cancel that
+  // reverts (the position was already consumed by a taker) doesn't block the rest.
   for (const [k, fn] of [["askId", "cancel"], ["bidId", "cancelBid"]]) {
     if (st[k]) {
       try {
@@ -281,10 +291,9 @@ async function recenter(bot, side, prob) {
       st[k] = 0n;
     }
   }
-  // Peg the frontier to target so the displayed price tracks `fair` and the two
-  // outcome books stay complementary (YES + NO ≈ 100¢, the no-arb identity). Our
-  // own orders were just cancelled and takers never rest liquidity, so moveTickTo
-  // crosses nothing; orphans from earlier runs are cleared by reclaim() at setup.
+  // Peg the frontier to target. Bounded taker sweeps (±SWEEP_CAP) mean that even
+  // if a taker trades during this brief window, the frontier can't blow out of
+  // band — so the recenter doesn't need to be atomic.
   let cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
   if (Math.abs(cur - target) > 2) {
     try {
@@ -292,9 +301,17 @@ async function recenter(bot, side, prob) {
       M.attempts++;
       cur = target;
     } catch (e) {
-      log("mm", side, "moveTickTo fail", safe(e.shortMessage || e.message || "").slice(0, 70));
+      log("mm", side, "moveTickTo fail", safe(e.shortMessage || e.message || "").slice(0, 60));
       cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
     }
+  }
+  // Never post at an out-of-band frontier. If moveTickTo failed and cur is still
+  // ≥ 0 (price ≥ 1), posting an ask here drops an orphan near tick 200000 that
+  // then blocks the NEXT moveTickTo (it crosses a resting ask → revert) — the
+  // cascade that strands the book. Skip this cycle; a later moveTickTo recovers it.
+  if (cur >= 0) {
+    log("mm", side, `frontier OOB (tick ${cur}) — skip post`);
+    return;
   }
   const askLo = cur + OFFSET;
   const bidHi = cur - OFFSET;
@@ -305,7 +322,7 @@ async function recenter(bot, side, prob) {
     bump("mm-ask", true);
   } catch (e) {
     bump("mm-ask", false);
-    log("mm", side, "ask fail", safe(e.shortMessage || e.message || "").slice(0, 70));
+    log("mm", side, "ask fail", safe(e.shortMessage || e.message || "").slice(0, 60));
   }
   try {
     const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "depositBid", args: [bidHi - LADDER, bidHi, MM_SIZE], account: bot.account });
@@ -314,27 +331,32 @@ async function recenter(bot, side, prob) {
     bump("mm-bid", true);
   } catch (e) {
     bump("mm-bid", false);
-    log("mm", side, "bid fail", safe(e.shortMessage || e.message || "").slice(0, 70));
+    log("mm", side, "bid fail", safe(e.shortMessage || e.message || "").slice(0, 60));
   }
   M.attempts += 2;
-  log("mm", `${side} centered ~${(tickToPrice(cur) * 100).toFixed(1)}¢ ask@${(tickToPrice(askLo) * 100).toFixed(1)}¢ bid@${(tickToPrice(bidHi) * 100).toFixed(1)}¢`);
+  log("mm", `${side} ${(tickToPrice(cur) * 100).toFixed(1)}¢ pegged ask@${(tickToPrice(askLo) * 100).toFixed(1)}¢ bid@${(tickToPrice(bidHi) * 100).toFixed(1)}¢`);
 }
 
 // ── taker actions ─────────────────────────────────────────────────────--
+const SWEEP_CAP = 400; // max ticks (~4¢) a single taker trade can move the frontier
+
 async function takerTrade(bot) {
   const side = Math.random() < 0.5 ? "YES" : "NO";
   const { book, token } = BOOKS[side];
   const buy = Math.random() < 0.5;
   const dl = await chainDeadline(pub, 300);
+  const cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
   if (buy) {
-    const amt1 = BigInt(rint(500000, 3500000)); // 0.5–3.5 sUSDC (small vs maker depth)
+    const amt1 = BigInt(rint(500000, 3500000)); // 0.5–3.5 sUSDC
     const type = `buy-${side}`;
     if (!cfg.live) return dryQuote(book, "quoteBuy", [book, amt1], type);
     addFlow(side, Number(amt1) / 1e6); // buying pressures this leg up
     try {
-      await bot.send(A.router, routerAbi, "buyExactIn", [book, amt1, 0n, bot.addr, dl]);
+      // BOUNDED up-sweep on the book — can't move the frontier > SWEEP_CAP ticks,
+      // so a buy on a thin book can never blow the price out of band.
+      await bot.send(book, bookAbi, "sweepWithLimits", [cur + SWEEP_CAP, 64n, amt1, 0n, dl]);
       bump(type, true);
-    } catch (e) {
+    } catch {
       bump(type, false);
     }
   } else {
@@ -348,9 +370,9 @@ async function takerTrade(bot) {
     if (!cfg.live) return dryQuote(book, "quoteSell", [book, shares, 256n], type);
     addFlow(side, -Number(shares) / 1e6); // selling pressures this leg down
     try {
-      await bot.send(A.router, routerAbi, "sellExactIn", [book, shares, 0n, bot.addr, dl]);
+      await bot.send(book, bookAbi, "sweepWithLimits", [cur - SWEEP_CAP, 64n, shares, 0n, dl]);
       bump(type, true);
-    } catch (e) {
+    } catch {
       bump(type, false);
     }
   }
@@ -359,6 +381,12 @@ async function takerTrade(bot) {
 // real arbitrage: when the complement is mispriced, an arber buys both legs and
 // merges (pair < 100¢) or splits and sells both legs (pair > 100¢) — visible
 // on-chain activity that pulls YES + NO back toward 100¢.
+async function boundedSweep(bot, book, dir, budget, dl) {
+  const cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
+  const target = dir === "up" ? cur + SWEEP_CAP : cur - SWEEP_CAP;
+  return bot.send(book, bookAbi, "sweepWithLimits", [target, 64n, budget, 0n, dl]);
+}
+
 async function fireArb(kind) {
   const bot = pick(takers);
   const dl = await chainDeadline(pub, 300);
@@ -366,8 +394,9 @@ async function fireArb(kind) {
   if (kind === "cheap") {
     const amt1 = BigInt(rint(2, 6)) * 1_000_000n;
     try {
-      await bot.send(A.router, routerAbi, "buyExactIn", [A.yesBook, amt1, 0n, bot.addr, dl]);
-      await bot.send(A.router, routerAbi, "buyExactIn", [A.noBook, amt1, 0n, bot.addr, dl]);
+      // buy both legs (bounded) then merge the set back to sUSDC
+      await boundedSweep(bot, A.yesBook, "up", amt1, dl);
+      await boundedSweep(bot, A.noBook, "up", amt1, dl);
       const [y, n] = await Promise.all([
         pub.readContract({ address: A.yesToken, abi: erc20Abi, functionName: "balanceOf", args: [bot.addr] }),
         pub.readContract({ address: A.noToken, abi: erc20Abi, functionName: "balanceOf", args: [bot.addr] }),
@@ -381,9 +410,10 @@ async function fireArb(kind) {
   } else {
     const amt = BigInt(rint(2, 6)) * 1_000_000n;
     try {
+      // split a set then sell both legs (bounded) into the rich bids
       await bot.send(A.market, marketAbi, "split", [amt, bot.addr]);
-      await bot.send(A.router, routerAbi, "sellExactIn", [A.yesBook, amt, 0n, bot.addr, dl]);
-      await bot.send(A.router, routerAbi, "sellExactIn", [A.noBook, amt, 0n, bot.addr, dl]);
+      await boundedSweep(bot, A.yesBook, "down", amt, dl);
+      await boundedSweep(bot, A.noBook, "down", amt, dl);
       bump("arb-sell", true);
     } catch {
       bump("arb-sell", false);
@@ -474,6 +504,20 @@ async function main() {
       await reclaim(mmNo, A.noBook);
       await recenter(mmYes, "YES", yesFair);
       await recenter(mmNo, "NO", noFair);
+      // moveTickTo can revert transiently under load — retry each open until the
+      // frontier is actually in band, so trading never starts on a stuck book.
+      for (const [bot, side, prob, bk] of [
+        [mmYes, "YES", yesFair, A.yesBook],
+        [mmNo, "NO", noFair, A.noBook],
+      ]) {
+        for (let a = 0; a < 6; a++) {
+          const ct = Number(await pub.readContract({ address: bk, abi: bookAbi, functionName: "currentTick" }));
+          if (ct < 0) break; // in band → open
+          log("setup", `${side} not open yet (tick ${ct}) — retry ${a + 1}`);
+          await sleep(1500);
+          await recenter(bot, side, prob);
+        }
+      }
     }
     report();
     if (cfg.fundOnly) {
