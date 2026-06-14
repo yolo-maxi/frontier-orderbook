@@ -93,7 +93,8 @@ let noFair = 1 - cfg.fair;
 let yesFlow = 0;
 let noFlow = 0;
 const ARB_BAND = 0.015; // ~1.5¢ no-arb tolerance before arbitrage corrects
-const FLOW_SENS = 0.02; // net sUSDC of flow -> probability nudge per cycle
+const FLOW_SENS = 0.006; // net sUSDC of flow -> probability nudge per cycle (gentle: flow is
+//                          balanced now, so this just adds small momentum, not a runaway trend)
 const clampP = (p) => Math.max(0.05, Math.min(0.95, p));
 const clampD = (d) => Math.max(-0.03, Math.min(0.03, d));
 const addFlow = (side, x) => (side === "YES" ? (yesFlow += x) : (noFlow += x));
@@ -395,10 +396,16 @@ async function takerTrade(bot) {
   } else {
     const shares = BigInt(rint(120000, 600000)); // 0.12–0.6 shares — keep the bid touch populated too
     const type = `sell-${side}`;
-    const bal = await pub.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [bot.addr] });
+    let bal = await pub.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [bot.addr] });
     if (bal < shares) {
-      if (cfg.live) await splitInventory(bot, 100);
-      return;
+      // restock then SELL. Returning here (the old behaviour) meant a sell silently
+      // skipped whenever inventory was short — so over the run sells fired far less
+      // often than buys, net flow was buy-biased, and fair marched up the rails.
+      // Split, re-read, and go through with the sell so buy/sell flow stays balanced.
+      if (!cfg.live) return;
+      await splitInventory(bot, 50);
+      bal = await pub.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [bot.addr] });
+      if (bal < shares) return; // still short (split failed) — skip just this one
     }
     if (!cfg.live) return dryQuote(book, "quoteSell", [book, shares, 256n], type);
     addFlow(side, -Number(shares) / 1e6); // selling pressures this leg down
@@ -584,7 +591,7 @@ async function main() {
       // cluster. Mean-revert toward 0.5 so it still can't wander to an extreme.
       const newsY = Math.random() < 0.08 ? (Math.random() - 0.5) * 0.04 : 0; // ≤±2¢, rare
       const newsN = Math.random() < 0.08 ? (Math.random() - 0.5) * 0.04 : 0;
-      const revert = (f) => 0.5 + (f - 0.5) * 0.985;
+      const revert = (f) => 0.5 + (f - 0.5) * 0.97;
       yesFair = clampP(revert(yesFair) + clampD(yesFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.008 + newsY);
       noFair = clampP(revert(noFair) + clampD(noFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.008 + newsN);
       yesFlow *= 0.4;
