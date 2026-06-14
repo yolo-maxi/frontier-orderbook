@@ -29,7 +29,8 @@ export function Header() {
   const quote = quoteSymbol(cfg);
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
-  const faucetAvailable = !cfg.darkbox;
+  const isDarkbox = !!cfg.darkbox;
+  const faucetLabel = isDarkbox ? `Get ${quote}` : "Faucet";
   const identBg = useMemo(() => identGradient(account.address), [account.address]);
 
   const copy = () => {
@@ -84,10 +85,10 @@ export function Header() {
         <button
           className="btn btn-accent"
           onClick={onFaucet}
-          disabled={!configured || !faucetAvailable || fauceting || busy !== null}
-          title={faucetAvailable ? `Mint demo ${base}/${quote} balances` : "DarkBox market is pre-seeded"}
+          disabled={!configured || fauceting || busy !== null}
+          title={`Mint demo ${quote} to your session wallet (ARC testnet)`}
         >
-          {!faucetAvailable ? "Seeded market" : fauceting ? "Minting…" : "Faucet"}
+          {fauceting ? "Minting…" : faucetLabel}
         </button>
       </div>
     </header>

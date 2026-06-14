@@ -42,9 +42,12 @@ export interface DepthLevel {
   bidSize: bigint;
 }
 
+export type BookOutcome = "YES" | "NO";
+
 export interface Fill {
   key: string;
   time: number; // ms
+  outcome: BookOutcome; // which outcome book emitted this fill
   side: "buy" | "sell";
   priceLo: number;
   priceHi: number;
@@ -57,6 +60,7 @@ export interface Fill {
 export interface MakerEvent {
   key: string;
   time: number; // ms
+  outcome: BookOutcome; // which outcome book emitted this event
   kind: "place" | "requote" | "cancel" | "claim";
   side: "ask" | "bid" | null; // inferred from range vs current tick (null when unknown)
   positionId: bigint;
@@ -90,8 +94,9 @@ export interface PositionRow {
 
 export interface Balances {
   eth: bigint;
-  weth: bigint;
-  usdc: bigint;
+  weth: bigint; // YES outcome token balance
+  usdc: bigint; // sUSDC collateral balance
+  no: bigint; // NO outcome token balance
 }
 
 /** What the chart should preview on top of live data. */
@@ -120,6 +125,11 @@ interface AppData {
   account: PrivateKeyAccount;
   summary: BookSummary | null;
   depth: DepthLevel[];
+  /** NO book — live when the deployment ships a noBook, else null (NO derived). */
+  noSummary: BookSummary | null;
+  noDepth: DepthLevel[];
+  /** noBook address when deployed, else null. */
+  noBookAddr: `0x${string}` | null;
   fills: Fill[];
   makerEvents: MakerEvent[];
   priceHistory: PricePoint[];
@@ -148,26 +158,14 @@ export function useApp(): AppData {
 
 // ---------------------------------------------------------------- events
 
-const E18 = 10n ** 18n;
-const E15 = 10n ** 15n;
-
-/** token1 value of an ASCENDING ask run [e, e+n*s), taker pays ceil. */
-function askRunValue1(e: number, a0: bigint, slope: bigint, n: bigint, s: number): bigint {
-  const sumK = (n * (n - 1n)) / 2n;
-  const sumK2 = ((n - 1n) * n * (2n * n - 1n)) / 6n;
-  const c0 = E18 + BigInt(e) * E15;
-  const c1 = BigInt(s) * E15;
-  const val = a0 * c0 * n + (a0 * c1 + slope * c0) * sumK + slope * c1 * sumK2;
-  return val <= 0n ? 0n : (val + E18 - 1n) / E18;
-}
-
-/** token1 value of a DESCENDING bid run from e, n levels, taker receives floor. */
-function bidRunValue1(e: number, a0: bigint, n: bigint, s: number): bigint {
-  const sumK = (n * (n - 1n)) / 2n;
-  const c0 = E18 + BigInt(e) * E15;
-  const c1 = BigInt(s) * E15;
-  const val = a0 * c0 * n - a0 * c1 * sumK;
-  return val <= 0n ? 0n : val / E18;
+/** Geometric notional (token1) of a run that swept the tick band [a, b].
+ * GeometricFrontierBook price = 1.0001**tick, so we value the swept base size
+ * at the run's mid price. Exact per-fill accounting lives on-chain; this is a
+ * display approximation for the activity tape. */
+function runNotional1(tickA: number, tickB: number, size0: bigint): bigint {
+  const px = tickToPrice((tickA + tickB) / 2);
+  const v = Number(size0) * px;
+  return Number.isFinite(v) && v > 0 ? BigInt(Math.round(v)) : 0n;
 }
 
 const runFilledEvent = getAbiItem({ abi: bookAbi, name: "RunFilled" });
@@ -219,20 +217,50 @@ async function readDepth(
   return decodeFunctionResult({ abi: lensAbi, functionName: "depth", data: res.data });
 }
 
+type RawLevel = { tick: number | bigint; askSize: bigint; bidSize: bigint };
+
+/** Merge the lens's separate ask/bid scans into one per-tick depth ladder. */
+function mergeDepth(askLevels: readonly RawLevel[], bidLevels: readonly RawLevel[]): DepthLevel[] {
+  const merged = new Map<number, DepthLevel>();
+  for (const l of askLevels) {
+    if (l.askSize > 0n) {
+      merged.set(Number(l.tick), { tick: Number(l.tick), askSize: l.askSize, bidSize: 0n });
+    }
+  }
+  for (const l of bidLevels) {
+    if (l.bidSize > 0n) {
+      const t = Number(l.tick);
+      const prev = merged.get(t);
+      merged.set(t, { tick: t, askSize: prev?.askSize ?? 0n, bidSize: l.bidSize });
+    }
+  }
+  return [...merged.values()];
+}
+
 // ---------------------------------------------------------------- provider
 
 export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children: ReactNode }) {
   const configured = useMemo(() => isConfigured(cfg), [cfg]);
+  const noBookAddr = useMemo<`0x${string}` | null>(() => {
+    const a = cfg.darkbox?.market?.noBook;
+    return a && !/^0x0*$/.test(a) ? a : null;
+  }, [cfg]);
+  const noTokenAddr = useMemo<`0x${string}` | null>(() => {
+    const a = cfg.darkbox?.market?.noToken;
+    return a && !/^0x0*$/.test(a) ? a : null;
+  }, [cfg]);
   const client = useMemo(() => makePublicClient(cfg), [cfg]);
   const account = useMemo(() => loadOrCreateAccount(), []);
   const wallet = useMemo(() => makeWalletClient(cfg, account), [cfg, account]);
 
   const [summary, setSummary] = useState<BookSummary | null>(null);
   const [depth, setDepth] = useState<DepthLevel[]>([]);
+  const [noSummary, setNoSummary] = useState<BookSummary | null>(null);
+  const [noDepth, setNoDepth] = useState<DepthLevel[]>([]);
   const [fills, setFills] = useState<Fill[]>([]);
   const [makerEvents, setMakerEvents] = useState<MakerEvent[]>([]);
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
-  const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n });
+  const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n, no: 0n });
   const [positions, setPositions] = useState<PositionRow[]>([]);
   const [rpcError, setRpcError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<TxToast[]>([]);
@@ -309,24 +337,38 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
         ]);
         if (stop) return;
         setSummary(sum);
-        const merged = new Map<number, DepthLevel>();
-        for (const l of askLevels) {
-          if (l.askSize > 0n) {
-            merged.set(Number(l.tick), { tick: Number(l.tick), askSize: l.askSize, bidSize: 0n });
-          }
-        }
-        for (const l of bidLevels) {
-          if (l.bidSize > 0n) {
-            const t = Number(l.tick);
-            const prev = merged.get(t);
-            merged.set(t, { tick: t, askSize: prev?.askSize ?? 0n, bidSize: l.bidSize });
-          }
-        }
-        setDepth([...merged.values()]);
+        setDepth(mergeDepth(askLevels, bidLevels));
         setPriceHistory((h) => {
           const next = [...h, { t: Date.now(), price: tickToPrice(cur) }];
           return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
         });
+
+        // NO book — live second leg when the deployment ships a noBook.
+        if (noBookAddr) {
+          try {
+            const ns = await readSummary(client, cfg.contracts.lens, noBookAddr, win);
+            const ncur = Number(ns.currentTick);
+            const nBestAsk = Number(ns.bestAsk);
+            const nBestBid = Number(ns.bestBid);
+            const [nAsk, nBid] = await Promise.all([
+              readDepth(client, cfg.contracts.lens, noBookAddr, ncur, ncur + win, DEPTH_MAX_LEVELS),
+              readDepth(client, cfg.contracts.lens, noBookAddr, ncur - win, ncur, DEPTH_MAX_LEVELS),
+            ]);
+            if (!stop) {
+              setNoSummary({
+                currentTick: ncur,
+                tickSpacing: Number(ns.tickSpacing),
+                bestAsk: nBestAsk,
+                bestBid: nBestBid,
+                hasAsk: nBestAsk !== TICK_MAX && nBestAsk > ncur,
+                hasBid: nBestBid !== TICK_MIN && nBestBid <= ncur,
+              });
+              setNoDepth(mergeDepth(nAsk, nBid));
+            }
+          } catch {
+            /* NO book optional — YES leg already succeeded */
+          }
+        }
         noteOk();
       } catch (e) {
         if (!stop) noteError(e);
@@ -340,7 +382,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, noteError, noteOk]);
+  }, [configured, client, cfg, noBookAddr, noteError, noteOk]);
 
   // -------- fills feed via log polling (2.5s)
   useEffect(() => {
@@ -361,7 +403,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
           return;
         }
         const logs = await client.getLogs({
-          address: cfg.contracts.book,
+          address: noBookAddr ? [cfg.contracts.book, noBookAddr] : cfg.contracts.book,
           events: [runFilledEvent, intervalFilledEvent, depositEvent, requoteEvent, cancelEvent, claimEvent],
           fromBlock: from,
           toBlock: latest,
@@ -378,7 +420,9 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
         const curTick = summaryRef.current?.currentTick ?? null;
         const sideOf = (lower: number, upper: number): "ask" | "bid" | null =>
           curTick === null ? null : lower > curTick ? "ask" : upper <= curTick + spacing ? "bid" : null;
+        const noLc = noBookAddr?.toLowerCase();
         for (const log of logs) {
+          const fillOutcome: BookOutcome = noLc && log.address.toLowerCase() === noLc ? "NO" : "YES";
           if (log.eventName === "Deposit" || log.eventName === "Requote") {
             const a = log.args as {
               positionId?: bigint;
@@ -394,6 +438,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             makers.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
+              outcome: fillOutcome,
               kind: log.eventName === "Deposit" ? "place" : "requote",
               side: sideOf(lo, hi),
               positionId: a.positionId,
@@ -415,6 +460,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             makers.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
+              outcome: fillOutcome,
               kind: log.eventName === "Cancel" ? "cancel" : "claim",
               side: null,
               positionId: a.positionId,
@@ -447,12 +493,11 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             const slope = a.slopePerLevel ?? 0n;
             let size = start * n + (slope * n * (n - 1n)) / 2n;
             if (size < 0n) size = 0n;
-            const value1 = isBuy
-              ? askRunValue1(lo, start, slope, n, spacing)
-              : bidRunValue1(lo, start, n, spacing);
+            const value1 = runNotional1(lo, hi, size);
             parsed.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
+              outcome: fillOutcome,
               side: isBuy ? "buy" : "sell",
               priceLo: tickToPrice(isBuy ? lo : hi + spacing),
               priceHi: tickToPrice(isBuy ? hi : lo + spacing),
@@ -468,6 +513,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             parsed.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
+              outcome: fillOutcome,
               side: "sell", // bid interval filled: taker sold token0 into bids
               priceLo: tickToPrice(lo),
               priceHi: tickToPrice(lo + spacing),
@@ -497,7 +543,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, noteError, noteOk]);
+  }, [configured, client, cfg, noBookAddr, noteError, noteOk]);
 
   // -------- balances (3s + manual)
   useEffect(() => {
@@ -505,7 +551,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     let stop = false;
     const tick = async () => {
       try {
-        const [eth, weth, usdc] = await Promise.all([
+        const [eth, weth, usdc, no] = await Promise.all([
           client.getBalance({ address: account.address }),
           client.readContract({
             address: cfg.contracts.weth,
@@ -519,8 +565,16 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             functionName: "balanceOf",
             args: [account.address],
           }),
+          noTokenAddr
+            ? client.readContract({
+                address: noTokenAddr,
+                abi: erc20Abi,
+                functionName: "balanceOf",
+                args: [account.address],
+              })
+            : Promise.resolve(0n),
         ]);
-        if (!stop) setBalances({ eth, weth, usdc });
+        if (!stop) setBalances({ eth, weth, usdc, no });
       } catch {
         /* covered by main poll's error banner */
       }
@@ -531,7 +585,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, account, nonce]);
+  }, [configured, client, cfg, account, noTokenAddr, nonce]);
 
   // -------- positions: Deposit logs (owner-filtered) + per-id state (3s)
   const knownIds = useRef<Set<bigint>>(new Set());
@@ -631,7 +685,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, account, nonce]);
+  }, [configured, client, cfg, account, noTokenAddr, nonce]);
 
   // -------- tx pipeline
   const toastSeq = useRef(0);
@@ -672,28 +726,34 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     [client, pushToast, refresh],
   );
 
-  // -------- faucet: gas + 10 WETH + 50,000 USDC
+  // -------- faucet: top up gas, then mint collateral (and base on spot demos).
+  // Decimals come from the manifest — no 18-decimal assumption. On the DarkBox
+  // PM market only sUSDC is minted; users split it into YES + NO themselves.
   const faucet = useCallback(async () => {
     try {
       await ensureGas(client, cfg, account.address);
     } catch {
       /* may already have gas */
     }
-    const okWeth = await sendTx("Faucet: mint 10 WETH", () =>
-      wallet.writeContract({
-        address: cfg.contracts.weth,
-        abi: erc20Abi,
-        functionName: "mint",
-        args: [account.address, parseUnits("10", 18)],
-      }),
-    );
-    if (!okWeth) return;
-    await sendTx("Faucet: mint 50,000 USDC", () =>
+    const isDarkbox = !!cfg.darkbox;
+    const qDec = cfg.tokens?.quoteDecimals ?? 18;
+    const quoteSym = cfg.tokens?.quote ?? "USDC";
+    const okQuote = await sendTx(`Faucet: mint 1,000 ${quoteSym}`, () =>
       wallet.writeContract({
         address: cfg.contracts.usdc,
         abi: erc20Abi,
         functionName: "mint",
-        args: [account.address, parseUnits("50000", 18)],
+        args: [account.address, parseUnits("1000", qDec)],
+      }),
+    );
+    if (!okQuote || isDarkbox) return;
+    const bDec = cfg.tokens?.baseDecimals ?? 18;
+    await sendTx(`Faucet: mint 10 ${cfg.tokens?.base ?? "WETH"}`, () =>
+      wallet.writeContract({
+        address: cfg.contracts.weth,
+        abi: erc20Abi,
+        functionName: "mint",
+        args: [account.address, parseUnits("10", bDec)],
       }),
     );
   }, [client, cfg, account, wallet, sendTx]);
@@ -710,6 +770,9 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     account,
     summary,
     depth,
+    noSummary,
+    noDepth,
+    noBookAddr,
     fills,
     makerEvents,
     priceHistory,

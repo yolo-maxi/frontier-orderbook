@@ -1,0 +1,487 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useApp } from "../../state/app";
+import { lensAbi } from "../../abi/lens";
+import { erc20Abi } from "../../abi/erc20";
+import { routerAbi } from "../../abi/router";
+import { bookAbi } from "../../abi/book";
+import {
+  baseDecimals,
+  quoteDecimals,
+  quoteSymbol,
+  yesBookAddr,
+  noBookAddr,
+  yesTokenAddr,
+  noTokenAddr,
+} from "../../lib/config";
+import { alignTick, fmtAmount, fmtUsd, parseAmount, priceToTick, tickToPrice } from "../../lib/format";
+import { fmtCents, type Outcome, type PredictionBook } from "../../lib/prediction";
+
+type Side = "buy" | "sell";
+type Mode = "market" | "limit";
+
+const MAX_UINT = 2n ** 256n - 1n;
+const QUOTE_MAX_LEVELS = 500n;
+
+interface Quote {
+  out: bigint;
+  spent: bigint;
+  endTick: number;
+}
+
+export function MarketTicket({
+  outcome,
+  onOutcome,
+  yes,
+  no,
+}: {
+  outcome: Outcome;
+  onOutcome: (o: Outcome) => void;
+  yes: PredictionBook;
+  no: PredictionBook;
+}) {
+  const { cfg, client, wallet, account, balances, sendTx, busy } = useApp();
+  const baseDec = baseDecimals(cfg);
+  const quoteDec = quoteDecimals(cfg);
+  const quoteSym = quoteSymbol(cfg);
+
+  const [side, setSide] = useState<Side>("buy");
+  const [mode, setMode] = useState<Mode>("market");
+  const [amountStr, setAmountStr] = useState("");
+  const [limitCentsStr, setLimitCentsStr] = useState("");
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [quoteErr, setQuoteErr] = useState<string | null>(null);
+  const [allowance, setAllowance] = useState<bigint | null>(null);
+  const [bookAllowance, setBookAllowance] = useState<bigint | null>(null);
+
+  const isYes = outcome === "YES";
+  const selected = isYes ? yes : no;
+  const book = isYes ? yesBookAddr(cfg) : noBookAddr(cfg);
+  const outcomeToken = isYes ? yesTokenAddr(cfg) : noTokenAddr(cfg);
+  const collateral = cfg.contracts.usdc;
+  const tradable = book !== null && outcomeToken !== null;
+
+  // token going INTO the trade: buy spends sUSDC, sell spends the outcome token.
+  // Falls back to collateral when the outcome token is absent (NO not deployed);
+  // selling is gated on `tradable` so the fallback never reaches a tx.
+  const tokenIn: `0x${string}` = side === "buy" ? collateral : outcomeToken ?? collateral;
+  const balanceIn = side === "buy" ? balances.usdc : isYes ? balances.weth : balances.no;
+  const inDec = side === "buy" ? quoteDec : baseDec;
+  const amountIn = parseAmount(amountStr, inDec);
+  const shareBalance = isYes ? balances.weth : balances.no;
+
+  // ---- live quote against the SELECTED outcome book
+  useEffect(() => {
+    let stop = false;
+    if (mode !== "market" || !book || amountIn === null || amountIn === 0n) {
+      setQuote(null);
+      setQuoteErr(null);
+      return;
+    }
+    const run = async () => {
+      try {
+        if (side === "buy") {
+          const [out, spent, endTick] = await client.readContract({
+            address: cfg.contracts.lens,
+            abi: lensAbi,
+            functionName: "quoteBuy",
+            args: [book, amountIn],
+          });
+          if (!stop) {
+            setQuote({ out, spent, endTick: Number(endTick) });
+            setQuoteErr(null);
+          }
+        } else {
+          const [out, spent, endTick] = await client.readContract({
+            address: cfg.contracts.lens,
+            abi: lensAbi,
+            functionName: "quoteSell",
+            args: [book, amountIn, QUOTE_MAX_LEVELS],
+          });
+          if (!stop) {
+            setQuote({ out, spent, endTick: Number(endTick) });
+            setQuoteErr(null);
+          }
+        }
+      } catch (e) {
+        if (!stop) {
+          setQuote(null);
+          setQuoteErr(e instanceof Error ? e.message.split("\n")[0] : "quote failed");
+        }
+      }
+    };
+    const t = setTimeout(run, 220);
+    const iv = setInterval(run, 2500);
+    return () => {
+      stop = true;
+      clearTimeout(t);
+      clearInterval(iv);
+    };
+  }, [client, cfg, book, side, mode, amountIn?.toString()]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- router allowance (market) and book allowance (limit)
+  const loadAllowance = useCallback(async () => {
+    try {
+      const a = await client.readContract({
+        address: tokenIn,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [account.address, cfg.contracts.router],
+      });
+      setAllowance(a);
+    } catch {
+      setAllowance(null);
+    }
+  }, [client, tokenIn, account, cfg]);
+  const loadBookAllowance = useCallback(async () => {
+    if (!book) return;
+    try {
+      const a = await client.readContract({
+        address: tokenIn,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [account.address, book],
+      });
+      setBookAllowance(a);
+    } catch {
+      setBookAllowance(null);
+    }
+  }, [client, tokenIn, account, book]);
+  useEffect(() => {
+    setAllowance(null);
+    loadAllowance();
+    if (mode === "limit") loadBookAllowance();
+  }, [loadAllowance, loadBookAllowance, mode, busy]);
+
+  // ---- derived market quote numbers
+  const derived = useMemo(() => {
+    if (!quote || amountIn === null || amountIn === 0n || quote.out === 0n) return null;
+    const spentF = Number(quote.spent) / 10 ** (side === "buy" ? quoteDec : baseDec);
+    const outF = Number(quote.out) / 10 ** (side === "buy" ? baseDec : quoteDec);
+    const shares = side === "buy" ? outF : Number(amountIn) / 10 ** baseDec;
+    const cost = side === "buy" ? spentF : outF; // sUSDC leg
+    const avgPrice = shares > 0 ? cost / shares : 0; // probability
+    const toWin = side === "buy" ? shares - cost : 0; // payout if outcome wins
+    const partial = quote.spent < amountIn;
+    return { shares, cost, avgPrice, toWin, partial, endProb: tickToPrice(quote.endTick) };
+  }, [quote, amountIn, side, quoteDec, baseDec]);
+
+  const minOut = useMemo(() => {
+    if (!quote || quote.out === 0n) return 0n;
+    return (quote.out * 985n) / 1000n; // 1.5% slippage guard
+  }, [quote]);
+
+  // ---- limit plan (post a resting order on the selected book)
+  const limitCents = Number(limitCentsStr);
+  const limitProb = Number.isFinite(limitCents) && limitCents > 0 ? limitCents / 100 : null;
+  const amountShares = parseAmount(amountStr, baseDec);
+  const limitPlan = useMemo(() => {
+    if (mode !== "limit" || !selected || limitProb === null) return null;
+    if (amountShares === null || amountShares === 0n) return null;
+    const spacing = 1;
+    const tick = alignTick(priceToTick(limitProb), spacing, false);
+    const cur = selectedCurTick(selected);
+    let error: string | null = null;
+    if (side === "buy") {
+      if (cur !== null && tick + spacing > cur) error = "Bid is above the market — lower the price or use Market.";
+      return { tick, spacing, fn: "depositBid" as const, escrow: limitProb * Number(amountShares) / 10 ** baseDec, error };
+    }
+    if (cur !== null && tick <= cur) error = "Ask is below the market — raise the price or use Market.";
+    return { tick, spacing, fn: "deposit" as const, escrow: Number(amountShares) / 10 ** baseDec, error };
+  }, [mode, selected, limitProb, amountShares?.toString(), side, baseDec]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const needsApproval =
+    mode === "market" && allowance !== null && amountIn !== null && amountIn > 0n && allowance < amountIn;
+  const limitPayToken = side === "buy" ? collateral : outcomeToken;
+  const limitNeedsApproval =
+    mode === "limit" && limitPlan !== null && limitPlan.error === null && bookAllowance !== null && bookAllowance < MAX_UINT / 2n;
+  const insufficient = amountIn !== null && amountIn > balanceIn;
+
+  const onApproveRouter = () =>
+    sendTx(`Approve ${side === "buy" ? quoteSym : outcome}`, () =>
+      wallet.writeContract({
+        address: tokenIn,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [cfg.contracts.router, MAX_UINT],
+      }),
+    ).then(() => loadAllowance());
+
+  const onApproveBook = () =>
+    book
+      ? sendTx(`Approve ${side === "buy" ? quoteSym : outcome} for book`, () =>
+          wallet.writeContract({
+            address: limitPayToken!,
+            abi: erc20Abi,
+            functionName: "approve",
+            args: [book, MAX_UINT],
+          }),
+        ).then(() => loadBookAllowance())
+      : Promise.resolve();
+
+  const onMarket = async () => {
+    if (!book || amountIn === null || derived === null) return;
+    const { timestamp } = await client.getBlock({ blockTag: "latest" });
+    const deadline = timestamp + 600n;
+    const label =
+      side === "buy"
+        ? `Buy ${outcome} · ${fmtUsd(derived.cost)}`
+        : `Sell ${outcome} · ${fmtAmount(amountIn, 2, baseDec)} sh`;
+    const ok = await sendTx(label, () =>
+      wallet.writeContract({
+        address: cfg.contracts.router,
+        abi: routerAbi,
+        functionName: side === "buy" ? "buyExactIn" : "sellExactIn",
+        args: [book, amountIn, minOut, account.address, deadline],
+      }),
+    );
+    if (ok) setAmountStr("");
+  };
+
+  const onLimit = async () => {
+    if (!book || !limitPlan || limitPlan.error !== null || amountShares === null) return;
+    const label = `Limit ${side} ${outcome} @ ${limitCents}¢`;
+    const ok = await sendTx(label, () =>
+      wallet.writeContract({
+        address: book,
+        abi: bookAbi,
+        functionName: limitPlan.fn,
+        args: [limitPlan.tick, limitPlan.tick + limitPlan.spacing, amountShares],
+      }),
+    );
+    if (ok) setAmountStr("");
+  };
+
+  const yesPx = yes.prob;
+  const noPx = no.prob;
+
+  return (
+    <div className="dbx-ticket-inner">
+      {/* Buy / Sell + order type */}
+      <div className="dbx-ticket-top">
+        <div className="dbx-bs">
+          <button className={side === "buy" ? "on" : ""} onClick={() => setSide("buy")}>
+            Buy
+          </button>
+          <button className={side === "sell" ? "on" : ""} onClick={() => setSide("sell")}>
+            Sell
+          </button>
+        </div>
+        <button
+          className="dbx-mode-pill"
+          onClick={() => setMode((m) => (m === "market" ? "limit" : "market"))}
+          title="Toggle market / limit"
+        >
+          {mode === "market" ? "Market" : "Limit"} <span className="caret">⌄</span>
+        </button>
+      </div>
+
+      {/* YES / NO selector */}
+      <div className="dbx-outcome-pick">
+        <button
+          className={`dbx-pick yes ${isYes ? "on" : ""}`}
+          onClick={() => onOutcome("YES")}
+        >
+          <span>Yes</span>
+          <strong className="num">{fmtCents(yesPx)}</strong>
+        </button>
+        <button
+          className={`dbx-pick no ${!isYes ? "on" : ""}`}
+          onClick={() => onOutcome("NO")}
+        >
+          <span>No</span>
+          <strong className="num">{fmtCents(noPx)}</strong>
+        </button>
+      </div>
+
+      {mode === "limit" && (
+        <div className="dbx-field">
+          <label className="dbx-field-label">Limit price</label>
+          <div className="dbx-stepper">
+            <button onClick={() => setLimitCentsStr(String(Math.max(1, (Number(limitCentsStr) || 0) - 1)))}>−</button>
+            <input
+              className="num"
+              inputMode="numeric"
+              placeholder={selected.prob ? String(Math.round(selected.prob * 100)) : "50"}
+              value={limitCentsStr}
+              onChange={(e) => setLimitCentsStr(e.target.value.replace(/[^\d]/g, ""))}
+            />
+            <span className="suffix">¢</span>
+            <button onClick={() => setLimitCentsStr(String(Math.min(99, (Number(limitCentsStr) || 0) + 1)))}>+</button>
+          </div>
+        </div>
+      )}
+
+      {/* amount */}
+      <div className="dbx-field">
+        <label className="dbx-field-label">
+          {side === "buy" ? (mode === "limit" ? "Shares" : "Amount") : "Shares"}
+          <button
+            className="dbx-bal num"
+            onClick={() =>
+              setAmountStr(
+                (Number(side === "buy" && mode === "market" ? balances.usdc : shareBalance) / 10 ** inDec).toString(),
+              )
+            }
+          >
+            {side === "buy" && mode === "market"
+              ? `${fmtAmount(balances.usdc, 2, quoteDec)} ${quoteSym}`
+              : `${fmtAmount(shareBalance, 2, baseDec)} sh`}
+          </button>
+        </label>
+        <div className="dbx-amount">
+          {side === "buy" && mode === "market" && <span className="dbx-amount-cur">$</span>}
+          <input
+            className="num"
+            inputMode="decimal"
+            placeholder="0"
+            value={amountStr}
+            onChange={(e) => setAmountStr(e.target.value)}
+          />
+        </div>
+        <div className="dbx-presets">
+          {(side === "buy" && mode === "market" ? [1, 20, 100, 500] : [10, 50, 100, 500]).map((v, i) => (
+            <button
+              key={v}
+              className={i === 3 ? "accentish" : ""}
+              onClick={() =>
+                setAmountStr((prev) => String((Number(prev) || 0) + v))
+              }
+            >
+              +{v}
+            </button>
+          ))}
+          <button onClick={() => setAmountStr("")}>Clear</button>
+        </div>
+      </div>
+
+      {/* summary rows */}
+      <div className="dbx-ticket-rows num">
+        {mode === "market" ? (
+          <>
+            <Row label="Avg price" value={derived ? fmtCents(derived.avgPrice, 1) : "—"} />
+            <Row
+              label={side === "buy" ? "Est. shares" : "Est. receive"}
+              value={
+                derived
+                  ? side === "buy"
+                    ? `${derived.shares.toFixed(2)}`
+                    : `${fmtUsd(derived.cost)}`
+                  : "—"
+              }
+            />
+            <Row label="Total" value={derived ? fmtUsd(derived.cost) : "$0.00"} strong tone="accent" />
+            {side === "buy" && (
+              <Row
+                label="To win 💸"
+                value={derived ? fmtUsd(derived.cost + derived.toWin) : "$0.00"}
+                strong
+                tone="yes"
+              />
+            )}
+          </>
+        ) : (
+          <>
+            <Row label="Rests at" value={limitProb !== null ? fmtCents(limitProb) : "—"} />
+            <Row
+              label={side === "buy" ? "You escrow" : "You provide"}
+              value={limitPlan ? (side === "buy" ? fmtUsd(limitPlan.escrow) : `${limitPlan.escrow.toFixed(2)} sh`) : "—"}
+            />
+            <Row label="Expiry" value="Never — claim or cancel" />
+          </>
+        )}
+      </div>
+
+      {derived?.partial && mode === "market" && (
+        <div className="dbx-note warn">Book depth covers only part of your order; the rest stays in your wallet.</div>
+      )}
+      {mode === "limit" && limitPlan?.error && <div className="dbx-note warn">{limitPlan.error}</div>}
+      {!tradable && (
+        <div className="dbx-note warn">
+          The NO book is not deployed in this manifest — NO is shown as the 1 − YES complement.
+        </div>
+      )}
+      {quoteErr && amountIn !== null && amountIn > 0n && mode === "market" && (
+        <div className="dbx-note warn">No liquidity at this size yet — awaiting market makers.</div>
+      )}
+
+      {/* CTA */}
+      {renderCta()}
+
+      <div className="dbx-terms">
+        By trading you accept this is ARC testnet demo software. <span className="dim">No real funds.</span>
+      </div>
+    </div>
+  );
+
+  function renderCta() {
+    const disabled = busy !== null || !tradable;
+    if (insufficient) {
+      return (
+        <button className="dbx-cta" disabled>
+          Insufficient {side === "buy" ? quoteSym : "shares"}
+        </button>
+      );
+    }
+    if (mode === "market") {
+      if (needsApproval) {
+        return (
+          <button className="dbx-cta approve" disabled={disabled} onClick={onApproveRouter}>
+            Approve {side === "buy" ? quoteSym : outcome}
+          </button>
+        );
+      }
+      return (
+        <button
+          className={`dbx-cta ${side === "buy" ? "buy" : "sell"}`}
+          disabled={disabled || amountIn === null || amountIn === 0n || derived === null}
+          onClick={onMarket}
+        >
+          {side === "buy" ? `Buy ${outcome}` : `Sell ${outcome}`}
+        </button>
+      );
+    }
+    if (limitNeedsApproval) {
+      return (
+        <button className="dbx-cta approve" disabled={disabled} onClick={onApproveBook}>
+          Approve {side === "buy" ? quoteSym : outcome}
+        </button>
+      );
+    }
+    return (
+      <button
+        className={`dbx-cta ${side === "buy" ? "buy" : "sell"}`}
+        disabled={disabled || limitPlan === null || limitPlan.error !== null}
+        onClick={onLimit}
+      >
+        Place limit {side}
+      </button>
+    );
+  }
+}
+
+function Row({
+  label,
+  value,
+  strong,
+  tone,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  tone?: "accent" | "yes";
+}) {
+  return (
+    <div className={`dbx-row ${strong ? "strong" : ""} ${tone ?? ""}`}>
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+/** Current tick of a book is not exposed on PredictionBook; infer "has an
+ * open market in band" from its touches. Returns a coarse tick proxy or null. */
+function selectedCurTick(b: PredictionBook): number | null {
+  const px = b.prob;
+  if (px === null) return null;
+  return priceToTick(px);
+}

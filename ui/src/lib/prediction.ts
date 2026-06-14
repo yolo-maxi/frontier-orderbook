@@ -1,11 +1,12 @@
 import { formatUnits } from "viem";
 import type { BookSummary, DepthLevel, PositionRow } from "../state/app";
-import { tickToPrice } from "./format";
+import { clampProb, tickToPrice } from "./format";
 
 export type Outcome = "YES" | "NO";
 
 export interface PredictionLevel {
   probability: number;
+  tick: number;
   size: number;
   cum: number;
 }
@@ -13,9 +14,14 @@ export interface PredictionLevel {
 export interface PredictionBook {
   outcome: Outcome;
   source: "live" | "synthetic";
+  /** True when the book has at least one resting order on either side. */
+  hasMarket: boolean;
   bestBid: number | null;
   bestAsk: number | null;
-  mid: number;
+  /** Primary displayed probability: touch midpoint, else last trade. null when no market. */
+  prob: number | null;
+  /** Last traded probability (from currentTick), null when out of the (0,1) band. */
+  last: number | null;
   spread: number | null;
   bidDepth: PredictionLevel[];
   askDepth: PredictionLevel[];
@@ -29,56 +35,90 @@ export interface ComplementSignal {
   hint: string;
 }
 
-const STRIKE_PRICE = 2000;
-const VOL_SCALE = 325;
-
-export function probabilityFromPrice(price: number): number {
-  if (!Number.isFinite(price)) return 0.5;
-  const z = Math.max(-8, Math.min(8, (price - STRIKE_PRICE) / VOL_SCALE));
-  return clamp01(1 / (1 + Math.exp(-z)));
+/** Probability as integer-cent string, Polymarket-style: 0.27 -> "27¢". */
+export function fmtCents(p: number | null, dp = 0): string {
+  if (p === null || !Number.isFinite(p)) return "—";
+  return `${(p * 100).toFixed(dp)}¢`;
 }
 
-export function probabilityFromTick(tick: number): number {
-  return probabilityFromPrice(tickToPrice(tick));
-}
-
-export function fmtProb(p: number | null, dp = 1): string {
-  if (p === null || !Number.isFinite(p)) return "-";
-  return `${(p * 100).toFixed(dp)}c`;
-}
-
-export function fmtPct(p: number | null, dp = 1): string {
-  if (p === null || !Number.isFinite(p)) return "-";
+/** Probability as percent: 0.27 -> "27%". */
+export function fmtPct(p: number | null, dp = 0): string {
+  if (p === null || !Number.isFinite(p)) return "—";
   return `${(p * 100).toFixed(dp)}%`;
 }
 
-export function buildPredictionBooks(summary: BookSummary | null, depth: DepthLevel[], baseDecimals = 18): [PredictionBook, PredictionBook] {
-  const mid = summary ? probabilityFromTick(summary.currentTick) : 0.5;
-  const yesBid = summary?.hasBid ? probabilityFromTick(summary.bestBid) : null;
-  const yesAsk = summary?.hasAsk ? probabilityFromTick(summary.bestAsk) : null;
-  const yesBook: PredictionBook = {
-    outcome: "YES",
+/** Legacy alias kept for any callers expecting cents. */
+export const fmtProb = fmtCents;
+
+/** A currentTick price only counts as a "last trade" when it lands inside the
+ * representable probability band — the empty-book construction tick (200000 ≈
+ * price 4.85e8) must NOT be shown as a 99.9% probability. */
+function lastFromTick(currentTick: number): number | null {
+  const px = tickToPrice(currentTick);
+  return px > 0 && px < 1.2 ? clampProb(px) : null;
+}
+
+function bookFromSide(
+  outcome: Outcome,
+  summary: BookSummary | null,
+  depth: DepthLevel[],
+  baseDecimals: number,
+): PredictionBook {
+  const bestBid = summary?.hasBid ? clampProb(tickToPrice(summary.bestBid)) : null;
+  const bestAsk = summary?.hasAsk ? clampProb(tickToPrice(summary.bestAsk)) : null;
+  const last = summary ? lastFromTick(summary.currentTick) : null;
+  const mid =
+    bestBid !== null && bestAsk !== null
+      ? (bestBid + bestAsk) / 2
+      : bestBid ?? bestAsk ?? null;
+  const hasMarket = bestBid !== null || bestAsk !== null;
+  return {
+    outcome,
     source: "live",
-    bestBid: yesBid,
-    bestAsk: yesAsk,
-    mid,
-    spread: yesBid !== null && yesAsk !== null ? Math.max(0, yesAsk - yesBid) : null,
-    bidDepth: makeDepth(depth, "bid", mid, baseDecimals),
-    askDepth: makeDepth(depth, "ask", mid, baseDecimals),
+    hasMarket,
+    bestBid,
+    bestAsk,
+    prob: mid ?? last,
+    last,
+    spread: bestBid !== null && bestAsk !== null ? Math.max(0, bestAsk - bestBid) : null,
+    bidDepth: makeDepth(depth, "bid", baseDecimals),
+    askDepth: makeDepth(depth, "ask", baseDecimals),
   };
-  const noBid = yesAsk === null ? null : clamp01(1 - yesAsk);
-  const noAsk = yesBid === null ? null : clamp01(1 - yesBid);
-  const noBook: PredictionBook = {
+}
+
+/**
+ * Build YES and NO prediction books. When a live NO book summary/depth is
+ * supplied (noBook is deployed) both are real; otherwise NO is derived as the
+ * 1 − YES complement and flagged synthetic.
+ */
+export function buildPredictionBooks(
+  yesSummary: BookSummary | null,
+  yesDepth: DepthLevel[],
+  noSummary: BookSummary | null,
+  noDepth: DepthLevel[],
+  baseDecimals = 6,
+): [PredictionBook, PredictionBook] {
+  const yes = bookFromSide("YES", yesSummary, yesDepth, baseDecimals);
+  if (noSummary) {
+    return [yes, bookFromSide("NO", noSummary, noDepth, baseDecimals)];
+  }
+  // synthetic complement fallback
+  const noBid = yes.bestAsk === null ? null : clampProb(1 - yes.bestAsk);
+  const noAsk = yes.bestBid === null ? null : clampProb(1 - yes.bestBid);
+  const noMid = yes.prob === null ? null : clampProb(1 - yes.prob);
+  const no: PredictionBook = {
     outcome: "NO",
     source: "synthetic",
+    hasMarket: yes.hasMarket,
     bestBid: noBid,
     bestAsk: noAsk,
-    mid: clamp01(1 - mid),
+    prob: noMid,
+    last: yes.last === null ? null : clampProb(1 - yes.last),
     spread: noBid !== null && noAsk !== null ? Math.max(0, noAsk - noBid) : null,
-    bidDepth: invertDepth(yesBook.askDepth, "bid"),
-    askDepth: invertDepth(yesBook.bidDepth, "ask"),
+    bidDepth: invertDepth(yes.askDepth, "bid"),
+    askDepth: invertDepth(yes.bidDepth, "ask"),
   };
-  return [yesBook, noBook];
+  return [yes, no];
 }
 
 export function complementSignal(yes: PredictionBook, no: PredictionBook): ComplementSignal {
@@ -88,63 +128,52 @@ export function complementSignal(yes: PredictionBook, no: PredictionBook): Compl
   const bidUnderround = yesBidNoBid === null ? null : 1 - yesBidNoBid;
   let hint = "Waiting for both touches.";
   if (askOverround !== null && bidUnderround !== null) {
-    if (askOverround < -0.002) hint = "Buy both outcomes is priced below $1.00.";
-    else if (bidUnderround < -0.002) hint = "Sell both outcomes is bid above $1.00.";
+    if (askOverround < -0.002) hint = "Buying both sides costs under $1.00 — mint-and-sell edge.";
+    else if (bidUnderround < -0.002) hint = "Selling both sides bids over $1.00 — split-and-sell edge.";
     else hint = "Complement is internally balanced.";
   }
   return { yesAskNoAsk, yesBidNoBid, askOverround, bidUnderround, hint };
 }
 
-export function exposureFromPositions(positions: PositionRow[], baseDecimals = 18) {
+export function exposureFromPositions(positions: PositionRow[], baseDecimals = 6) {
   const live = positions.filter((p) => p.live);
-  const yesResting = live.reduce((acc, p) => acc + Number(formatUnits(p.unfilled, baseDecimals)), 0);
-  const yesClaimable = live.reduce((acc, p) => acc + Number(formatUnits(p.claimable, baseDecimals)), 0);
+  const resting = live.reduce((acc, p) => acc + Number(formatUnits(p.unfilled, baseDecimals)), 0);
+  const claimable = live.reduce((acc, p) => acc + Number(formatUnits(p.claimable, baseDecimals)), 0);
   return {
     liveOrders: live.length,
-    yesResting,
-    yesClaimable,
-    maxLoss: yesResting,
-    maxPayout: yesClaimable + yesResting,
+    yesResting: resting,
+    yesClaimable: claimable,
+    maxLoss: resting,
+    maxPayout: claimable + resting,
   };
 }
 
-function makeDepth(depth: DepthLevel[], side: "ask" | "bid", mid: number, baseDecimals: number): PredictionLevel[] {
+function makeDepth(depth: DepthLevel[], side: "ask" | "bid", baseDecimals: number): PredictionLevel[] {
   const rows = depth
     .map((d) => {
       const raw = side === "ask" ? d.askSize : d.bidSize;
-      return { probability: probabilityFromTick(d.tick), size: Number(formatUnits(raw, baseDecimals)) };
+      return {
+        probability: clampProb(tickToPrice(d.tick)),
+        tick: d.tick,
+        size: Number(formatUnits(raw, baseDecimals)),
+      };
     })
     .filter((d) => d.size > 0)
     .sort((a, b) => (side === "ask" ? a.probability - b.probability : b.probability - a.probability));
-  const source = rows.length > 0 ? rows : indicativeDepth(side, mid);
   let cum = 0;
-  return source.slice(0, 16).map((r) => {
+  return rows.slice(0, 14).map((r) => {
     cum += r.size;
     return { ...r, cum };
-  });
-}
-
-function indicativeDepth(side: "ask" | "bid", mid: number) {
-  return Array.from({ length: 10 }, (_, i) => {
-    const offset = (i + 1) * 0.008;
-    return {
-      probability: clamp01(side === "ask" ? mid + offset : mid - offset),
-      size: 5 + i * 1.75,
-    };
   });
 }
 
 function invertDepth(levels: PredictionLevel[], side: "ask" | "bid"): PredictionLevel[] {
   let cum = 0;
   return levels
-    .map((l) => ({ probability: clamp01(1 - l.probability), size: l.size }))
+    .map((l) => ({ probability: clampProb(1 - l.probability), tick: -l.tick, size: l.size }))
     .sort((a, b) => (side === "ask" ? a.probability - b.probability : b.probability - a.probability))
     .map((l) => {
       cum += l.size;
       return { ...l, cum };
     });
-}
-
-function clamp01(x: number): number {
-  return Math.max(0.001, Math.min(0.999, x));
 }

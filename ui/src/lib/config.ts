@@ -27,6 +27,13 @@ export interface DeploymentConfig {
   contracts: DeploymentContracts;
   tokens?: DeploymentTokens;
   darkbox?: {
+    network?: string;
+    marketFactory?: `0x${string}`;
+    syntheticUSDC?: `0x${string}`;
+    selectedSide?: string;
+    category?: string;
+    subtitle?: string;
+    resolutionSource?: string;
     market?: {
       question?: string;
       market?: `0x${string}`;
@@ -41,9 +48,28 @@ export interface DeploymentConfig {
 
 export const marketQuestion = (cfg: DeploymentConfig) => cfg.darkbox?.market?.question ?? cfg.name;
 export const baseSymbol = (cfg: DeploymentConfig) => cfg.tokens?.base ?? "YES";
-export const quoteSymbol = (cfg: DeploymentConfig) => cfg.tokens?.quote ?? "USDC";
-export const baseDecimals = (cfg: DeploymentConfig) => cfg.tokens?.baseDecimals ?? 18;
-export const quoteDecimals = (cfg: DeploymentConfig) => cfg.tokens?.quoteDecimals ?? 18;
+export const quoteSymbol = (cfg: DeploymentConfig) => cfg.tokens?.quote ?? "sUSDC";
+export const baseDecimals = (cfg: DeploymentConfig) => cfg.tokens?.baseDecimals ?? 6;
+export const quoteDecimals = (cfg: DeploymentConfig) => cfg.tokens?.quoteDecimals ?? 6;
+
+const nonZero = (a: string | undefined): a is `0x${string}` => !!a && !/^0x0*$/.test(a);
+
+/** Address of the DarkBoxBinaryMarket vault (split/merge/redeem), or null. */
+export const marketVaultAddr = (cfg: DeploymentConfig): `0x${string}` | null =>
+  nonZero(cfg.darkbox?.market?.market) ? (cfg.darkbox!.market!.market as `0x${string}`) : null;
+export const yesBookAddr = (cfg: DeploymentConfig): `0x${string}` =>
+  (nonZero(cfg.darkbox?.market?.yesBook) ? cfg.darkbox!.market!.yesBook! : cfg.contracts.book) as `0x${string}`;
+export const noBookAddr = (cfg: DeploymentConfig): `0x${string}` | null =>
+  nonZero(cfg.darkbox?.market?.noBook) ? (cfg.darkbox!.market!.noBook as `0x${string}`) : null;
+export const yesTokenAddr = (cfg: DeploymentConfig): `0x${string}` =>
+  (nonZero(cfg.darkbox?.market?.yesToken) ? cfg.darkbox!.market!.yesToken! : cfg.contracts.weth) as `0x${string}`;
+export const noTokenAddr = (cfg: DeploymentConfig): `0x${string}` | null =>
+  nonZero(cfg.darkbox?.market?.noToken) ? (cfg.darkbox!.market!.noToken as `0x${string}`) : null;
+export const collateralAddr = (cfg: DeploymentConfig): `0x${string}` => cfg.contracts.usdc;
+
+export const marketCategory = (cfg: DeploymentConfig) => cfg.darkbox?.category ?? "Grants · ARC";
+export const marketResolutionSource = (cfg: DeploymentConfig) =>
+  cfg.darkbox?.resolutionSource ?? "DarkBox resolver · ARC submission outcome";
 
 const ZERO = /^0x0*$/;
 
