@@ -219,7 +219,9 @@ const OFFSET = 40; // ticks frontier→inside quote (~0.4¢) so the bid/ask spre
 const MM_SIZE = 2000000n; // token0 per level — thick book so heavy taker flow can't drain a side
 //                           between the (3s) maker refreshes
 const rsize = () => (MM_SIZE * BigInt(65 + Math.floor(Math.random() * 70))) / 100n; // 0.65×–1.35×
-const mmState = { YES: { askId: 0n, bidId: 0n }, NO: { askId: 0n, bidId: 0n } };
+// rolling lists of this maker's recent quote ids per side — see recenter() for why
+// we keep more than the last one.
+const mmState = { YES: { asks: [], bids: [] }, NO: { asks: [], bids: [] } };
 
 /** Cancel this maker's own resting positions left over from earlier runs, so the
  * frontier peg (moveTickTo) never has to cross stale liquidity. */
@@ -296,28 +298,41 @@ async function recenter(bot, side, prob) {
   } catch {
     /* best-effort restock */
   }
-  // settle prior quotes — each cancel is an independent tx, so a cancel that
-  // reverts (the position was already consumed by a taker) doesn't block the rest.
+  // Settle prior quotes. We track a ROLLING LIST of recent positions, not just the
+  // last one: a cancel can lose the race to an active taker and revert, and if we
+  // forgot that id it would strand forever as fair moves on (the smear of liquidity
+  // far from the touch). So each cycle try to cancel EVERY tracked id; keep any that
+  // are still live-but-uncancellable and retry next cycle, when trading has moved
+  // away and the cancel goes through. Drop ids that are gone (consumed).
   for (const [k, fn, wfn] of [
-    ["askId", "cancel", "cancelWithWitness"],
-    ["bidId", "cancelBid", "cancelBidWithWitness"],
+    ["asks", "cancel", "cancelWithWitness"],
+    ["bids", "cancelBid", "cancelBidWithWitness"],
   ]) {
-    if (st[k]) {
+    const keep = [];
+    for (const id of st[k]) {
+      let done = false;
       try {
-        await bot.send(book, bookAbi, fn, [st[k]]);
+        await bot.send(book, bookAbi, fn, [id]);
+        done = true;
       } catch {
-        // plain cancel reverts once a quote has been PARTIALLY filled. If left
-        // resting, those touched remnants pile up cycle after cycle into a lopsided
-        // wall (the bids did this while eaten asks vanished). Clear by witness.
         try {
-          const p = await pub.readContract({ address: book, abi: bookAbi, functionName: "positions", args: [st[k]] });
-          if (p[7]) await bot.send(book, bookAbi, wfn, [st[k], p[1]]);
+          const p = await pub.readContract({ address: book, abi: bookAbi, functionName: "positions", args: [id] });
+          if (!p[7]) done = true; // not live → already consumed, nothing to clear
+          else {
+            try {
+              await bot.send(book, bookAbi, wfn, [id, p[1]]);
+              done = true;
+            } catch {
+              /* live + actively traded → can't cancel right now, retry next cycle */
+            }
+          }
         } catch {
-          /* already fully consumed — nothing to clear */
+          /* read failed → keep and retry to be safe */
         }
       }
-      st[k] = 0n;
+      if (!done) keep.push(id);
     }
+    st[k] = keep.slice(-8); // bound the retry list
   }
   // Peg the frontier to target. Bounded taker sweeps (±SWEEP_CAP) mean that even
   // if a taker trades during this brief window, the frontier can't blow out of
@@ -348,8 +363,8 @@ async function recenter(bot, side, prob) {
   const bidHi = cur - OFFSET;
   try {
     const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "deposit", args: [askLo, askLo + LADDER, askBase], account: bot.account });
-    st.askId = sim.result;
     await bot.send(book, bookAbi, "deposit", [askLo, askLo + LADDER, askBase]);
+    st.asks.push(sim.result);
     bump("mm-ask", true);
   } catch (e) {
     bump("mm-ask", false);
@@ -357,8 +372,8 @@ async function recenter(bot, side, prob) {
   }
   try {
     const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "depositBid", args: [bidHi - LADDER, bidHi, bidBase], account: bot.account });
-    st.bidId = sim.result;
     await bot.send(book, bookAbi, "depositBid", [bidHi - LADDER, bidHi, bidBase]);
+    st.bids.push(sim.result);
     bump("mm-bid", true);
   } catch (e) {
     bump("mm-bid", false);
