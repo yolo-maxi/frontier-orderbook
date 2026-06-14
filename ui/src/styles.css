@@ -2802,3 +2802,63 @@ body {
   font-size: 11px;
   color: var(--text-faint);
 }
+
+/* ── depth-view order preview ───────────────────────────────────────── */
+.dbx-depth-col.hit .dbx-depth-bar {
+  background: linear-gradient(180deg, var(--db-accent), rgba(35, 224, 200, 0.35)) !important;
+  box-shadow: 0 0 9px var(--db-accent);
+  outline: 1px solid var(--db-accent);
+}
+.dbx-depth-marker {
+  flex: 0 0 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    180deg,
+    var(--db-violet) 0,
+    var(--db-violet) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  box-shadow: 0 0 8px var(--db-violet);
+  margin: 0 2px;
+}
+.dbx-depth-order {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding: 8px 11px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  background: var(--db-accent-dim);
+  border: 1px solid var(--db-accent);
+}
+.dbx-depth-order.sell {
+  background: var(--red-dim);
+  border-color: var(--red);
+}
+.dbx-depth-order.buy {
+  background: var(--green-dim);
+  border-color: var(--green);
+}
+.dbx-order-tag {
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.dbx-depth-order.buy .dbx-order-tag {
+  color: var(--green-hi);
+}
+.dbx-depth-order.sell .dbx-order-tag {
+  color: var(--red-hi);
+}
+.dbx-order-move {
+  margin-left: auto;
+  font-size: 11.5px;
+}

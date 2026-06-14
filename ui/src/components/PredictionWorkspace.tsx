@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useApp } from "../state/app";
 import { baseDecimals, marketQuestion, quoteDecimals, quoteSymbol } from "../lib/config";
 import { fmtAmount } from "../lib/format";
-import { buildPredictionBooks, exposureFromPositions, fmtCents, type Outcome } from "../lib/prediction";
+import { buildPredictionBooks, exposureFromPositions, fmtCents, type Outcome, type OrderPreview } from "../lib/prediction";
 import { MarketHeader } from "./market/MarketHeader";
 import { ProbabilityChart } from "./market/ProbabilityChart";
 import { DepthBars } from "./market/DepthBars";
@@ -19,6 +19,7 @@ export function PredictionWorkspace() {
   const quoteSym = quoteSymbol(cfg);
   const question = marketQuestion(cfg);
   const [outcome, setOutcome] = useState<Outcome>("YES");
+  const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
 
   const [yes, no] = useMemo(
     () => buildPredictionBooks(summary, depth, noSummary, noDepth, baseDec),
@@ -32,7 +33,7 @@ export function PredictionWorkspace() {
       <div className="dbx-main">
         <MarketHeader />
         <ProbabilityChart yes={yes} />
-        <DepthBars outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} />
+        <DepthBars outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} preview={orderPreview} />
         <OrderBookCard outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} />
         <ActivityFeed />
         <MarketInfoCards />
@@ -45,7 +46,7 @@ export function PredictionWorkspace() {
             <span className="dbx-ticket-q">{question}</span>
             <span className="dbx-ticket-price num">{fmtCents(selected.prob)}</span>
           </div>
-          <MarketTicket outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} />
+          <MarketTicket outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} onPreview={setOrderPreview} />
         </div>
 
         <LiquidityCard />

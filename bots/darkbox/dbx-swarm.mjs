@@ -211,10 +211,11 @@ async function splitInventory(bot, usdc, skipIfStocked = false) {
 }
 
 // ── market making: open + maintain a 2-sided book straddling fair ─────---
-const LADDER = 200; // ticks of depth per order (~2¢)
+const LADDER = 320; // ticks of depth per order (~3.2¢ — wide enough to show a profile)
 const OFFSET = 25; // ticks between frontier and the inside quote (buffer vs taker races)
-const MM_SIZE = 700000n; // token0 per level (≈0.7 share/level → ~140 shares/order, thick enough
-//                          that a single taker buy can't punch the frontier out of band)
+const MM_SIZE = 700000n; // token0 per level (≈0.7 share/level → thick enough that a single taker
+//                          buy can't punch the frontier out of band)
+const rsize = () => (MM_SIZE * BigInt(65 + Math.floor(Math.random() * 70))) / 100n; // 0.65×–1.35×
 const mmState = { YES: { askId: 0n, bidId: 0n }, NO: { askId: 0n, bidId: 0n } };
 
 /** Cancel this maker's own resting positions left over from earlier runs, so the
@@ -315,19 +316,24 @@ async function recenter(bot, side, prob) {
   }
   const askLo = cur + OFFSET;
   const bidHi = cur - OFFSET;
+  // shaped ask: thick near the touch, tapering ~to a third at the far edge, with
+  // a randomized base size so the book looks organic instead of a uniform wall.
+  const askBase = rsize();
+  const askSlope = -((askBase * 7n) / 10n) / BigInt(LADDER);
+  const bidBase = rsize();
   try {
-    const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "deposit", args: [askLo, askLo + LADDER, MM_SIZE], account: bot.account });
+    const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "depositShaped", args: [askLo, askLo + LADDER, askBase, askSlope], account: bot.account });
     st.askId = sim.result;
-    await bot.send(book, bookAbi, "deposit", [askLo, askLo + LADDER, MM_SIZE]);
+    await bot.send(book, bookAbi, "depositShaped", [askLo, askLo + LADDER, askBase, askSlope]);
     bump("mm-ask", true);
   } catch (e) {
     bump("mm-ask", false);
     log("mm", side, "ask fail", safe(e.shortMessage || e.message || "").slice(0, 60));
   }
   try {
-    const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "depositBid", args: [bidHi - LADDER, bidHi, MM_SIZE], account: bot.account });
+    const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "depositBid", args: [bidHi - LADDER, bidHi, bidBase], account: bot.account });
     st.bidId = sim.result;
-    await bot.send(book, bookAbi, "depositBid", [bidHi - LADDER, bidHi, MM_SIZE]);
+    await bot.send(book, bookAbi, "depositBid", [bidHi - LADDER, bidHi, bidBase]);
     bump("mm-bid", true);
   } catch (e) {
     bump("mm-bid", false);

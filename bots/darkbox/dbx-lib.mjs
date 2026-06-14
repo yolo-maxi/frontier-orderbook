@@ -70,6 +70,7 @@ export const bookAbi = parseAbi([
   "function currentTick() view returns (int24)",
   "function tickSpacing() view returns (int24)",
   "function deposit(int24 lower, int24 upper, uint128 liquidity) returns (uint256)",
+  "function depositShaped(int24 lower, int24 upper, uint128 liquidity, int128 slope) returns (uint256)",
   "function depositBid(int24 lower, int24 upper, uint128 liquidity) returns (uint256)",
   "function cancel(uint256 id) returns (uint256, uint256)",
   "function cancelBid(uint256 id) returns (uint256, uint256)",

@@ -32,7 +32,8 @@ while true; do
   fi
   # continue the price from wherever it is (in-band), else recenter to 0.5
   ct=$(cast call "$YESBOOK" 'currentTick()(int24)' --rpc-url "$RPC" 2>/dev/null | awk '{print $1}')
-  fair=$(python3 -c "p=1.0001**int('${ct:-0}'); print(round(p,2) if 0.06<p<0.94 else 0.5)" 2>/dev/null || echo 0.5)
+  # continue from the live price, but mean-revert ~20% toward 0.5 so it doesn't run to the rails
+  fair=$(python3 -c "p=1.0001**int('${ct:-0}'); p=p if 0.06<p<0.94 else 0.5; print(round(0.8*p+0.1,2))" 2>/dev/null || echo 0.5)
   echo "$(date) burst: fair=$fair treasury=${eth}ETH" | tee -a "$LOG"
   node dbx-swarm.mjs --live --bots "$BOTS" --tps "$TPS" --duration "$BURST" --fair "$fair" --gas-eth 0.12 >> "$LOG" 2>&1
   sleep "$REST"

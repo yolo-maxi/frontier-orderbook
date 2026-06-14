@@ -14,7 +14,7 @@ import {
   noTokenAddr,
 } from "../../lib/config";
 import { alignTick, fmtAmount, fmtUsd, parseAmount, priceToTick, tickToPrice } from "../../lib/format";
-import { fmtCents, type Outcome, type PredictionBook } from "../../lib/prediction";
+import { fmtCents, type Outcome, type OrderPreview, type PredictionBook } from "../../lib/prediction";
 
 type Side = "buy" | "sell";
 type Mode = "market" | "limit";
@@ -33,11 +33,13 @@ export function MarketTicket({
   onOutcome,
   yes,
   no,
+  onPreview,
 }: {
   outcome: Outcome;
   onOutcome: (o: Outcome) => void;
   yes: PredictionBook;
   no: PredictionBook;
+  onPreview?: (p: OrderPreview | null) => void;
 }) {
   const { cfg, client, wallet, addr, balances, sendTx, busy } = useApp();
   const baseDec = baseDecimals(cfg);
@@ -188,6 +190,38 @@ export function MarketTicket({
     if (cur !== null && tick <= cur) error = "Ask is below the market — raise the price or use Market.";
     return { tick, spacing, fn: "deposit" as const, escrow: Number(amountShares) / 10 ** baseDec, error };
   }, [mode, selected, limitProb, amountShares?.toString(), side, baseDec]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // project the order onto the depth view
+  useEffect(() => {
+    if (!onPreview) return;
+    if (mode === "market" && derived) {
+      const touch = side === "buy" ? selected.bestAsk ?? selected.prob : selected.bestBid ?? selected.prob;
+      onPreview({
+        outcome,
+        mode: "market",
+        side,
+        fromProb: touch ?? derived.avgPrice,
+        toProb: derived.endProb,
+        avgProb: derived.avgPrice,
+        shares: derived.shares,
+        cost: derived.cost,
+      });
+    } else if (mode === "limit" && limitProb !== null && limitPlan && amountShares !== null && amountShares > 0n) {
+      onPreview({
+        outcome,
+        mode: "limit",
+        side,
+        fromProb: limitProb,
+        toProb: limitProb,
+        avgProb: limitProb,
+        shares: Number(amountShares) / 10 ** baseDec,
+        cost: limitPlan.escrow,
+      });
+    } else {
+      onPreview(null);
+    }
+  }, [onPreview, mode, side, outcome, derived, limitProb, limitPlan, amountShares, selected, baseDec]);
+  useEffect(() => () => onPreview?.(null), [onPreview]);
 
   const needsApproval =
     mode === "market" && allowance !== null && amountIn !== null && amountIn > 0n && allowance < amountIn;

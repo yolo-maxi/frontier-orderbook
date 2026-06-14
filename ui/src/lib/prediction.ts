@@ -27,6 +27,18 @@ export interface PredictionBook {
   askDepth: PredictionLevel[];
 }
 
+/** The order the user is currently composing, projected onto the depth view. */
+export interface OrderPreview {
+  outcome: Outcome;
+  mode: "market" | "limit";
+  side: "buy" | "sell";
+  fromProb: number; // touch / start price
+  toProb: number; // sweep end (market) or rest price (limit)
+  avgProb: number; // avg fill (market) or rest price (limit)
+  shares: number;
+  cost: number; // sUSDC
+}
+
 export interface ComplementSignal {
   yesAskNoAsk: number | null;
   yesBidNoBid: number | null;
@@ -158,24 +170,37 @@ export function exposureFromPositions(positions: PositionRow[], baseDecimals = 6
   };
 }
 
+const BUCKET_TICKS = 25; // ~0.25¢ per depth bucket
+const MAX_BUCKETS = 13;
+
+/** Aggregate the per-tick ladder into price buckets, nearest-touch first, so the
+ * depth view spans a meaningful range (~3¢/side) instead of 14 adjacent ticks. */
 function makeDepth(depth: DepthLevel[], side: "ask" | "bid", baseDecimals: number): PredictionLevel[] {
-  const rows = depth
-    .map((d) => {
-      const raw = side === "ask" ? d.askSize : d.bidSize;
-      return {
-        rawPx: tickToPrice(d.tick),
-        tick: d.tick,
-        size: Number(formatUnits(raw, baseDecimals)),
-      };
-    })
-    .filter((d) => d.size > 0 && inBand(d.rawPx)) // drop junk levels outside (0,1)
-    .map((d) => ({ probability: clampProb(d.rawPx), tick: d.tick, size: d.size }))
-    .sort((a, b) => (side === "ask" ? a.probability - b.probability : b.probability - a.probability));
+  const raw = depth
+    .map((d) => ({
+      tick: d.tick,
+      px: tickToPrice(d.tick),
+      size: Number(formatUnits(side === "ask" ? d.askSize : d.bidSize, baseDecimals)),
+    }))
+    .filter((d) => d.size > 0 && inBand(d.px))
+    .sort((a, b) => (side === "ask" ? a.tick - b.tick : b.tick - a.tick)); // nearest touch first
+  if (raw.length === 0) return [];
+  const startTick = raw[0].tick;
+  const buckets = new Map<number, { size: number; tick: number }>();
+  for (const r of raw) {
+    const idx = Math.floor(Math.abs(r.tick - startTick) / BUCKET_TICKS);
+    if (idx >= MAX_BUCKETS) break;
+    const b = buckets.get(idx);
+    if (b) b.size += r.size;
+    else buckets.set(idx, { size: r.size, tick: r.tick });
+  }
   let cum = 0;
-  return rows.slice(0, 14).map((r) => {
-    cum += r.size;
-    return { ...r, cum };
-  });
+  return [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, b]) => {
+      cum += b.size;
+      return { probability: clampProb(tickToPrice(b.tick)), tick: b.tick, size: b.size, cum };
+    });
 }
 
 function invertDepth(levels: PredictionLevel[], side: "ask" | "bid"): PredictionLevel[] {
