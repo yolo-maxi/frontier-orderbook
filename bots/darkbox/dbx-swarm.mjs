@@ -297,12 +297,23 @@ async function recenter(bot, side, prob) {
   }
   // settle prior quotes — each cancel is an independent tx, so a cancel that
   // reverts (the position was already consumed by a taker) doesn't block the rest.
-  for (const [k, fn] of [["askId", "cancel"], ["bidId", "cancelBid"]]) {
+  for (const [k, fn, wfn] of [
+    ["askId", "cancel", "cancelWithWitness"],
+    ["bidId", "cancelBid", "cancelBidWithWitness"],
+  ]) {
     if (st[k]) {
       try {
         await bot.send(book, bookAbi, fn, [st[k]]);
       } catch {
-        /* already consumed */
+        // plain cancel reverts once a quote has been PARTIALLY filled. If left
+        // resting, those touched remnants pile up cycle after cycle into a lopsided
+        // wall (the bids did this while eaten asks vanished). Clear by witness.
+        try {
+          const p = await pub.readContract({ address: book, abi: bookAbi, functionName: "positions", args: [st[k]] });
+          if (p[7]) await bot.send(book, bookAbi, wfn, [st[k], p[1]]);
+        } catch {
+          /* already fully consumed — nothing to clear */
+        }
       }
       st[k] = 0n;
     }
@@ -556,15 +567,19 @@ async function main() {
   const statTimer = setInterval(() => report(false), 5000);
   // MM recenter loop (live) — keeps books fresh + nudges the price by fair drift
   let mmTimer = null;
+  let mmBusy = false;
   if (cfg.live && !cfg.noMm) {
     mmTimer = setInterval(async () => {
-      if (stopping) return;
-      // each leg drifts on its OWN flow + noise — independent price discovery,
-      // with occasional "news" swings so the chart is varied, not a gentle creep
-      const newsY = Math.random() < 0.18 ? (Math.random() - 0.5) * 0.16 : 0;
-      const newsN = Math.random() < 0.18 ? (Math.random() - 0.5) * 0.16 : 0;
-      yesFair = clampP(yesFair + clampD(yesFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.05 + newsY);
-      noFair = clampP(noFair + clampD(noFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.05 + newsN);
+      if (stopping || mmBusy) return; // skip a tick if the prior cycle is still settling
+      mmBusy = true;
+      // each leg drifts on its OWN flow + noise — independent price discovery, with
+      // occasional "news" swings so the chart stays varied. Kept modest (±8¢, was
+      // ±16¢) so fair doesn't lurch far from the resting quotes and strand them
+      // off-centre — that stranding is part of what spread the clusters apart.
+      const newsY = Math.random() < 0.14 ? (Math.random() - 0.5) * 0.08 : 0;
+      const newsN = Math.random() < 0.14 ? (Math.random() - 0.5) * 0.08 : 0;
+      yesFair = clampP(yesFair + clampD(yesFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.025 + newsY);
+      noFair = clampP(noFair + clampD(noFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.025 + newsN);
       yesFlow *= 0.4;
       noFlow *= 0.4;
       // arbitrage pulls the complement back toward 100¢ only when it leaves the band
@@ -576,13 +591,16 @@ async function main() {
         fireArb(sum > 1 ? "rich" : "cheap").catch(() => {});
       }
       try {
-        await recenter(mmYes, "YES", yesFair);
-        await recenter(mmNo, "NO", noFair);
+        // YES and NO are independent wallets → requote both concurrently so the
+        // near-touch quotes are refreshed sooner and buys can't open as wide a gap.
+        await Promise.all([recenter(mmYes, "YES", yesFair), recenter(mmNo, "NO", noFair)]);
         log("mm", `YES ${(yesFair * 100).toFixed(1)}¢  NO ${(noFair * 100).toFixed(1)}¢  sum ${((yesFair + noFair) * 100).toFixed(1)}¢`);
       } catch (e) {
         log("mm", "recenter cycle error", safe(e.message).slice(0, 70));
+      } finally {
+        mmBusy = false; // re-arm for the next cycle
       }
-    }, 3000);
+    }, 1500);
   }
 
   await sleep(cfg.duration * 1000);
