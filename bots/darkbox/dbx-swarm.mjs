@@ -298,45 +298,18 @@ async function recenter(bot, side, prob) {
   } catch {
     /* best-effort restock */
   }
-  // Settle prior quotes. We track a ROLLING LIST of recent positions, not just the
-  // last one: a cancel can lose the race to an active taker and revert, and if we
-  // forgot that id it would strand forever as fair moves on (the smear of liquidity
-  // far from the touch). So each cycle try to cancel EVERY tracked id; keep any that
-  // are still live-but-uncancellable and retry next cycle, when trading has moved
-  // away and the cancel goes through. Drop ids that are gone (consumed).
-  for (const [k, fn, wfn] of [
-    ["asks", "cancel", "cancelWithWitness"],
-    ["bids", "cancelBid", "cancelBidWithWitness"],
-  ]) {
-    const keep = [];
-    for (const id of st[k]) {
-      let done = false;
-      try {
-        await bot.send(book, bookAbi, fn, [id]);
-        done = true;
-      } catch {
-        try {
-          const p = await pub.readContract({ address: book, abi: bookAbi, functionName: "positions", args: [id] });
-          if (!p[7]) done = true; // not live → already consumed, nothing to clear
-          else {
-            try {
-              await bot.send(book, bookAbi, wfn, [id, p[1]]);
-              done = true;
-            } catch {
-              /* live + actively traded → can't cancel right now, retry next cycle */
-            }
-          }
-        } catch {
-          /* read failed → keep and retry to be safe */
-        }
-      }
-      if (!done) keep.push(id);
-    }
-    st[k] = keep.slice(-8); // bound the retry list
-  }
-  // Peg the frontier to target. Bounded taker sweeps (±SWEEP_CAP) mean that even
-  // if a taker trades during this brief window, the frontier can't blow out of
-  // band — so the recenter doesn't need to be atomic.
+  // Capture the previous quotes; we cancel them AFTER posting fresh ones. Posting
+  // first — straight off a fresh frontier read, no cancel txs in between — minimises
+  // the window in which taker flow can move cur and revert the deposit. (Once we
+  // began cancelling a whole rolling list each cycle, those cancels sat in the
+  // critical path and pushed the ask-fail rate up; this puts them after the post.)
+  const oldAsks = st.asks;
+  const oldBids = st.bids;
+  st.asks = [];
+  st.bids = [];
+  // Peg the frontier to target. Bounded taker sweeps (±SWEEP_CAP) keep it in band, so
+  // the recenter needn't be atomic. With gentle fair the move is tiny (<2 ticks, often
+  // skipped) so it won't cross the old quotes still resting at cur±OFFSET.
   let cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
   if (Math.abs(cur - target) > 2) {
     try {
@@ -347,46 +320,81 @@ async function recenter(bot, side, prob) {
       log("mm", side, "moveTickTo fail", safe(e.shortMessage || e.message || "").slice(0, 60));
     }
   }
-  // Re-read the frontier right before posting, with no tx in between. askLo/bidHi
-  // then get the FULL OFFSET buffer measured from the freshest tick (post-peg taker
-  // drift included), so a small OFFSET still survives to the deposit's mine time.
+  // Re-read the frontier right before posting, no tx in between, so askLo gets the
+  // full OFFSET buffer from the freshest tick.
   cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
-  // Never post at an out-of-band frontier. If moveTickTo failed and cur is still
-  // ≥ 0 (price ≥ 1), posting an ask here drops an orphan near tick 200000 that
-  // then blocks the NEXT moveTickTo (it crosses a resting ask → revert) — the
-  // cascade that strands the book. Skip this cycle; a later moveTickTo recovers it.
-  if (cur >= 0) {
+  let askLo = null;
+  let bidHi = null;
+  // Never post at an out-of-band frontier (price ≥ 1) — that drops an orphan that
+  // blocks the next moveTickTo. Skip posting this cycle; we still settle old quotes.
+  if (cur < 0) {
+    askLo = cur + OFFSET;
+    try {
+      const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "deposit", args: [askLo, askLo + LADDER, askBase], account: bot.account });
+      await bot.send(book, bookAbi, "deposit", [askLo, askLo + LADDER, askBase]);
+      st.asks.push(sim.result);
+      bump("mm-ask", true);
+    } catch (e) {
+      bump("mm-ask", false);
+      log("mm", side, "ask fail", safe(e.shortMessage || e.message || "").slice(0, 60));
+    }
+    // Re-read again before the bid: it lands after the ask (serialized), so cur may
+    // have moved and a stale bidHi would revert.
+    cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
+    if (cur < 0) {
+      bidHi = cur - OFFSET;
+      try {
+        const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "depositBid", args: [bidHi - LADDER, bidHi, bidBase], account: bot.account });
+        await bot.send(book, bookAbi, "depositBid", [bidHi - LADDER, bidHi, bidBase]);
+        st.bids.push(sim.result);
+        bump("mm-bid", true);
+      } catch (e) {
+        bump("mm-bid", false);
+        log("mm", side, "bid fail", safe(e.shortMessage || e.message || "").slice(0, 60));
+      }
+    }
+  } else {
     log("mm", side, `frontier OOB (tick ${cur}) — skip post`);
-    return;
   }
-  const askLo = cur + OFFSET;
-  try {
-    const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "deposit", args: [askLo, askLo + LADDER, askBase], account: bot.account });
-    await bot.send(book, bookAbi, "deposit", [askLo, askLo + LADDER, askBase]);
-    st.asks.push(sim.result);
-    bump("mm-ask", true);
-  } catch (e) {
-    bump("mm-ask", false);
-    log("mm", side, "ask fail", safe(e.shortMessage || e.message || "").slice(0, 60));
-  }
-  // Re-read the frontier before the bid. The bid posts AFTER the ask (same wallet →
-  // serialized), so taker flow in between can move cur and leave a stale bidHi above
-  // the new frontier, which reverts — that lag is why bids failed far more than asks
-  // and the bid side kept going empty.
-  cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
-  if (cur >= 0) return;
-  const bidHi = cur - OFFSET;
-  try {
-    const sim = await pub.simulateContract({ address: book, abi: bookAbi, functionName: "depositBid", args: [bidHi - LADDER, bidHi, bidBase], account: bot.account });
-    await bot.send(book, bookAbi, "depositBid", [bidHi - LADDER, bidHi, bidBase]);
-    st.bids.push(sim.result);
-    bump("mm-bid", true);
-  } catch (e) {
-    bump("mm-bid", false);
-    log("mm", side, "bid fail", safe(e.shortMessage || e.message || "").slice(0, 60));
+  // NOW settle the previous quotes (rolling list). A cancel can lose the race to an
+  // active taker and revert; keep any still-live id and retry next cycle when trading
+  // has moved away. Drop ids that are gone (consumed). Doing this after the post keeps
+  // fresh quotes off the critical path; retained strands prepend the fresh id.
+  for (const [arr, key, fn, wfn] of [
+    [oldAsks, "asks", "cancel", "cancelWithWitness"],
+    [oldBids, "bids", "cancelBid", "cancelBidWithWitness"],
+  ]) {
+    const keep = [];
+    for (const id of arr) {
+      let done = false;
+      try {
+        await bot.send(book, bookAbi, fn, [id]);
+        done = true;
+      } catch {
+        try {
+          const p = await pub.readContract({ address: book, abi: bookAbi, functionName: "positions", args: [id] });
+          if (!p[7]) done = true; // gone (consumed)
+          else {
+            try {
+              await bot.send(book, bookAbi, wfn, [id, p[1]]);
+              done = true;
+            } catch {
+              /* live + actively traded → retry next cycle */
+            }
+          }
+        } catch {
+          /* read failed → keep and retry */
+        }
+      }
+      if (!done) keep.push(id);
+    }
+    st[key] = [...keep.slice(-8), ...st[key]]; // bounded strands + the fresh quote
   }
   M.attempts += 2;
-  log("mm", `${side} ${(tickToPrice(cur) * 100).toFixed(1)}¢ pegged ask@${(tickToPrice(askLo) * 100).toFixed(1)}¢ bid@${(tickToPrice(bidHi) * 100).toFixed(1)}¢`);
+  log(
+    "mm",
+    `${side} ${(tickToPrice(cur) * 100).toFixed(1)}¢ pegged ask@${askLo !== null ? (tickToPrice(askLo) * 100).toFixed(1) : "—"}¢ bid@${bidHi !== null ? (tickToPrice(bidHi) * 100).toFixed(1) : "—"}¢`,
+  );
 }
 
 // ── taker actions ─────────────────────────────────────────────────────--
