@@ -215,7 +215,7 @@ const LADDER = 320; // ticks of depth per order (~3.2¢ — wide enough to show 
 const OFFSET = 40; // ticks frontier→inside quote (~0.4¢) so the bid/ask spread stays <1¢ and the
                    // two clusters sit close; bounded sweeps keep the frontier from blowing out, so
                    // the big race buffer that forced 140 is no longer needed
-const MM_SIZE = 1500000n; // token0 per level — thick book so heavy taker flow can't drain a side
+const MM_SIZE = 2000000n; // token0 per level — thick book so heavy taker flow can't drain a side
 //                           between the (3s) maker refreshes
 const rsize = () => (MM_SIZE * BigInt(65 + Math.floor(Math.random() * 70))) / 100n; // 0.65×–1.35×
 const mmState = { YES: { askId: 0n, bidId: 0n }, NO: { askId: 0n, bidId: 0n } };
@@ -379,7 +379,8 @@ async function takerTrade(bot) {
   const dl = await chainDeadline(pub, 300);
   const cur = Number(await pub.readContract({ address: book, abi: bookAbi, functionName: "currentTick" }));
   if (buy) {
-    const amt1 = BigInt(rint(300000, 1500000)); // 0.3–1.5 sUSDC (small vs thick book → stays liquid)
+    const amt1 = BigInt(rint(120000, 600000)); // 0.12–0.6 sUSDC — small enough that one buy
+    //   can't clear the best ask between requotes, so the touch stays populated (no gap)
     const type = `buy-${side}`;
     if (!cfg.live) return dryQuote(book, "quoteBuy", [book, amt1], type);
     addFlow(side, Number(amt1) / 1e6); // buying pressures this leg up
@@ -392,7 +393,7 @@ async function takerTrade(bot) {
       bump(type, false);
     }
   } else {
-    const shares = BigInt(rint(300000, 1500000)); // 0.3–1.5 shares
+    const shares = BigInt(rint(120000, 600000)); // 0.12–0.6 shares — keep the bid touch populated too
     const type = `sell-${side}`;
     const bal = await pub.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [bot.addr] });
     if (bal < shares) {
