@@ -30,7 +30,7 @@ export interface PredictionBook {
 /** The order the user is currently composing, projected onto the depth view. */
 export interface OrderPreview {
   outcome: Outcome;
-  mode: "market" | "limit";
+  mode: "market" | "limit" | "range";
   side: "buy" | "sell";
   fromProb: number; // touch / start price
   toProb: number; // sweep end (market) or rest price (limit)

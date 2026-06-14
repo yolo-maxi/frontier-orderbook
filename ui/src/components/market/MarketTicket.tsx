@@ -17,7 +17,7 @@ import { alignTick, fmtAmount, fmtUsd, parseAmount, priceToTick, tickToPrice } f
 import { fmtCents, type Outcome, type OrderPreview, type PredictionBook } from "../../lib/prediction";
 
 type Side = "buy" | "sell";
-type Mode = "market" | "limit";
+type Mode = "market" | "limit" | "range";
 
 const MAX_UINT = 2n ** 256n - 1n;
 const QUOTE_MAX_LEVELS = 500n;
@@ -50,6 +50,8 @@ export function MarketTicket({
   const [mode, setMode] = useState<Mode>("market");
   const [amountStr, setAmountStr] = useState("");
   const [limitCentsStr, setLimitCentsStr] = useState("");
+  const [rangeLoStr, setRangeLoStr] = useState("");
+  const [rangeHiStr, setRangeHiStr] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteErr, setQuoteErr] = useState<string | null>(null);
   const [allowance, setAllowance] = useState<bigint | null>(null);
@@ -151,7 +153,7 @@ export function MarketTicket({
   useEffect(() => {
     setAllowance(null);
     loadAllowance();
-    if (mode === "limit") loadBookAllowance();
+    if (mode !== "market") loadBookAllowance();
   }, [loadAllowance, loadBookAllowance, mode, busy]);
 
   // ---- derived market quote numbers
@@ -191,6 +193,33 @@ export function MarketTicket({
     return { tick, spacing, fn: "deposit" as const, escrow: Number(amountShares) / 10 ** baseDec, error };
   }, [mode, selected, limitProb, amountShares?.toString(), side, baseDec]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- range order: rest liquidity across a [from, to] price band (Frontier's
+  // concentrated-liquidity primitive — deposit/depositBid take a tick range).
+  const rangeLo = Number(rangeLoStr);
+  const rangeHi = Number(rangeHiStr);
+  const rangePlan = useMemo(() => {
+    if (mode !== "range" || amountShares === null || amountShares === 0n) return null;
+    const loProb = rangeLo / 100;
+    const hiProb = rangeHi / 100;
+    const fn = side === "buy" ? ("depositBid" as const) : ("deposit" as const);
+    const bad = (error: string) => ({ loTick: 0, hiTick: 0, levels: 0, liqPerLevel: 0n, fn, escrow: 0, error, loProb, hiProb });
+    if (!(rangeLo > 0 && rangeHi > 0 && rangeLo < rangeHi)) return bad("Set a 'from' price below the 'to' price.");
+    const loTick = alignTick(priceToTick(loProb), 1, false);
+    const hiTick = Math.max(loTick + 1, alignTick(priceToTick(hiProb), 1, true));
+    const levels = Math.max(1, hiTick - loTick);
+    const liqPerLevel = amountShares / BigInt(levels);
+    const cur = selectedCurTick(selected);
+    let error: string | null = null;
+    if (liqPerLevel === 0n) error = "Amount too small to spread across this band.";
+    if (side === "buy" && cur !== null && hiTick >= cur) error = error ?? "A buy band must sit below the market.";
+    if (side === "sell" && cur !== null && loTick <= cur) error = error ?? "A sell band must sit above the market.";
+    const escrow =
+      side === "buy"
+        ? ((loProb + hiProb) / 2) * (Number(amountShares) / 10 ** baseDec)
+        : Number(amountShares) / 10 ** baseDec;
+    return { loTick, hiTick, levels, liqPerLevel, fn, escrow, error, loProb, hiProb };
+  }, [mode, rangeLo, rangeHi, amountShares?.toString(), side, selected, baseDec]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // project the order onto the depth view
   useEffect(() => {
     if (!onPreview) return;
@@ -217,17 +246,26 @@ export function MarketTicket({
         shares: Number(amountShares) / 10 ** baseDec,
         cost: limitPlan.escrow,
       });
+    } else if (mode === "range" && rangePlan && !rangePlan.error && amountShares !== null) {
+      onPreview({
+        outcome,
+        mode: "range",
+        side,
+        fromProb: rangePlan.loProb,
+        toProb: rangePlan.hiProb,
+        avgProb: (rangePlan.loProb + rangePlan.hiProb) / 2,
+        shares: Number(amountShares) / 10 ** baseDec,
+        cost: rangePlan.escrow,
+      });
     } else {
       onPreview(null);
     }
-  }, [onPreview, mode, side, outcome, derived, limitProb, limitPlan, amountShares, selected, baseDec]);
+  }, [onPreview, mode, side, outcome, derived, limitProb, limitPlan, rangePlan, amountShares, selected, baseDec]);
   useEffect(() => () => onPreview?.(null), [onPreview]);
 
   const needsApproval =
     mode === "market" && allowance !== null && amountIn !== null && amountIn > 0n && allowance < amountIn;
   const limitPayToken = side === "buy" ? collateral : outcomeToken;
-  const limitNeedsApproval =
-    mode === "limit" && limitPlan !== null && limitPlan.error === null && bookAllowance !== null && bookAllowance < MAX_UINT / 2n;
   const insufficient = amountIn !== null && amountIn > balanceIn;
   // quoted but the book has nothing on the side we'd hit (thin/illiquid book)
   const noLiquidity =
@@ -292,6 +330,20 @@ export function MarketTicket({
     if (ok) setAmountStr("");
   };
 
+  const onRange = async () => {
+    if (!book || !rangePlan || rangePlan.error !== null) return;
+    const label = `Range ${side} ${outcome} ${rangeLo}–${rangeHi}¢`;
+    const ok = await sendTx(label, () =>
+      wallet.writeContract({
+        address: book,
+        abi: bookAbi,
+        functionName: rangePlan.fn,
+        args: [rangePlan.loTick, rangePlan.hiTick, rangePlan.liqPerLevel],
+      }),
+    );
+    if (ok) setAmountStr("");
+  };
+
   const yesPx = yes.prob;
   const noPx = no.prob;
 
@@ -307,13 +359,13 @@ export function MarketTicket({
             Sell
           </button>
         </div>
-        <button
-          className="dbx-mode-pill"
-          onClick={() => setMode((m) => (m === "market" ? "limit" : "market"))}
-          title="Toggle market / limit"
-        >
-          {mode === "market" ? "Market" : "Limit"} <span className="caret">⌄</span>
-        </button>
+        <div className="dbx-mode-seg" title="Order type">
+          {(["market", "limit", "range"] as Mode[]).map((m) => (
+            <button key={m} className={mode === m ? "on" : ""} onClick={() => setMode(m)}>
+              {m === "market" ? "Market" : m === "limit" ? "Limit" : "Range"}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* YES / NO selector */}
@@ -352,10 +404,41 @@ export function MarketTicket({
         </div>
       )}
 
+      {mode === "range" && (
+        <div className="dbx-field">
+          <label className="dbx-field-label">
+            Price band <span className="dim">({side === "buy" ? "below" : "above"} market — fills as price moves through)</span>
+          </label>
+          <div className="dbx-range-inputs">
+            <div className="dbx-stepper sm">
+              <input
+                className="num"
+                inputMode="numeric"
+                placeholder="from"
+                value={rangeLoStr}
+                onChange={(e) => setRangeLoStr(e.target.value.replace(/[^\d]/g, ""))}
+              />
+              <span className="suffix">¢</span>
+            </div>
+            <span className="dbx-range-dash">→</span>
+            <div className="dbx-stepper sm">
+              <input
+                className="num"
+                inputMode="numeric"
+                placeholder="to"
+                value={rangeHiStr}
+                onChange={(e) => setRangeHiStr(e.target.value.replace(/[^\d]/g, ""))}
+              />
+              <span className="suffix">¢</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* amount */}
       <div className="dbx-field">
         <label className="dbx-field-label">
-          {side === "buy" ? (mode === "limit" ? "Shares" : "Amount") : "Shares"}
+          {mode === "market" && side === "buy" ? "Amount" : "Shares"}
           <button
             className="dbx-bal num"
             onClick={() =>
@@ -420,7 +503,7 @@ export function MarketTicket({
               />
             )}
           </>
-        ) : (
+        ) : mode === "limit" ? (
           <>
             <Row label="Rests at" value={limitProb !== null ? fmtCents(limitProb) : "—"} />
             <Row
@@ -429,6 +512,18 @@ export function MarketTicket({
             />
             <Row label="Expiry" value="Never — claim or cancel" />
           </>
+        ) : (
+          <>
+            <Row
+              label="Band"
+              value={rangePlan ? `${fmtCents(rangePlan.loProb)} – ${fmtCents(rangePlan.hiProb)}` : "—"}
+            />
+            <Row
+              label={side === "buy" ? "You escrow" : "You provide"}
+              value={rangePlan ? (side === "buy" ? fmtUsd(rangePlan.escrow) : `${rangePlan.escrow.toFixed(2)} sh`) : "—"}
+            />
+            <Row label="Spread over" value={rangePlan && rangePlan.levels ? `${rangePlan.levels} ticks` : "—"} />
+          </>
         )}
       </div>
 
@@ -436,6 +531,7 @@ export function MarketTicket({
         <div className="dbx-note warn">Book depth covers only part of your order; the rest stays in your wallet.</div>
       )}
       {mode === "limit" && limitPlan?.error && <div className="dbx-note warn">{limitPlan.error}</div>}
+      {mode === "range" && rangePlan?.error && <div className="dbx-note warn">{rangePlan.error}</div>}
       {!tradable && (
         <div className="dbx-note warn">
           The NO book is not deployed in this manifest — NO is shown as the 1 − YES complement.
@@ -495,7 +591,13 @@ export function MarketTicket({
         </button>
       );
     }
-    if (limitNeedsApproval) {
+    // limit / range — a resting order paid to the book
+    const planOk =
+      mode === "limit"
+        ? limitPlan !== null && limitPlan.error === null
+        : rangePlan !== null && rangePlan.error === null;
+    const bookNeedsApproval = planOk && bookAllowance !== null && bookAllowance < MAX_UINT / 2n;
+    if (bookNeedsApproval) {
       return (
         <button className="dbx-cta approve" disabled={disabled} onClick={onApproveBook}>
           Approve {side === "buy" ? quoteSym : outcome}
@@ -505,10 +607,10 @@ export function MarketTicket({
     return (
       <button
         className={`dbx-cta ${side === "buy" ? "buy" : "sell"}`}
-        disabled={disabled || limitPlan === null || limitPlan.error !== null}
-        onClick={onLimit}
+        disabled={disabled || !planOk}
+        onClick={mode === "limit" ? onLimit : onRange}
       >
-        Place limit {side}
+        {mode === "limit" ? "Place limit" : "Place range"} {side}
       </button>
     );
   }

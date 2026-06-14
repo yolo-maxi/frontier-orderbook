@@ -30,11 +30,20 @@ export function DepthBars({
 
   // which side/levels does the pending order touch?
   const hit = (l: PredictionLevel, side: "bid" | "ask"): boolean => {
-    if (!pv || pv.mode !== "market") return false;
-    if (pv.side === "buy") return side === "ask" && l.probability <= pv.toProb + 1e-9;
-    return side === "bid" && l.probability >= pv.toProb - 1e-9;
+    if (!pv) return false;
+    if (pv.mode === "market") {
+      if (pv.side === "buy") return side === "ask" && l.probability <= pv.toProb + 1e-9;
+      return side === "bid" && l.probability >= pv.toProb - 1e-9;
+    }
+    if (pv.mode === "range") {
+      const lo = Math.min(pv.fromProb, pv.toProb);
+      const hi = Math.max(pv.fromProb, pv.toProb);
+      const bandSide = pv.side === "buy" ? "bid" : "ask";
+      return side === bandSide && l.probability >= lo - 1e-9 && l.probability <= hi + 1e-9;
+    }
+    return false;
   };
-  // for a limit order, which side it rests on and the nearest bucket price
+  // a limit order rests on one side at a single price
   const limitSide: "bid" | "ask" | null = pv?.mode === "limit" ? (pv.side === "buy" ? "bid" : "ask") : null;
 
   return (
@@ -90,11 +99,22 @@ export function DepthBars({
                 moves {fmtCents(pv.fromProb, 1)} → {fmtCents(pv.toProb, 1)}
               </span>
             </>
-          ) : (
+          ) : pv.mode === "limit" ? (
             <>
               <span className="dbx-order-tag">Limit {pv.side}</span>
               <span className="num">
                 rest {pv.shares.toFixed(1)} sh @ <strong>{fmtCents(pv.avgProb, 1)}</strong> · escrow {fmtUsdShort(pv.cost)}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="dbx-order-tag">Range {pv.side}</span>
+              <span className="num">
+                {pv.shares.toFixed(1)} sh across{" "}
+                <strong>
+                  {fmtCents(Math.min(pv.fromProb, pv.toProb), 0)}–{fmtCents(Math.max(pv.fromProb, pv.toProb), 0)}
+                </strong>{" "}
+                · {pv.side === "buy" ? `escrow ${fmtUsdShort(pv.cost)}` : `provide ${pv.shares.toFixed(1)} sh`}
               </span>
             </>
           )}
