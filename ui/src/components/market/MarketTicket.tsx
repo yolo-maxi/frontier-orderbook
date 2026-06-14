@@ -229,6 +229,13 @@ export function MarketTicket({
   const limitNeedsApproval =
     mode === "limit" && limitPlan !== null && limitPlan.error === null && bookAllowance !== null && bookAllowance < MAX_UINT / 2n;
   const insufficient = amountIn !== null && amountIn > balanceIn;
+  // quoted but the book has nothing on the side we'd hit (thin/illiquid book)
+  const noLiquidity =
+    mode === "market" &&
+    amountIn !== null &&
+    amountIn > 0n &&
+    ((quote !== null && quote.out === 0n) || quoteErr !== null);
+  const canMerge = balances.weth > 0n && balances.no > 0n;
 
   const onApproveRouter = () =>
     sendTx(`Approve ${side === "buy" ? quoteSym : outcome}`, () =>
@@ -434,8 +441,18 @@ export function MarketTicket({
           The NO book is not deployed in this manifest — NO is shown as the 1 − YES complement.
         </div>
       )}
-      {quoteErr && amountIn !== null && amountIn > 0n && mode === "market" && (
-        <div className="dbx-note warn">No liquidity at this size yet — awaiting market makers.</div>
+      {noLiquidity && (
+        <div className="dbx-note warn">
+          No {outcome} {side === "buy" ? "asks to buy from" : "bids to sell into"} at this size — this book is thin
+          right now.
+          {side === "sell" && canMerge && (
+            <>
+              {" "}
+              You hold YES + NO, so you can <strong>Merge</strong> the pair back to {quoteSym} in the DarkBox Liquidity
+              card below.
+            </>
+          )}
+        </div>
       )}
 
       {/* CTA */}
@@ -470,7 +487,11 @@ export function MarketTicket({
           disabled={disabled || amountIn === null || amountIn === 0n || derived === null}
           onClick={onMarket}
         >
-          {side === "buy" ? `Buy ${outcome}` : `Sell ${outcome}`}
+          {noLiquidity
+            ? `No ${outcome} ${side === "buy" ? "asks" : "bids"}`
+            : side === "buy"
+              ? `Buy ${outcome}`
+              : `Sell ${outcome}`}
         </button>
       );
     }

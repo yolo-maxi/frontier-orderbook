@@ -23,6 +23,9 @@ const chain = makeChain(dep, rpc);
 const pub = makePublic(chain, rpc);
 const bots = deriveBotKeys(12).map((k) => makeBot(k, chain, rpc, pub));
 const ownerMap = new Map(bots.map((b) => [b.addr.toLowerCase(), b]));
+// --all also cancels IN-BAND positions (stranded bids/asks that deadlock a
+// downward moveTickTo); default only clears clearly out-of-band orphans.
+const ALL = process.argv.includes("--all");
 
 const BOOKS = { YES: dep.darkbox.market.yesBook, NO: dep.darkbox.market.noBook };
 
@@ -42,7 +45,8 @@ for (const [name, book] of Object.entries(BOOKS)) {
     const lower = p[1];
     const live = p[7];
     const isBid = p[8];
-    if (!live || Number(lower) <= 1000) continue; // not live, or in-band → keep
+    if (!live) continue;
+    if (!ALL && Number(lower) <= 1000) continue; // default: keep in-band orders
     const bot = ownerMap.get(owner.toLowerCase());
     if (!bot) {
       foreign++;
