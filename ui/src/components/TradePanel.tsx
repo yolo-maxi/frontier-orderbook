@@ -21,9 +21,13 @@ const QUOTE_MAX_LEVELS = 500n;
 export function TradePanel({
   assetLabel = "WETH",
   quoteLabel = "USDC",
+  assetDecimals = 18,
+  quoteDecimals = 18,
 }: {
   assetLabel?: string;
   quoteLabel?: string;
+  assetDecimals?: number;
+  quoteDecimals?: number;
 }) {
   const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview } = useApp();
   const [side, setSide] = useState<Side>("buy");
@@ -47,7 +51,7 @@ export function TradePanel({
   }, [mode, quote, side, setPreview]);
   useEffect(() => () => setPreview(null), [setPreview]);
 
-  const amountIn = parseAmount(amountStr);
+  const amountIn = parseAmount(amountStr, side === "buy" ? quoteDecimals : assetDecimals);
   const tokenIn = side === "buy" ? cfg.contracts.usdc : cfg.contracts.weth;
   const tokenOut = side === "buy" ? cfg.contracts.weth : cfg.contracts.usdc;
   const balanceIn = side === "buy" ? balances.usdc : balances.weth;
@@ -144,7 +148,7 @@ export function TradePanel({
   // a hint to use Market (or a better price).
   const spacing = summary?.tickSpacing ?? 1;
   const curTick = summary?.currentTick ?? null;
-  const amountWeth = parseAmount(amountStr); // limit amounts are in WETH both sides
+  const amountWeth = parseAmount(amountStr, assetDecimals); // limit amounts are in base-asset units
   const limitPlan = useMemo(() => {
     if (mode !== "limit" || curTick === null) return null;
     const p = Number(limitPriceStr);
@@ -200,7 +204,7 @@ export function TradePanel({
 
   const onPlaceLimit = async () => {
     if (!limitPlan || limitPlan.error !== null || amountWeth === null) return;
-    const label = `Limit ${side} ${fmtAmount(amountWeth, 4)} ${assetLabel} @ ${fmtPrice(tickToPrice(limitPlan.tick), 3)}`;
+    const label = `Limit ${side} ${fmtAmount(amountWeth, 4, assetDecimals)} ${assetLabel} @ ${fmtPrice(tickToPrice(limitPlan.tick), 3)}`;
     const ok = await sendTx(label, () =>
       wallet.writeContract({
         address: cfg.contracts.book,
@@ -271,7 +275,7 @@ export function TradePanel({
 
   const setPct = (pct: number) => {
     const v = (balanceIn * BigInt(pct)) / 100n;
-    setAmountStr((Number(v) / 1e18).toString());
+    setAmountStr((Number(v) / 10 ** (side === "buy" ? quoteDecimals : assetDecimals)).toString());
   };
 
   return (
@@ -338,7 +342,7 @@ export function TradePanel({
         <span className="field-label">
           {mode === "limit" ? <>Amount <span className="dim">({assetLabel})</span></> : <>Spend <span className="dim">({side === "buy" ? quoteLabel : assetLabel})</span></>}
           <span className="field-bal num" onClick={() => setPct(100)}>
-            bal {fmtAmount(balanceIn, side === "buy" ? 2 : 4)}
+            bal {fmtAmount(balanceIn, side === "buy" ? 2 : 4, side === "buy" ? quoteDecimals : assetDecimals)}
           </span>
         </span>
         <input
@@ -368,7 +372,7 @@ export function TradePanel({
           <div className="qrow">
             <span className="dim">You escrow</span>
             <span>
-              {limitPlan ? fmtAmount(limitPlan.cost, side === "buy" ? 2 : 4) : "—"}{" "}
+              {limitPlan ? fmtAmount(limitPlan.cost, side === "buy" ? 2 : 4, side === "buy" ? quoteDecimals : assetDecimals) : "—"}{" "}
               <span className="dim">{limitPaySymbol}</span>
             </span>
           </div>
@@ -377,8 +381,8 @@ export function TradePanel({
             <span>
               {limitPlan && amountWeth !== null
                 ? side === "buy"
-                  ? `${fmtAmount(amountWeth, 4)} ${assetLabel}`
-                  : `~${fmtAmount((amountWeth * (BigInt(1e18) + BigInt(limitPlan.tick) * BigInt(1e15))) / BigInt(1e18), 2)} ${quoteLabel}`
+                  ? `${fmtAmount(amountWeth, 4, assetDecimals)} ${assetLabel}`
+                  : `~${fmtAmount((amountWeth * (BigInt(1e18) + BigInt(limitPlan.tick) * BigInt(1e15))) / BigInt(1e18), 2, quoteDecimals)} ${quoteLabel}`
                 : "—"}
             </span>
           </div>
@@ -392,7 +396,7 @@ export function TradePanel({
         <div className="qrow">
           <span className="dim">Receive (est.)</span>
           <span>
-            {quote ? fmtAmount(quote.out, side === "buy" ? 5 : 2) : "—"}{" "}
+            {quote ? fmtAmount(quote.out, side === "buy" ? 5 : 2, side === "buy" ? assetDecimals : quoteDecimals) : "—"}{" "}
             <span className="dim">{side === "buy" ? assetLabel : quoteLabel}</span>
           </span>
         </div>
@@ -412,7 +416,7 @@ export function TradePanel({
         </div>
         <div className="qrow">
           <span className="dim">Min received</span>
-          <span>{derived ? fmtAmount(derived.minOut, side === "buy" ? 5 : 2) : "—"}</span>
+          <span>{derived ? fmtAmount(derived.minOut, side === "buy" ? 5 : 2, side === "buy" ? assetDecimals : quoteDecimals) : "—"}</span>
         </div>
         <div className="qrow">
           <span className="dim">Slippage</span>
@@ -435,7 +439,7 @@ export function TradePanel({
 
       {derived?.partial && mode === "market" && (
         <div className="note warn">
-          Book depth covers only {fmtAmount(quote!.spent, 2)} of your input — the remainder
+          Book depth covers only {fmtAmount(quote!.spent, 2, side === "buy" ? quoteDecimals : assetDecimals)} of your input — the remainder
           stays in your wallet.
         </div>
       )}

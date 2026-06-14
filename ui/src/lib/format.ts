@@ -28,9 +28,9 @@ export function fmtPrice(p: number, dp = 2): string {
   });
 }
 
-/** Format an 18-decimals bigint amount. */
-export function fmtAmount(x: bigint, dp = 4): string {
-  const s = formatUnits(x, 18);
+/** Format a token bigint amount. */
+export function fmtAmount(x: bigint, dp = 4, decimals = 18): string {
+  const s = formatUnits(x, decimals);
   const n = Number(s);
   if (!Number.isFinite(n)) return s;
   if (n !== 0 && Math.abs(n) < 10 ** -dp) return `<${(10 ** -dp).toFixed(dp)}`;
@@ -48,11 +48,11 @@ export function fmtNum(n: number, dp = 4): string {
   });
 }
 
-export function parseAmount(s: string): bigint | null {
+export function parseAmount(s: string, decimals = 18): bigint | null {
   const t = s.trim();
   if (!t || !/^\d*\.?\d*$/.test(t) || t === ".") return null;
   try {
-    return parseUnits(t, 18);
+    return parseUnits(t, decimals);
   } catch {
     return null;
   }

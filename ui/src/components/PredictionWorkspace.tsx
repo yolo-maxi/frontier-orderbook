@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { formatUnits } from "viem";
 import { useApp } from "../state/app";
+import { baseDecimals, baseSymbol, marketQuestion, quoteDecimals, quoteSymbol } from "../lib/config";
 import { fmtAmount, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
 import {
   buildPredictionBooks,
@@ -20,9 +21,15 @@ type TicketTab = "trade" | "make" | "positions";
 
 export function PredictionWorkspace() {
   const { summary, depth, fills, makerEvents, positions, cfg } = useApp();
-  const [yes, no] = useMemo(() => buildPredictionBooks(summary, depth), [summary, depth]);
+  const baseDec = baseDecimals(cfg);
+  const quoteDec = quoteDecimals(cfg);
+  const base = baseSymbol(cfg);
+  const quoteSym = quoteSymbol(cfg);
+  const question = marketQuestion(cfg);
+  const hasLiveNo = Boolean(cfg.darkbox?.market?.noBook);
+  const [yes, no] = useMemo(() => buildPredictionBooks(summary, depth, baseDec), [summary, depth, baseDec]);
   const signal = useMemo(() => complementSignal(yes, no), [yes, no]);
-  const exposure = useMemo(() => exposureFromPositions(positions), [positions]);
+  const exposure = useMemo(() => exposureFromPositions(positions, baseDec), [positions, baseDec]);
   const [outcome, setOutcome] = useState<Outcome>("YES");
   const [tab, setTab] = useState<TicketTab>("trade");
   const selected = outcome === "YES" ? yes : no;
@@ -32,10 +39,10 @@ export function PredictionWorkspace() {
       <section className="pm-hero panel">
         <div className="pm-question">
           <div className="microlabel">Frontier prediction market</div>
-          <h1>Will ETH close above $2,000 on Friday?</h1>
+          <h1>{question}</h1>
           <div className="pm-meta">
-            <span>Resolution source: Frontier oracle demo</span>
-            <span>Friday 20:00 UTC</span>
+            <span>Resolution source: DarkBox / ARC submission market</span>
+            <span>{base}/{quoteSym}</span>
             <span>Chain #{cfg.chainId}</span>
           </div>
         </div>
@@ -47,7 +54,7 @@ export function PredictionWorkspace() {
             value={fmtProb(signal.yesAskNoAsk)}
             tone={signal.askOverround !== null && signal.askOverround > 0.01 ? "warn" : ""}
           />
-          <Metric label="Live source" value="YES book" />
+          <Metric label="Live source" value={`${base} book`} />
         </div>
       </section>
 
@@ -71,7 +78,7 @@ export function PredictionWorkspace() {
             <OutcomeBook book={no} active={outcome === "NO"} onSelect={() => setOutcome("NO")} />
           </div>
           <div className="pm-lower">
-            <MarketTape fills={fills} makerCount={makerEvents.length} />
+            <MarketTape fills={fills} makerCount={makerEvents.length} baseDec={baseDec} quoteDec={quoteDec} />
             <ExposurePanel
               liveOrders={exposure.liveOrders}
               yesResting={exposure.yesResting}
@@ -110,9 +117,9 @@ export function PredictionWorkspace() {
             </button>
           </div>
           {selected.source === "synthetic" ? (
-            <SyntheticTicket book={selected} />
+            <SyntheticTicket book={selected} quoteSym={quoteSym} />
           ) : tab === "trade" ? (
-            <TradePanel assetLabel="YES shares" quoteLabel="USDC" />
+            <TradePanel assetLabel={`${base} shares`} quoteLabel={quoteSym} assetDecimals={baseDec} quoteDecimals={quoteDec} />
           ) : tab === "make" ? (
             <MakePanel />
           ) : (
@@ -121,7 +128,7 @@ export function PredictionWorkspace() {
         </aside>
       </section>
       <div className="pm-note">
-        YES is the deployed Frontier CLOB adapter over the live ETH/USDC devnet book. NO is a complement adapter derived as 1 - YES until a second deployed book address is added to the manifest.
+        {base} is the live Frontier CLOB book for this DarkBox prediction market. {hasLiveNo ? "NO book is deployed in the manifest; this UI currently routes execution to the selected live leg when supported." : "NO is shown as the complement view until routing to the deployed NO book is enabled."}
       </div>
     </main>
   );
@@ -181,7 +188,7 @@ function DepthRow({ level, maxCum, side }: { level: PredictionLevel; maxCum: num
   );
 }
 
-function SyntheticTicket({ book }: { book: PredictionBook }) {
+function SyntheticTicket({ book, quoteSym }: { book: PredictionBook; quoteSym: string }) {
   const [spend, setSpend] = useState("100");
   const cost = Number(spend);
   const shares = Number.isFinite(cost) && book.bestAsk ? cost / book.bestAsk : 0;
@@ -191,7 +198,7 @@ function SyntheticTicket({ book }: { book: PredictionBook }) {
       <div className="note warn">NO is priced from the live YES book but cannot submit transactions until a second book is deployed.</div>
       <label className="field">
         <span className="field-label">
-          Spend <span className="dim">(USDC)</span>
+          Spend <span className="dim">({quoteSym})</span>
         </span>
         <input className="input num" inputMode="decimal" value={spend} onChange={(e) => setSpend(e.target.value)} />
       </label>
@@ -224,7 +231,7 @@ function SyntheticTicket({ book }: { book: PredictionBook }) {
   );
 }
 
-function MarketTape({ fills, makerCount }: { fills: ReturnType<typeof useApp>["fills"]; makerCount: number }) {
+function MarketTape({ fills, makerCount, baseDec, quoteDec }: { fills: ReturnType<typeof useApp>["fills"]; makerCount: number; baseDec: number; quoteDec: number }) {
   return (
     <section className="pm-feed panel">
       <div className="panel-title">
@@ -238,15 +245,15 @@ function MarketTape({ fills, makerCount }: { fills: ReturnType<typeof useApp>["f
       </div>
       <div className="pm-feed-body">
         {fills.slice(0, 10).map((f) => {
-          const size = Number(formatUnits(f.size0, 18));
-          const value = Number(formatUnits(f.value1, 18));
+          const size = Number(formatUnits(f.size0, baseDec));
+          const value = Number(formatUnits(f.value1, quoteDec));
           const avg = size > 0 ? value / size : tickToPrice(0);
           return (
             <div className="pm-feed-row num" key={f.key}>
               <span className="dim">{fmtTime(f.time)}</span>
               <span className={f.side === "buy" ? "up" : "down"}>{f.side === "buy" ? "BUY YES" : "SELL YES"}</span>
               <span>{fmtPrice(avg, 2)}</span>
-              <span className="ta-r">{fmtAmount(f.size0, 4)}</span>
+              <span className="ta-r">{fmtAmount(f.size0, 4, baseDec)}</span>
             </div>
           );
         })}

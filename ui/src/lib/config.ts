@@ -10,13 +10,40 @@ export interface DeploymentContracts {
   usdc: `0x${string}`;
 }
 
+export interface DeploymentTokens {
+  base?: string;
+  quote?: string;
+  baseAddress?: `0x${string}`;
+  quoteAddress?: `0x${string}`;
+  baseDecimals?: number;
+  quoteDecimals?: number;
+}
+
 export interface DeploymentConfig {
   name: string;
   chainId: number;
   rpcUrl: string;
   faucetKey?: string;
   contracts: DeploymentContracts;
+  tokens?: DeploymentTokens;
+  darkbox?: {
+    market?: {
+      question?: string;
+      market?: `0x${string}`;
+      marketId?: string;
+      yesBook?: `0x${string}`;
+      noBook?: `0x${string}`;
+      yesToken?: `0x${string}`;
+      noToken?: `0x${string}`;
+    };
+  };
 }
+
+export const marketQuestion = (cfg: DeploymentConfig) => cfg.darkbox?.market?.question ?? cfg.name;
+export const baseSymbol = (cfg: DeploymentConfig) => cfg.tokens?.base ?? "YES";
+export const quoteSymbol = (cfg: DeploymentConfig) => cfg.tokens?.quote ?? "USDC";
+export const baseDecimals = (cfg: DeploymentConfig) => cfg.tokens?.baseDecimals ?? 18;
+export const quoteDecimals = (cfg: DeploymentConfig) => cfg.tokens?.quoteDecimals ?? 18;
 
 const ZERO = /^0x0*$/;
 

@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { useApp } from "../state/app";
 import { fmtAmount, shortAddr } from "../lib/format";
+import { baseDecimals, baseSymbol, quoteDecimals, quoteSymbol } from "../lib/config";
 import { Brand } from "./Brand";
 
-function TokenGlyph({ sym }: { sym: "weth" | "usdc" | "eth" }) {
-  const letter = sym === "weth" ? "W" : sym === "usdc" ? "U" : "Ξ";
-  return <span className={`tok-glyph tok-${sym}`}>{letter}</span>;
+function TokenGlyph({ sym, label }: { sym: "base" | "quote" | "eth"; label?: string }) {
+  const letter = sym === "eth" ? "Ξ" : (label ?? sym).slice(0, 1).toUpperCase();
+  return <span className={`tok-glyph tok-${sym === "base" ? "weth" : sym === "quote" ? "usdc" : "eth"}`}>{letter}</span>;
 }
 
 /** Deterministic identicon-ish gradient dot derived from the address. */
@@ -24,6 +25,11 @@ export function Header() {
   const [copied, setCopied] = useState(false);
   const [fauceting, setFauceting] = useState(false);
 
+  const base = baseSymbol(cfg);
+  const quote = quoteSymbol(cfg);
+  const baseDec = baseDecimals(cfg);
+  const quoteDec = quoteDecimals(cfg);
+  const faucetAvailable = !cfg.darkbox;
   const identBg = useMemo(() => identGradient(account.address), [account.address]);
 
   const copy = () => {
@@ -49,8 +55,8 @@ export function Header() {
         <span className="hdr-sep" />
         <span className="pair">
           <span className="pair-glyphs">
-            <TokenGlyph sym="weth" />
-            <TokenGlyph sym="usdc" />
+            <TokenGlyph sym="base" label={base} />
+            <TokenGlyph sym="quote" label={quote} />
           </span>
           YES / NO
         </span>
@@ -62,10 +68,10 @@ export function Header() {
       <div className="hdr-right">
         <div className="bal-group num">
           <span className="bal">
-            <TokenGlyph sym="weth" /> {fmtAmount(balances.weth, 4)}
+            <TokenGlyph sym="base" label={base} /> {fmtAmount(balances.weth, 4, baseDec)}
           </span>
           <span className="bal">
-            <TokenGlyph sym="usdc" /> {fmtAmount(balances.usdc, 2)}
+            <TokenGlyph sym="quote" label={quote} /> {fmtAmount(balances.usdc, 2, quoteDec)}
           </span>
           <span className="bal bal-gas" title="Native gas balance">
             <TokenGlyph sym="eth" /> {fmtAmount(balances.eth, 3)}
@@ -78,10 +84,10 @@ export function Header() {
         <button
           className="btn btn-accent"
           onClick={onFaucet}
-          disabled={!configured || fauceting || busy !== null}
-          title="Mint 10 WETH + 50,000 USDC to the demo wallet"
+          disabled={!configured || !faucetAvailable || fauceting || busy !== null}
+          title={faucetAvailable ? `Mint demo ${base}/${quote} balances` : "DarkBox market is pre-seeded"}
         >
-          {fauceting ? "Minting…" : "Faucet"}
+          {!faucetAvailable ? "Seeded market" : fauceting ? "Minting…" : "Faucet"}
         </button>
       </div>
     </header>

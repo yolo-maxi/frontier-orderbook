@@ -52,7 +52,7 @@ export function fmtPct(p: number | null, dp = 1): string {
   return `${(p * 100).toFixed(dp)}%`;
 }
 
-export function buildPredictionBooks(summary: BookSummary | null, depth: DepthLevel[]): [PredictionBook, PredictionBook] {
+export function buildPredictionBooks(summary: BookSummary | null, depth: DepthLevel[], baseDecimals = 18): [PredictionBook, PredictionBook] {
   const mid = summary ? probabilityFromTick(summary.currentTick) : 0.5;
   const yesBid = summary?.hasBid ? probabilityFromTick(summary.bestBid) : null;
   const yesAsk = summary?.hasAsk ? probabilityFromTick(summary.bestAsk) : null;
@@ -63,8 +63,8 @@ export function buildPredictionBooks(summary: BookSummary | null, depth: DepthLe
     bestAsk: yesAsk,
     mid,
     spread: yesBid !== null && yesAsk !== null ? Math.max(0, yesAsk - yesBid) : null,
-    bidDepth: makeDepth(depth, "bid", mid),
-    askDepth: makeDepth(depth, "ask", mid),
+    bidDepth: makeDepth(depth, "bid", mid, baseDecimals),
+    askDepth: makeDepth(depth, "ask", mid, baseDecimals),
   };
   const noBid = yesAsk === null ? null : clamp01(1 - yesAsk);
   const noAsk = yesBid === null ? null : clamp01(1 - yesBid);
@@ -95,10 +95,10 @@ export function complementSignal(yes: PredictionBook, no: PredictionBook): Compl
   return { yesAskNoAsk, yesBidNoBid, askOverround, bidUnderround, hint };
 }
 
-export function exposureFromPositions(positions: PositionRow[]) {
+export function exposureFromPositions(positions: PositionRow[], baseDecimals = 18) {
   const live = positions.filter((p) => p.live);
-  const yesResting = live.reduce((acc, p) => acc + Number(formatUnits(p.unfilled, 18)), 0);
-  const yesClaimable = live.reduce((acc, p) => acc + Number(formatUnits(p.claimable, 18)), 0);
+  const yesResting = live.reduce((acc, p) => acc + Number(formatUnits(p.unfilled, baseDecimals)), 0);
+  const yesClaimable = live.reduce((acc, p) => acc + Number(formatUnits(p.claimable, baseDecimals)), 0);
   return {
     liveOrders: live.length,
     yesResting,
@@ -108,11 +108,11 @@ export function exposureFromPositions(positions: PositionRow[]) {
   };
 }
 
-function makeDepth(depth: DepthLevel[], side: "ask" | "bid", mid: number): PredictionLevel[] {
+function makeDepth(depth: DepthLevel[], side: "ask" | "bid", mid: number, baseDecimals: number): PredictionLevel[] {
   const rows = depth
     .map((d) => {
       const raw = side === "ask" ? d.askSize : d.bidSize;
-      return { probability: probabilityFromTick(d.tick), size: Number(formatUnits(raw, 18)) };
+      return { probability: probabilityFromTick(d.tick), size: Number(formatUnits(raw, baseDecimals)) };
     })
     .filter((d) => d.size > 0)
     .sort((a, b) => (side === "ask" ? a.probability - b.probability : b.probability - a.probability));
