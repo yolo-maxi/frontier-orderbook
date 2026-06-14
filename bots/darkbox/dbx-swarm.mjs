@@ -578,8 +578,13 @@ async function main() {
       // off-centre — that stranding is part of what spread the clusters apart.
       const newsY = Math.random() < 0.14 ? (Math.random() - 0.5) * 0.08 : 0;
       const newsN = Math.random() < 0.14 ? (Math.random() - 0.5) * 0.08 : 0;
-      yesFair = clampP(yesFair + clampD(yesFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.025 + newsY);
-      noFair = clampP(noFair + clampD(noFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.025 + newsN);
+      // mean-revert toward 0.5 (6%/cycle) so fair can't random-walk away to an
+      // extreme. When it did, every recenter targeted a price far from the book and
+      // moveTickTo reverted crossing the book's own quotes — which is what drove the
+      // ask-deposit failures up. Drift + news still keep the chart lively.
+      const revert = (f) => 0.5 + (f - 0.5) * 0.94;
+      yesFair = clampP(revert(yesFair) + clampD(yesFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.025 + newsY);
+      noFair = clampP(revert(noFair) + clampD(noFlow * FLOW_SENS) + (Math.random() - 0.5) * 0.025 + newsN);
       yesFlow *= 0.4;
       noFlow *= 0.4;
       // arbitrage pulls the complement back toward 100¢ only when it leaves the band
