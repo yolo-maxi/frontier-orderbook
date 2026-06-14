@@ -573,6 +573,24 @@ async function main() {
   const interval = Math.max(40, Math.floor(1000 / cfg.tps));
   const sched = setInterval(fireOne, interval);
   const statTimer = setInterval(() => report(false), 5000);
+  // periodic gas/sUSDC top-up — a long high-volume run drains bot wallets, and once
+  // a maker is out of gas its posts fail with "insufficient balance" and its side of
+  // the book goes empty (one-sided). ensureFunded only sends when actually low, so
+  // this is idempotent. Refill from treasury every 25s.
+  let funding = false;
+  const fundTimer = cfg.live
+    ? setInterval(async () => {
+        if (stopping || funding) return;
+        funding = true;
+        try {
+          for (const b of bots) await ensureFunded(b, cfg.fundUsdc, Math.max(cfg.gasEth, 0.35));
+        } catch (e) {
+          log("fund", safe(e.message || "").slice(0, 60));
+        } finally {
+          funding = false;
+        }
+      }, 25000)
+    : null;
   // MM recenter loop (live) — keeps books fresh + nudges the price by fair drift
   let mmTimer = null;
   let mmBusy = false;
@@ -621,6 +639,7 @@ async function main() {
   stopping = true;
   clearInterval(sched);
   clearInterval(statTimer);
+  if (fundTimer) clearInterval(fundTimer);
   if (mmTimer) clearInterval(mmTimer);
   log("stop", "duration reached — draining in-flight…");
   for (let i = 0; i < 30 && M.inflight > 0; i++) await sleep(500);
