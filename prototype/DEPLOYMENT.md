@@ -3,7 +3,7 @@
 ## Live demo (clob devnet)
 
 - UI: https://clob.repo.box (static, served from the FRONT server)
-- RPC: https://rpc-clob.repo.box (chain id 84009, 2s blocks, anvil with
+- RPC: https://rpc-clob.repo.box (chain id 84100, 2s blocks, anvil with
   state persistence under pm2 `clob-devnet`, state in /home/xiko/clob-devnet)
 
 TOPOLOGY: public DNS for *.repo.box points at the front server

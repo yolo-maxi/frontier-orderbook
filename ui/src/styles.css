@@ -500,6 +500,16 @@ body {
     0 0 0 3px var(--ring);
 }
 
+/* derived (read-only) field — shows a computed value, not user-editable */
+.input-derived {
+  color: var(--text-faint);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: default;
+}
+.input-derived:hover:not(:focus) {
+  border-color: var(--border);
+}
+
 .field {
   display: block;
   margin-bottom: 13px;
@@ -2588,7 +2598,7 @@ body {
 }
 .chart-preview-band {
   fill: #f0b90b;
-  fill-opacity: 0.08;
+  fill-opacity: 0.12;
   stroke: #f0b90b;
   stroke-opacity: 0.5;
   stroke-width: 1;

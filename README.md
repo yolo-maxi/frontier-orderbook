@@ -7,7 +7,7 @@ crossed), so a 5% move through 5,000 active thin levels settles for ~210k
 gas (it was 287M — unexecutable — under per-level settlement).
 
 **Live demo: https://clob.repo.box** — ETH-USDC book on a public devnet
-(RPC `https://rpc-clob.repo.box`, chain 84009), market-made around the
+(RPC `https://rpc-clob.repo.box`, chain 84100), market-made around the
 live Coinbase ETH price at ±0.1% by bots whose fast-path requotes run
 through **delegated operator keys** (selector-scoped permission grants —
 no custody).

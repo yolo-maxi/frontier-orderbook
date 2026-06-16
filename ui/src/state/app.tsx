@@ -130,6 +130,9 @@ interface AppData {
   busy: string | null;
   preview: ChartPreview | null;
   setPreview: (p: ChartPreview | null) => void;
+  /** Ladder range pushed by dragging the chart band edges (ticks). */
+  makeRange: { lowerTick: number; upperTick: number } | null;
+  setMakeRange: (r: { lowerTick: number; upperTick: number } | null) => void;
   /** Make tab is active: the book portion of the screen expands. */
   makeFocus: boolean;
   setMakeFocus: (b: boolean) => void;
@@ -238,6 +241,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [toasts, setToasts] = useState<TxToast[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [preview, setPreview] = useState<ChartPreview | null>(null);
+  const [makeRange, setMakeRange] = useState<{ lowerTick: number; upperTick: number } | null>(null);
   const [makeFocus, setMakeFocus] = useState(false);
   const [nonce, setNonce] = useState(0); // manual refresh trigger
 
@@ -679,21 +683,21 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     } catch {
       /* may already have gas */
     }
-    const okWeth = await sendTx("Faucet: mint 10 WETH", () =>
+    const okWeth = await sendTx("Faucet: mint 1,000 WETH", () =>
       wallet.writeContract({
         address: cfg.contracts.weth,
         abi: erc20Abi,
         functionName: "mint",
-        args: [account.address, parseUnits("10", 18)],
+        args: [account.address, parseUnits("1000", 18)],
       }),
     );
     if (!okWeth) return;
-    await sendTx("Faucet: mint 50,000 USDC", () =>
+    await sendTx("Faucet: mint 5,000,000 USDC", () =>
       wallet.writeContract({
         address: cfg.contracts.usdc,
         abi: erc20Abi,
         functionName: "mint",
-        args: [account.address, parseUnits("50000", 18)],
+        args: [account.address, parseUnits("5000000", 18)],
       }),
     );
   }, [client, cfg, account, wallet, sendTx]);
@@ -703,6 +707,8 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     configured,
     preview,
     setPreview,
+    makeRange,
+    setMakeRange,
     makeFocus,
     setMakeFocus,
     client,

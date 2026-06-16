@@ -3,15 +3,18 @@
 // while fast-path requotes are signed by a separate OPERATOR key holding
 // selector-scoped grants in the PermissionRegistry. Fills force the slow
 // path (settle via owner: cancel -> repost), exactly like a real desk.
-import { deployment, pub, wallet, bookAbi, erc20Abi, registryAbi, priceToTick, tickToPrice, ethUsd, log, chainDeadline } from './lib.mjs';
+import { deployment, marketLabel, pub, wallet, bookAbi, erc20Abi, registryAbi, priceToTick, tickToPrice, ethUsd, log, chainDeadline } from './lib.mjs';
 import { toFunctionSelector } from 'viem';
 
 const OWNER_PK = process.env.MM_OWNER_PK || '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
 const OPERATOR_PK = process.env.MM_OPERATOR_PK || '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
 
-const SPREAD = 0.001; // ±0.1%
-const LADDER_TICKS = 1000; // 1000 thin levels per side (= $1 of depth)
-const SIZE = 2_000_000_000_000_000n; // 0.002 WETH per level
+// All hyper-active knobs are env-tunable; defaults keep the original behaviour.
+const SPREAD = Number(process.env.MM_SPREAD || 0.001); // ±0.1%
+const LADDER_TICKS = Number(process.env.MM_LADDER_TICKS || 1000); // levels per side
+const SIZE = BigInt(process.env.MM_SIZE_WEI || '2000000000000000'); // 0.002 WETH per level
+const INTERVAL_MS = Number(process.env.MM_INTERVAL_MS || 12_000); // requote cadence
+const TAG = `mm:${marketLabel}`;
 
 const { book, registry, weth, usdc } = deployment.contracts;
 const owner = wallet(OWNER_PK);
@@ -27,7 +30,7 @@ const write = async (w, address, abi, functionName, args) => {
 };
 
 async function setup() {
-  log('mm', 'owner', owner.account.address, 'operator', operator.account.address);
+  log(TAG, 'owner', owner.account.address, 'operator', operator.account.address);
   await write(owner, weth, erc20Abi, 'mint', [owner.account.address, 10_000n * 10n ** 18n]);
   await write(owner, usdc, erc20Abi, 'mint', [owner.account.address, 40_000_000n * 10n ** 18n]);
   await write(owner, weth, erc20Abi, 'approve', [book, 2n ** 255n]);
@@ -36,7 +39,7 @@ async function setup() {
   for (const sig of ['function requote(uint256,int24,int24,uint128)', 'function requoteBid(uint256,int24,int24,uint128)']) {
     await write(owner, registry, registryAbi, 'grant', [operator.account.address, book, toFunctionSelector(sig)]);
   }
-  log('mm', 'operator granted requote+requoteBid via PermissionRegistry');
+  log(TAG, 'operator granted requote+requoteBid via PermissionRegistry');
 }
 
 async function settleAndRepost(targetTick, offset) {
@@ -52,7 +55,7 @@ async function settleAndRepost(targetTick, offset) {
     try {
       await write(owner, book, bookAbi, 'sweepWithLimits', [targetTick, 200n, 2n ** 200n, 0n, deadline]);
     } catch (e) {
-      log('mm', 'recenter chunk failed:', e.shortMessage?.slice(0, 80) || e.message?.slice(0, 80));
+      log(TAG, 'recenter chunk failed:', e.shortMessage?.slice(0, 80) || e.message?.slice(0, 80));
       break;
     }
   }
@@ -61,7 +64,7 @@ async function settleAndRepost(targetTick, offset) {
   askId = r1.result; await write(owner, book, bookAbi, 'deposit', [askLo, askLo + LADDER_TICKS, SIZE]);
   const r2 = await pub.simulateContract({ address: book, abi: bookAbi, functionName: 'depositBid', args: [bidHi - LADDER_TICKS, bidHi, SIZE], account: owner.account });
   bidId = r2.result; await write(owner, book, bookAbi, 'depositBid', [bidHi - LADDER_TICKS, bidHi, SIZE]);
-  log('mm', `reposted around $${tickToPrice(targetTick).toFixed(2)} ask@${tickToPrice(askLo).toFixed(3)} bid@${tickToPrice(bidHi).toFixed(3)} (owner path)`);
+  log(TAG, `reposted around $${tickToPrice(targetTick).toFixed(2)} ask@${tickToPrice(askLo).toFixed(3)} bid@${tickToPrice(bidHi).toFixed(3)} (owner path)`);
 }
 
 async function tick() {
@@ -77,14 +80,14 @@ async function tick() {
     const askLo = t + offset, bidHi = t - offset;
     await write(operator, book, bookAbi, 'requote', [askId, askLo, askLo + LADDER_TICKS, SIZE]);
     await write(operator, book, bookAbi, 'requoteBid', [bidId, bidHi - LADDER_TICKS, bidHi, SIZE]);
-    log('mm', `requoted $${price.toFixed(2)} ±0.1% (operator fast path)`);
+    log(TAG, `requoted $${price.toFixed(2)} ±0.1% (operator fast path)`);
   } catch (e) {
-    log('mm', 'fast path blocked (fills or pointer) -> settling via owner');
+    log(TAG, 'fast path blocked (fills or pointer) -> settling via owner');
     await settleAndRepost(t, offset);
   }
 }
 
 await setup();
-const safeTick = () => tick().catch((e) => log('mm', 'tick error:', e.shortMessage?.slice(0, 120) || e.message?.slice(0, 120)));
+const safeTick = () => tick().catch((e) => log(TAG, 'tick error:', e.shortMessage?.slice(0, 120) || e.message?.slice(0, 120)));
 await safeTick();
-setInterval(safeTick, 12_000);
+setInterval(safeTick, INTERVAL_MS);

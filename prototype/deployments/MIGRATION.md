@@ -22,8 +22,8 @@ keep sharing one chain/RPC.
 
 - RPC: `https://rpc-clob.repo.box` (unchanged URL, now serves chain **84100**)
   - same chain is also exposed as `https://rpc-sprawl.repo.box`
-  - local on the box: `http://127.0.0.1:8548` (pm2 `sprawl-gnosis-fork`,
-    state-persisted in `/home/xiko/sprawl-gnosis-fork/`)
+  - local on the box: `http://127.0.0.1:8548` (pm2 `frontier-prediction-devnet`,
+    state-persisted in `/home/xiko/clob-prediction-devnet/`)
 - Addresses: `deployments/latest.json` (also served at `clob.repo.box/deployment.json`)
   — ALL contract addresses changed; book seeded at tick 1680125 (~$1681).
 - Faucet key: **unchanged** (anvil #4, same as before).
@@ -32,7 +32,7 @@ keep sharing one chain/RPC.
 
 ## Old chain (84009)
 
-- Final state: **still running locally** on the box at `http://127.0.0.1:8547`
+- Final state: **consolidated** on the shared local anvil at `http://127.0.0.1:8548`; both `rpc-clob.repo.box` and `rpc-sprawl.repo.box` route to it
   (pm2 `clob-devnet`, state file `/home/xiko/clob-devnet/state`). It is no longer
   publicly routed. It stays up until Fran confirms shutdown; after that the state
   file is the archive.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp, type PositionRow } from "../state/app";
-import { fmtAmount, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
+import { fmtAmount, fmtPrice, fmtTime, priceToTick, tickToPrice } from "../lib/format";
 
 export function MarketPanel() {
   const { summary, priceHistory, fills, makerEvents } = useApp();
@@ -252,8 +252,9 @@ function positionBands(positions: PositionRow[]): Band[] {
  *  - the execution range of a live Trade quote, as a bracket to its end price
  */
 function BookChart() {
-  const { priceHistory, depth, summary, positions, preview, makeFocus } = useApp();
+  const { priceHistory, depth, summary, positions, preview, makeFocus, setMakeRange } = useApp();
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
   const [width, setWidth] = useState(760);
   // Make mode: the BOOK's share of the chart expands — the price line
   // compresses to the left and the depth bars take ~45% of the width, so
@@ -428,6 +429,42 @@ function BookChart() {
     };
   }, [priceHistory, depth, summary, positions, preview, width, GUT, H]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // latest model for pointer math mid-drag (the price domain shifts as the
+  // band moves, so we read live min/max rather than a value captured at grab)
+  const modelRef = useRef(model);
+  modelRef.current = model;
+
+  // drag a gold-band edge to rewrite the ladder range live → MakePanel.from/to
+  const dragEdge = (edge: "upper" | "lower") => (e: React.PointerEvent) => {
+    if (preview?.kind !== "make" || preview.lowerTick === undefined || preview.upperTick === undefined) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const anchorLo = preview.lowerTick;
+    const anchorHi = preview.upperTick;
+    const move = (ev: PointerEvent) => {
+      const svg = svgRef.current;
+      const m2 = modelRef.current;
+      if (!svg || !m2 || m2.max <= m2.min) return;
+      const rect = svg.getBoundingClientRect();
+      if (rect.height === 0) return;
+      const ySvg = (ev.clientY - rect.top) * (H / rect.height);
+      const frac = (ySvg - PAD.t) / (H - PAD.t - PAD.b);
+      const price = m2.max - frac * (m2.max - m2.min); // chart top = max price
+      const tick = priceToTick(price);
+      if (edge === "upper") {
+        setMakeRange({ lowerTick: anchorLo, upperTick: Math.max(tick, anchorLo + 1) });
+      } else {
+        setMakeRange({ lowerTick: Math.min(tick, anchorHi - 1), upperTick: anchorHi });
+      }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   if (!model) {
     return (
       <div className="chart-wrap" ref={wrapRef}>
@@ -442,7 +479,7 @@ function BookChart() {
 
   return (
     <div className="chart-wrap" ref={wrapRef}>
-      <svg viewBox={`0 0 ${m.W} ${H}`} className="chart" style={{ height: H }}>
+      <svg ref={svgRef} viewBox={`0 0 ${m.W} ${H}`} className="chart" style={{ height: H }}>
         <defs>
           <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={stroke} stopOpacity="0.14" />
@@ -508,24 +545,63 @@ function BookChart() {
           </g>
         )}
 
-        {/* ---- make-tab preview: gold band + its size profile in the gutter */}
-        {preview?.kind === "make" && preview.lowerTick !== undefined && preview.upperTick !== undefined && (
+        {/* ---- make-tab preview: gold band (width ∝ total size) + its size
+             profile in the gutter; the band edges are drag handles for range */}
+        {preview?.kind === "make" && preview.lowerTick !== undefined && preview.upperTick !== undefined && (() => {
+          const yTop = clampY(m.sy(tickToPrice(preview.upperTick)));
+          const yBot = clampY(m.sy(tickToPrice(preview.lowerTick)));
+          const bandH = Math.max(2, yBot - yTop);
+          const plotW = m.plotX1 - PAD.l;
+          // band WIDTH encodes the total quantity committed, saturating against
+          // the live two-sided depth so it stays comparable to the market
+          const bandTotal =
+            preview.sizePerLevel !== undefined
+              ? ladderTotal(preview.sizePerLevel, preview.slope ?? 0n, preview.upperTick - preview.lowerTick)
+              : 0;
+          const bookTotal =
+            m.askB.reduce((a, b) => a + b, 0) + m.bidB.reduce((a, b) => a + b, 0);
+          const K = Math.max(bookTotal * 0.5, 0.25);
+          const wFrac = bandTotal > 0 ? bandTotal / (bandTotal + K) : 0;
+          const bandW = Math.max(16, wFrac * plotW);
+          const GRIP = 7; // half-height of the draggable hit zone on each edge
+          return (
           <g>
             <rect
               x={PAD.l}
-              y={clampY(m.sy(tickToPrice(preview.upperTick)))}
-              width={m.plotX1 - PAD.l}
-              height={Math.max(2, clampY(m.sy(tickToPrice(preview.lowerTick))) - clampY(m.sy(tickToPrice(preview.upperTick))))}
+              y={yTop}
+              width={bandW}
+              height={bandH}
               className="chart-preview-band"
             />
             <text
               x={PAD.l + 6}
-              y={clampY(m.sy(tickToPrice(preview.upperTick))) - 4}
+              y={yTop - 4}
               className="chart-band-label"
               fill="#f0b90b"
             >
               NEW {preview.side.toUpperCase()} LADDER
             </text>
+            {/* drag handles: top edge = upper price, bottom edge = lower price */}
+            <line x1={PAD.l} x2={PAD.l + bandW} y1={yTop} y2={yTop} stroke="#f0b90b" strokeWidth="2" strokeOpacity="0.95" />
+            <line x1={PAD.l} x2={PAD.l + bandW} y1={yBot} y2={yBot} stroke="#f0b90b" strokeWidth="2" strokeOpacity="0.95" />
+            <rect
+              x={PAD.l}
+              y={yTop - GRIP}
+              width={m.plotX1 - PAD.l}
+              height={GRIP * 2}
+              fill="transparent"
+              style={{ cursor: "ns-resize", touchAction: "none" }}
+              onPointerDown={dragEdge("upper")}
+            />
+            <rect
+              x={PAD.l}
+              y={yBot - GRIP}
+              width={m.plotX1 - PAD.l}
+              height={GRIP * 2}
+              fill="transparent"
+              style={{ cursor: "ns-resize", touchAction: "none" }}
+              onPointerDown={dragEdge("lower")}
+            />
             {m.prevLevels.map((lv, i) => (
               <rect
                 key={i}
@@ -544,7 +620,8 @@ function BookChart() {
             <line x1={m.gutX0} x2={m.gutX1} y1={clampY(m.sy(tickToPrice(preview.upperTick)))} y2={clampY(m.sy(tickToPrice(preview.upperTick)))} stroke="#f0b90b" strokeOpacity="0.8" strokeWidth="1" strokeDasharray="2 2" />
             <line x1={m.gutX0} x2={m.gutX1} y1={clampY(m.sy(tickToPrice(preview.lowerTick)))} y2={clampY(m.sy(tickToPrice(preview.lowerTick)))} stroke="#f0b90b" strokeOpacity="0.8" strokeWidth="1" strokeDasharray="2 2" />
           </g>
-        )}
+          );
+        })()}
 
         {/* ---- price line */}
         <path d={m.area} fill="url(#chartFill)" />

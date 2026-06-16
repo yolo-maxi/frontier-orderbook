@@ -2,7 +2,7 @@
 # Deploy the Frontier demo stack to the clob devnet via forge create + cast.
 set -e
 export PATH="$PATH:/home/xiko/.foundry/bin"
-RPC=${RPC:-http://127.0.0.1:8547}
+RPC=${RPC:-http://127.0.0.1:8548}
 K=${DEPLOYER_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
 DEPLOYER=$(cast wallet address $K)
 CR="forge create --rpc-url $RPC --private-key $K --broadcast"

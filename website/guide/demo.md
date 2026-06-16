@@ -1,7 +1,7 @@
 # Live Demo Guide
 
 **App: <https://clob.repo.box>** · RPC: `https://rpc-clob.repo.box`
-(chain id 84009, 2s blocks) · addresses: served at
+(chain id 84100, 2s blocks) · addresses: served at
 [`/deployment.json`](https://clob.repo.box/deployment.json)
 
 ![The exchange](/exchange.png)

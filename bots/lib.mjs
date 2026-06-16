@@ -2,15 +2,20 @@ import { createPublicClient, createWalletClient, http, defineChain, parseAbi } f
 import { privateKeyToAccount } from 'viem/accounts';
 import { readFileSync } from 'fs';
 
-export const deployment = JSON.parse(
-  readFileSync(new URL('../prototype/deployments/latest.json', import.meta.url))
-);
+// Each bot process targets ONE market. Point it at a specific deployment via
+// DEPLOYMENT (a path, relative to this file or absolute) so a single codebase
+// can run separate Spot and PM books side by side. Defaults to the live stack.
+const deploymentPath = process.env.DEPLOYMENT
+  ? new URL(process.env.DEPLOYMENT, import.meta.url)
+  : new URL('../prototype/deployments/latest.json', import.meta.url);
+export const deployment = JSON.parse(readFileSync(deploymentPath));
+export const marketLabel = process.env.MARKET_LABEL || deployment.name || 'market';
 
 export const chain = defineChain({
   id: deployment.chainId,
   name: 'Frontier Devnet',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: [process.env.RPC_URL || 'http://127.0.0.1:8547'] } },
+  rpcUrls: { default: { http: [process.env.RPC_URL || 'http://127.0.0.1:8548'] } },
 });
 
 export const pub = createPublicClient({ chain, transport: http() });
