@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {newBook} from "./utils/BookFab.sol";
 
 /// @notice "Tick ozempic": endpoint-telescoped sweeps. Ticks stay thin
@@ -15,7 +15,7 @@ import {newBook} from "./utils/BookFab.sol";
 contract FrontierOzempicTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
 
     address[5] internal makers;
     address internal taker;
@@ -174,26 +174,6 @@ contract FrontierOzempicTest is Test {
         vm.prank(taker);
         book.sweepWithLimits(301, type(uint256).max, type(uint256).max, 0, block.timestamp);
         assertEq(book.claimable(id), spanAmt1(1, 301, L), "resume exact, no double-sell");
-    }
-
-    function testShapedLadderTelescopes() public {
-        // shaped order: sizes 500L..1L over 500 thin levels — still one run
-        vm.prank(makers[0]);
-        uint256 id = book.depositShaped(1, 501, 500 * L, -int128(L));
-
-        vm.prank(taker);
-        uint256 g = gasleft();
-        book.moveTickTo(501);
-        uint256 sweepGas = g - gasleft();
-        console2.log("shaped 500-level ladder, one telescoped run:", sweepGas);
-
-        // brute-force exact claim check
-        uint256 acc;
-        for (int24 t = 1; t < 501; t++) {
-            acc += (uint256(500 - uint24(t - 1)) * L) * uint256(int256(1e18) + int256(t) * 1e15);
-        }
-        assertEq(book.claimable(id), acc / 1e18, "quadratic-series settlement exact to the wei");
-        assertLt(sweepGas, 400_000, "shape does not break telescoping");
     }
 
     // ------------------------------------------------------------------

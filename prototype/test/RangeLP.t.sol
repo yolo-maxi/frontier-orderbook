@@ -3,17 +3,16 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
-import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {RangeLP, RangeLPFactory} from "../src/periphery/RangeLP.sol";
-import {newFactory} from "./utils/BookFab.sol";
+import {newBook} from "./utils/BookFab.sol";
 
 /// @notice Uniswap-style passive LP living on the orderbook: symmetric
 /// ladders around mid, fills convert inventory, rebalance re-centers.
 contract RangeLPTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
     RangeLP internal vault;
 
     address internal lp;
@@ -26,8 +25,7 @@ contract RangeLPTest is Test {
         taker = makeAddr("taker");
         t0 = new MockERC20("WETH", "WETH");
         t1 = new MockERC20("USDC", "USDC");
-        FrontierBookFactory factory = newFactory(address(0));
-        book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 100));
+        book = newBook(address(t0), address(t1), 1, 100, address(0), address(0));
 
         RangeLPFactory lpf = new RangeLPFactory();
         vm.prank(lp);

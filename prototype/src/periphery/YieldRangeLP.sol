@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {RollingFrontierBook} from "../RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../UniformFrontierBook.sol";
 import {IERC20Minimal} from "../RangeTakeProfitBook.sol";
 
 interface IYieldVault {
@@ -29,7 +29,7 @@ interface IYieldVault {
 /// receives the yield shares themselves rather than being trapped behind a
 /// frozen lending market.
 contract YieldRangeLP {
-    RollingFrontierBook public immutable book;
+    UniformFrontierBook public immutable book;
     address public immutable owner;
     IERC20Minimal public immutable token0;
     IERC20Minimal public immutable token1;
@@ -56,7 +56,7 @@ contract YieldRangeLP {
         _;
     }
 
-    constructor(RollingFrontierBook _book, address _owner, IYieldVault _vault0, IYieldVault _vault1) {
+    constructor(UniformFrontierBook _book, address _owner, IYieldVault _vault0, IYieldVault _vault1) {
         book = _book;
         owner = _owner;
         token0 = _book.token0();
@@ -217,7 +217,7 @@ contract YieldRangeLPFactory {
 
     mapping(address => address[]) public vaultsOf;
 
-    function createVault(RollingFrontierBook book, IYieldVault vault0, IYieldVault vault1)
+    function createVault(UniformFrontierBook book, IYieldVault vault0, IYieldVault vault1)
         external
         returns (address vault)
     {

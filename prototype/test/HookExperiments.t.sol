@@ -3,11 +3,10 @@ pragma solidity ^0.8.26;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
-import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {FrontierHookFlags} from "../src/hooks/IFrontierHooks.sol";
 import {TwapOracleHook, SweepCircuitBreakerHook, MakerMilesHook} from "../src/hooks/examples/ExperimentHooks.sol";
-import {newFactory} from "./utils/BookFab.sol";
+import {newBook} from "./utils/BookFab.sol";
 
 /// @notice The experiment hooks: a TWAP oracle from afterSweep alone, a
 /// per-block circuit breaker from beforeSweep's veto, and settlement-time
@@ -15,7 +14,6 @@ import {newFactory} from "./utils/BookFab.sol";
 contract HookExperimentsTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
-    FrontierBookFactory internal factory;
 
     address internal mm;
     address internal taker;
@@ -27,11 +25,10 @@ contract HookExperimentsTest is Test {
         taker = makeAddr("taker");
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        factory = newFactory(address(0));
     }
 
-    function _hookedBook(address hookAddr) internal returns (RollingFrontierBook book) {
-        book = RollingFrontierBook(factory.createBookWithHooks(address(t0), address(t1), 1, 0, hookAddr));
+    function _hookedBook(address hookAddr) internal returns (UniformFrontierBook book) {
+        book = newBook(address(t0), address(t1), 1, 0, hookAddr, address(0));
         t0.mint(mm, 1e30);
         vm.prank(mm);
         t0.approve(address(book), type(uint256).max);
@@ -44,7 +41,7 @@ contract HookExperimentsTest is Test {
     // TWAP oracle: every price move flows through afterSweep
     // ------------------------------------------------------------------
 
-    function _twapSetup() internal returns (TwapOracleHook hook, RollingFrontierBook book) {
+    function _twapSetup() internal returns (TwapOracleHook hook, UniformFrontierBook book) {
         address addr = address((uint160(0x0A11CE) << 20) | FrontierHookFlags.AFTER_SWEEP_FLAG);
         deployCodeTo("ExperimentHooks.sol:TwapOracleHook", "", addr);
         hook = TwapOracleHook(addr);
@@ -54,7 +51,7 @@ contract HookExperimentsTest is Test {
     }
 
     function testTwapAveragesAcrossMoves() public {
-        (TwapOracleHook hook, RollingFrontierBook book) = _twapSetup();
+        (TwapOracleHook hook, UniformFrontierBook book) = _twapSetup();
 
         // literal warp targets: under via-ir, `block.timestamp` (and locals
         // assigned from it) re-evaluate TIMESTAMP at each use site, so
@@ -74,7 +71,7 @@ contract HookExperimentsTest is Test {
     }
 
     function testTwapSameSecondCollapses() public {
-        (TwapOracleHook hook, RollingFrontierBook book) = _twapSetup();
+        (TwapOracleHook hook, UniformFrontierBook book) = _twapSetup();
 
         vm.startPrank(taker);
         book.moveTickTo(10);
@@ -87,7 +84,7 @@ contract HookExperimentsTest is Test {
     }
 
     function testTwapLookbackBounds() public {
-        (TwapOracleHook hook, RollingFrontierBook book) = _twapSetup();
+        (TwapOracleHook hook, UniformFrontierBook book) = _twapSetup();
 
         vm.expectRevert(bytes("no observations"));
         hook.consult(1);
@@ -103,8 +100,8 @@ contract HookExperimentsTest is Test {
     /// on a hookless book vs a TWAP-hooked one. Run with --isolate for
     /// per-transaction numbers (the docs methodology).
     function testTwapHookSweepOverhead() public {
-        (, RollingFrontierBook hooked) = _twapSetup();
-        RollingFrontierBook plain = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 0));
+        (, UniformFrontierBook hooked) = _twapSetup();
+        UniformFrontierBook plain = newBook(address(t0), address(t1), 1, 0, address(0), address(0));
         vm.startPrank(mm);
         t0.approve(address(plain), type(uint256).max);
         plain.deposit(1, 201, L);
@@ -142,7 +139,7 @@ contract HookExperimentsTest is Test {
     // Circuit breaker: beforeSweep is a real veto point
     // ------------------------------------------------------------------
 
-    function _breakerSetup() internal returns (SweepCircuitBreakerHook hook, RollingFrontierBook book) {
+    function _breakerSetup() internal returns (SweepCircuitBreakerHook hook, UniformFrontierBook book) {
         address addr = address((uint160(0x0B0B) << 20) | FrontierHookFlags.BEFORE_SWEEP_FLAG);
         deployCodeTo("ExperimentHooks.sol:SweepCircuitBreakerHook", abi.encode(int24(100)), addr);
         hook = SweepCircuitBreakerHook(addr);
@@ -152,7 +149,7 @@ contract HookExperimentsTest is Test {
     }
 
     function testBreakerCapsPerBlockMove() public {
-        (, RollingFrontierBook book) = _breakerSetup();
+        (, UniformFrontierBook book) = _breakerSetup();
 
         vm.prank(taker);
         book.moveTickTo(50); // |50 - 0| <= 100: fine
@@ -173,7 +170,7 @@ contract HookExperimentsTest is Test {
     // Maker miles: credit exactly once, at settlement
     // ------------------------------------------------------------------
 
-    function _milesSetup() internal returns (MakerMilesHook hook, RollingFrontierBook book) {
+    function _milesSetup() internal returns (MakerMilesHook hook, UniformFrontierBook book) {
         address addr =
             address((uint160(0x0CAFE) << 20) | FrontierHookFlags.AFTER_CLAIM_FLAG | FrontierHookFlags.AFTER_CANCEL_FLAG);
         deployCodeTo("ExperimentHooks.sol:MakerMilesHook", "", addr);
@@ -182,7 +179,7 @@ contract HookExperimentsTest is Test {
     }
 
     function testMilesCreditedOnClaim() public {
-        (MakerMilesHook hook, RollingFrontierBook book) = _milesSetup();
+        (MakerMilesHook hook, UniformFrontierBook book) = _milesSetup();
 
         vm.prank(mm);
         uint256 id = book.deposit(1, 4, L);
@@ -197,7 +194,7 @@ contract HookExperimentsTest is Test {
     }
 
     function testMilesOnCancelCountFilledPartOnly() public {
-        (MakerMilesHook hook, RollingFrontierBook book) = _milesSetup();
+        (MakerMilesHook hook, UniformFrontierBook book) = _milesSetup();
 
         vm.prank(mm);
         uint256 id = book.deposit(1, 11, L);

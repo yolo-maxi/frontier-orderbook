@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {newBook} from "./utils/BookFab.sol";
 
 /// @dev Stateful fuzz handler: random makers and takers hammer one book
@@ -11,7 +11,7 @@ import {newBook} from "./utils/BookFab.sol";
 /// never by assuming. Ghost state tracks every position ever minted so the
 /// invariant contract can audit the book's full obligations.
 contract BookHandler is Test {
-    RollingFrontierBook public book;
+    UniformFrontierBook public book;
     MockERC20 public t0;
     MockERC20 public t1;
 
@@ -21,7 +21,7 @@ contract BookHandler is Test {
     int24 internal constant MIN_TICK = -60;
     int24 internal constant MAX_TICK = 120;
 
-    constructor(RollingFrontierBook _book, MockERC20 _t0, MockERC20 _t1) {
+    constructor(UniformFrontierBook _book, MockERC20 _t0, MockERC20 _t1) {
         book = _book;
         t0 = _t0;
         t1 = _t1;
@@ -44,16 +44,13 @@ contract BookHandler is Test {
         return actors[seed % 3];
     }
 
-    function depositAsk(uint256 seed, int24 lower, uint24 width, uint96 size, int8 slopeSeed) external {
+    function depositAsk(uint256 seed, int24 lower, uint24 width, uint96 size) external {
         int24 cur = book.currentTick();
         lower = int24(bound(lower, cur + 1, MAX_TICK - 2));
         int24 upper = int24(bound(int24(uint24(bound(width, 1, 40))) + lower, lower + 1, MAX_TICK));
         uint128 l0 = uint128(bound(size, 1e6, 1e24));
-        int128 m = int128(int256(bound(slopeSeed, -2, 2))) * int128(uint128(l0 / 64 + 1));
-        // shape floor: size at every level must stay >= 1
-        if (m < 0 && uint256(uint128(-m)) * uint256(uint24(upper - lower - 1)) >= l0) m = 0;
         vm.prank(_actor(seed));
-        uint256 id = m == 0 ? book.deposit(lower, upper, l0) : book.depositShaped(lower, upper, l0, m);
+        uint256 id = book.deposit(lower, upper, l0);
         allPositions.push(id);
     }
 
@@ -93,11 +90,10 @@ contract BookHandler is Test {
 }
 
 /// @notice Invariant-mode fuzzing: under any interleaving of deposits,
-/// shaped deposits, bids, budgeted sweeps in both directions, claims,
-/// cancels, internal credits, and withdrawals, the book can always pay
-/// everyone what its own views say they are owed.
+/// bids, budgeted sweeps in both directions, claims, and cancels, the book
+/// can always pay everyone what its own views say they are owed.
 contract InvariantsTest is Test {
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
     MockERC20 internal t0;
     MockERC20 internal t1;
     BookHandler internal handler;

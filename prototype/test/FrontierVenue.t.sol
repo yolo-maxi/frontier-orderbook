@@ -3,10 +3,10 @@ pragma solidity ^0.8.24;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {GeometricFrontierBook} from "../src/GeometricFrontierBook.sol";
 import {GeoTickMath} from "../src/curve/GeoTickMath.sol";
-import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
+import {FrontierGeoBookFactory} from "../src/FrontierGeoBookFactory.sol";
 import {newBook, newFactory} from "./utils/BookFab.sol";
 
 /// @notice Standalone-venue properties: sparse-gap sweeps (tick bitmap),
@@ -15,7 +15,7 @@ import {newBook, newFactory} from "./utils/BookFab.sol";
 contract FrontierVenueTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
 
     address internal bob;
     address internal taker;
@@ -174,15 +174,15 @@ contract FrontierVenueTest is Test {
     // ------------------------------------------------------------------
 
     function testFactoryParallelMarkets() public {
-        FrontierBookFactory factory = newFactory(address(0));
+        FrontierGeoBookFactory factory = newFactory(address(0));
         MockERC20 a = new MockERC20("A", "A");
         MockERC20 b = new MockERC20("B", "B");
 
         // same pair, three parallel books with different granularities
         int24[3] memory spacings = [int24(1), 10, 60];
-        RollingFrontierBook[3] memory bk;
+        GeometricFrontierBook[3] memory bk;
         for (uint256 i = 0; i < 3; i++) {
-            bk[i] = RollingFrontierBook(factory.createBook(address(a), address(b), spacings[i], 0));
+            bk[i] = GeometricFrontierBook(factory.createGeoBook(address(a), address(b), spacings[i], 0));
         }
         assertEq(factory.bookCount(), 3, "three books");
 
@@ -218,12 +218,12 @@ contract FrontierVenueTest is Test {
         }
 
         uint256 g = gasleft();
-        factory.createBook(address(a), address(b), 5, 0);
+        factory.createGeoBook(address(a), address(b), 5, 0);
         console2.log("book deployment gas:", g - gasleft());
     }
 
     function testFactoryGeometricBooks() public {
-        FrontierBookFactory factory = newFactory(address(0));
+        FrontierGeoBookFactory factory = newFactory(address(0));
         MockERC20 a = new MockERC20("A", "A");
         MockERC20 b = new MockERC20("B", "B");
 
@@ -258,12 +258,10 @@ contract FrontierVenueTest is Test {
         assertApproxEqAbs(proceeds, expect, 2, "telescoped settlement");
         assertEq(a.balanceOf(address(geo)), 0, "no stranded principal");
 
-        // maker-ops companion memoized per config AND per curve
+        // maker-ops companion memoized per immutable config
         GeometricFrontierBook geo2 = GeometricFrontierBook(factory.createGeoBook(address(a), address(b), 1, 50));
         assertEq(geo2.makerOps(), geo.makerOps(), "geo companion reused");
-        RollingFrontierBook lin = RollingFrontierBook(factory.createBook(address(a), address(b), 1, 0));
-        assertTrue(lin.makerOps() != geo.makerOps(), "curves never share a companion");
-        assertEq(factory.bookCount(), 3, "all curves registered");
+        assertEq(factory.bookCount(), 2, "both geometric books registered");
 
         // delegatecalled geometric companion serves a factory-made book
         vm.startPrank(bob);

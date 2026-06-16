@@ -4,14 +4,13 @@ pragma solidity ^0.8.24;
 import {FrontierBookBase} from "./FrontierBookBase.sol";
 import {FrontierHookFlags, IFrontierHooks} from "./hooks/IFrontierHooks.sol";
 
-/// @title UniformMakerOps — uniform-only sibling of FrontierMakerOps
+/// @title UniformMakerOps — cold maker-management companion
 ///
 /// The cold maker-management companion for the uniform-curve book
-/// (UniformFrontierBook and the deployed GeometricFrontierBook). Same
-/// delegatecall contract as FrontierMakerOps, but the ASK-side requote/cancel
-/// carry no slope: ladders are uniform, so there is no requoteShaped surface
-/// and no _positionSlope / frontierSlope arithmetic. The bid-side ops are
-/// identical to FrontierMakerOps (bids were always uniform).
+/// (UniformFrontierBook and the deployed GeometricFrontierBook). The ASK-side
+/// requote/cancel carry no slope: ladders are uniform, so there is no
+/// requoteShaped surface and no _positionSlope / frontierSlope arithmetic.
+/// Bids were always uniform (token0-denominated sizes).
 ///
 /// Deployed with the same immutables as the book(s) it serves (delegatecalled
 /// code reads its OWN immutables). Called directly it hits empty storage and
@@ -33,7 +32,7 @@ contract UniformMakerOps is FrontierBookBase {
     {}
 
     /// @notice Transfer position ownership (claims/refunds follow the new
-    /// owner). Identical to FrontierMakerOps.
+    /// owner).
     function transferPosition(uint256 positionId, address to) external {
         Position storage p = _positions[positionId];
         require(p.live, "not live");
@@ -79,7 +78,7 @@ contract UniformMakerOps is FrontierBookBase {
     }
 
     /// @notice O(1) re-price of a completely unfilled bid; token1 settles
-    /// difference-only. Identical to FrontierMakerOps.
+    /// difference-only.
     function requoteBid(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external {
         Position storage p = _positions[positionId];
         require(p.live, "not live");
@@ -165,8 +164,7 @@ contract UniformMakerOps is FrontierBookBase {
         return cancelWithWitness(positionId, _frontier(p));
     }
 
-    /// @notice O(1) bid cancel against a maximal-frontier witness. Identical to
-    /// FrontierMakerOps.
+    /// @notice O(1) bid cancel against a maximal-frontier witness.
     function cancelBidWithWitness(uint256 positionId, int24 frontier)
         public
         returns (uint256 proceeds0, uint256 refund1)

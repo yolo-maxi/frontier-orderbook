@@ -19,11 +19,12 @@ The deploy script accepts real token addresses, tick spacing, start tick, fee re
 
 ## What's here
 
-- `prototype/src/RollingFrontierBook.sol` — core two-sided book, endpoint-telescoped sweeps, shaped orders, O(1) deposit/requote/witness-claim paths, internal-balance recycling, transferable positions, hooks, and delegatable permissions.
-- `prototype/src/GeometricFrontierBook.sol` — production-candidate geometric curve book.
+- `prototype/src/UniformFrontierBook.sol` — core two-sided book: endpoint-telescoped sweeps, O(1) deposit/requote/witness-claim paths, transferable positions, hooks, and delegatable permissions. Ask ladders are uniform (one size per level).
+- `prototype/src/GeometricFrontierBook.sol` — the production book: `UniformFrontierBook` on the 1.0001^tick curve. The deploy-day runtime.
 - `prototype/src/FrontierGeoBookFactory.sol` — deploy-day geometric-only factory for fee-enabled real markets.
-- `prototype/src/FrontierBookFactory.sol` — broader linear+geometric factory for tests and experiments; not the deploy-day path.
 - `prototype/src/periphery/` — `FrontierRouter`, `FrontierLens`, `FrontierMakerKit`, and `RangeLP`.
+
+> The earlier rolling/linear/shaped-ladder book (`RollingFrontierBook`, `FrontierMakerOps`, `FrontierBookFactory`, `depositShaped`/`requoteShaped`) was an experimental path and now lives only on the `archive/rolling-frontier-book` branch. The active product is the geometric/uniform path above.
 - `prototype/src/permissions/` — selector-scoped, expirable delegation registry.
 - `prototype/src/hooks/` — hook framework and examples. Do not use hooks in production without hook-specific review.
 - `bots/` — market-maker and taker flow bots for the devnet/demo stack.

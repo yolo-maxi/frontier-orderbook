@@ -8,13 +8,15 @@ import {IPermissionRegistry} from "./permissions/interfaces/IPermissionRegistry.
 /// @title FrontierBookBase — storage layout + shared machinery of the book
 ///
 /// EIP-170 split: the deployable book is two contracts sharing this exact
-/// storage layout and immutable set. `RollingFrontierBook` (the address
-/// users hold) keeps the hot path — deposits, sweeps, claims, views — and
+/// storage layout and immutable set. The book (the address users hold —
+/// `UniformFrontierBook`, and the deployed `GeometricFrontierBook` that
+/// extends it) keeps the hot path — deposits, sweeps, claims, views — and
 /// forwards the cold maker-management surface (requotes, cancels,
-/// transfers) to a `FrontierMakerOps` companion via delegatecall. Because
-/// delegatecalled code reads its OWN immutables, the companion is
-/// constructed with the same (token0, token1, spacing, hooks, permissions)
-/// and can be shared by every book with that config.
+/// transfers) to a maker-ops companion (`UniformMakerOps` /
+/// `GeometricMakerOps`) via delegatecall. Because delegatecalled code reads
+/// its OWN immutables, the companion is constructed with the same
+/// (token0, token1, spacing, hooks, permissions) and can be shared by every
+/// book with that config.
 ///
 /// Everything either side touches lives here; neither deployable contract
 /// declares state of its own (the core's `makerOps` is immutable, i.e.

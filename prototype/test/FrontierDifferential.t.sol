@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {IRangeOrderBook} from "../src/IRangeOrderBook.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {ReferenceBook} from "../src/ReferenceBook.sol";
 import {newBook} from "./utils/BookFab.sol";
 
@@ -176,7 +176,7 @@ contract FrontierDifferentialTest is Test {
     /// without changing the sum; cancels remove the pair. So the deltas must
     /// always sum to zero over the whole tick domain.
     function _assertDeltaConservation() internal view {
-        RollingFrontierBook fb = RollingFrontierBook(address(prod));
+        UniformFrontierBook fb = UniformFrontierBook(address(prod));
         int256 sum;
         for (int24 t = 0; t <= MAX_TICK; t++) {
             sum += fb.frontierDelta(t);

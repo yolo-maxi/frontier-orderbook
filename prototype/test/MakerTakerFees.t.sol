@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
-import {FrontierMakerOps} from "../src/FrontierMakerOps.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
+import {UniformMakerOps} from "../src/UniformMakerOps.sol";
 import {FrontierLens} from "../src/periphery/FrontierLens.sol";
 import {newBookWithFees} from "./utils/BookFab.sol";
 
@@ -54,7 +54,7 @@ contract MakerTakerFeesTest is Test {
     uint16 internal constant MAKER_FEE_BPS = 100;
     uint16 internal constant TAKER_FEE_BPS = 50;
 
-    function _newBook(uint16 makerFeeBps, uint16 takerFeeBps) internal returns (RollingFrontierBook book) {
+    function _newBook(uint16 makerFeeBps, uint16 takerFeeBps) internal returns (UniformFrontierBook book) {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
         book = newBookWithFees(
@@ -101,7 +101,7 @@ contract MakerTakerFeesTest is Test {
     }
 
     function testZeroFeesPreserveOldBehavior() public {
-        RollingFrontierBook book = _newBook(0, 0);
+        UniformFrontierBook book = _newBook(0, 0);
 
         vm.prank(maker);
         uint256 id = book.deposit(101, 103, L);
@@ -124,7 +124,7 @@ contract MakerTakerFeesTest is Test {
     }
 
     function testMakerAskClaimFee() public {
-        RollingFrontierBook book = _newBook(MAKER_FEE_BPS, 0);
+        UniformFrontierBook book = _newBook(MAKER_FEE_BPS, 0);
 
         vm.prank(maker);
         uint256 id = book.deposit(101, 103, L);
@@ -145,7 +145,7 @@ contract MakerTakerFeesTest is Test {
     }
 
     function testMakerBidClaimFee() public {
-        RollingFrontierBook book = _newBook(MAKER_FEE_BPS, 0);
+        UniformFrontierBook book = _newBook(MAKER_FEE_BPS, 0);
 
         vm.prank(maker);
         uint256 id = book.depositBid(95, 97, L);
@@ -166,7 +166,7 @@ contract MakerTakerFeesTest is Test {
     }
 
     function testTakerUpSweepFee() public {
-        RollingFrontierBook book = _newBook(0, TAKER_FEE_BPS);
+        UniformFrontierBook book = _newBook(0, TAKER_FEE_BPS);
 
         vm.prank(maker);
         book.deposit(101, 103, L);
@@ -192,7 +192,7 @@ contract MakerTakerFeesTest is Test {
     }
 
     function testTakerDownSweepFee() public {
-        RollingFrontierBook book = _newBook(0, TAKER_FEE_BPS);
+        UniformFrontierBook book = _newBook(0, TAKER_FEE_BPS);
 
         vm.prank(maker);
         book.depositBid(95, 97, L);
@@ -221,7 +221,7 @@ contract MakerTakerFeesTest is Test {
     function testExactTransferProtectionStillHoldsWithTakerFees() public {
         MockERC20 token0 = new MockERC20("T0", "T0");
         FeeShortTransferToken shortToken1 = new FeeShortTransferToken();
-        RollingFrontierBook book = newBookWithFees(
+        UniformFrontierBook book = newBookWithFees(
             address(token0), address(shortToken1), 1, 100, address(0), address(0), feeRecipient, 0, TAKER_FEE_BPS
         );
 
@@ -241,9 +241,9 @@ contract MakerTakerFeesTest is Test {
 
     function testFeeConstructorCapsAndRecipient() public {
         vm.expectRevert(bytes("fee too high"));
-        new FrontierMakerOps(address(1), address(2), 1, address(0), address(0), feeRecipient, 1_001, 0);
+        new UniformMakerOps(address(1), address(2), 1, address(0), address(0), feeRecipient, 1_001, 0);
 
         vm.expectRevert(bytes("fee recipient required"));
-        new FrontierMakerOps(address(1), address(2), 1, address(0), address(0), address(0), 1, 0);
+        new UniformMakerOps(address(1), address(2), 1, address(0), address(0), address(0), 1, 0);
     }
 }

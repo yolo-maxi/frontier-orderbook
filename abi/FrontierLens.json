@@ -6,7 +6,7 @@
       {
         "name": "book",
         "type": "address",
-        "internalType": "contract RollingFrontierBook"
+        "internalType": "contract FrontierBookBase"
       }
     ],
     "outputs": [
@@ -37,7 +37,7 @@
       {
         "name": "book",
         "type": "address",
-        "internalType": "contract RollingFrontierBook"
+        "internalType": "contract FrontierBookBase"
       },
       {
         "name": "fromTick",
@@ -88,7 +88,7 @@
       {
         "name": "book",
         "type": "address",
-        "internalType": "contract RollingFrontierBook"
+        "internalType": "contract FrontierBookBase"
       },
       {
         "name": "amount1In",
@@ -122,7 +122,7 @@
       {
         "name": "book",
         "type": "address",
-        "internalType": "contract RollingFrontierBook"
+        "internalType": "contract FrontierBookBase"
       },
       {
         "name": "amount0In",
@@ -161,7 +161,7 @@
       {
         "name": "book",
         "type": "address",
-        "internalType": "contract RollingFrontierBook"
+        "internalType": "contract FrontierBookBase"
       },
       {
         "name": "scanWindow",

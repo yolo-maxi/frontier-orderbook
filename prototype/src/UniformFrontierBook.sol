@@ -5,22 +5,19 @@ import {IRangeOrderBook} from "./IRangeOrderBook.sol";
 import {FrontierBookBase} from "./FrontierBookBase.sol";
 import {IFrontierHooks, FrontierHookFlags} from "./hooks/IFrontierHooks.sol";
 
-/// @title UniformFrontierBook — uniform-only sibling of RollingFrontierBook
+/// @title UniformFrontierBook — the core two-sided width-O(1) book
 ///
-/// Same width-O(1) rolling-frontier venue as RollingFrontierBook, but the ASK
-/// side carries NO shaped-ladder (slope) machinery: ladders are uniform-only.
-/// This is the base the deployed GeometricFrontierBook builds on, so the
-/// production book's runtime links no slope arithmetic, no second-order
-/// frontierSlope roll, no _positionSlope, and exposes no depositShaped /
-/// requoteShaped surface. (RollingFrontierBook keeps the full shaped path for
-/// the linear demo curve and the differential/shape test suites.)
+/// A width-O(1) rolling-frontier venue whose ASK side carries NO shaped-ladder
+/// (slope) machinery: ask ladders are uniform-only. This is the base the
+/// deployed GeometricFrontierBook builds on, so the production book's runtime
+/// links no slope arithmetic, no second-order frontierSlope roll, no
+/// _positionSlope, and exposes no depositShaped / requoteShaped surface.
 ///
-/// The bid side, the down-sweep, the sweep harness, and the maker-management
-/// forwarders are identical to RollingFrontierBook by construction — bids were
-/// always uniform — so only the ask-side deposit/claim/up-sweep/views differ
-/// (they call the flat `_addFlatOrder`/`_askRun`/`_askSpan` helpers in
-/// FrontierBookBase instead of the slope-bearing ones). Keep the two books'
-/// shared surface in lockstep when editing either.
+/// The ask side calls the flat `_addFlatOrder`/`_askRun`/`_askSpan` helpers in
+/// FrontierBookBase; the bid side was always uniform (token0-denominated
+/// sizes so claims stay closed-form). The earlier shaped/linear book that
+/// exercised the slope-bearing helpers is archived on
+/// `archive/rolling-frontier-book`.
 contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// @notice Companion contract executing requotes/cancels/transfers via
     /// delegatecall (same storage layout + immutables; see FrontierBookBase).
@@ -116,7 +113,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     // ------------------------------------------------------------------
     // BID side: buy token0 with token1, resting below the price
-    // (identical to RollingFrontierBook — bids are always uniform)
+    // (bids are always uniform — token0-denominated sizes)
     // ------------------------------------------------------------------
 
     /// @notice O(1) bid: `liquidity` token0-units wanted per level over
@@ -187,8 +184,8 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     // ------------------------------------------------------------------
     // Maker management (requotes / cancels / transfers): delegated to the
-    // UniformMakerOps companion. Identical forwarding to RollingFrontierBook,
-    // minus the shaped requoteShaped entrypoint (uniform book has no shapes).
+    // UniformMakerOps companion. No shaped requoteShaped entrypoint (the
+    // uniform book has no shapes).
     // ------------------------------------------------------------------
 
     function transferPosition(uint256, address) external {
@@ -249,8 +246,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @notice Taker entry, both directions. UP-sweeps buy token0 from asks
     /// (pay token1); DOWN-sweeps sell token0 into bids (pay token0, receive
-    /// token1). Identical harness to RollingFrontierBook; only _sweepUp is
-    /// uniform here.
+    /// token1). The up-sweep (_sweepUp) is uniform-only.
     function sweepWithLimits(int24 target, uint256 maxFills, uint256 maxPay, uint256 minOut, uint256 deadline)
         public
         returns (int24 reached, uint256 paid, uint256 received)
@@ -396,8 +392,8 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         return lo;
     }
 
-    /// @dev ENDPOINT-TELESCOPED down-sweep, exact mirror of RollingFrontierBook
-    /// (bids were always uniform). One arithmetic series + one absorption per
+    /// @dev ENDPOINT-TELESCOPED down-sweep (bids were always uniform). One
+    /// arithmetic series + one absorption per
     /// run, the rolled base carried locally; one low-water record per
     /// liquidity-moving sweep.
     struct DownSweep {

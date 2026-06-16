@@ -4,9 +4,8 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {MockYieldVault} from "../src/MockYieldVault.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
-import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
-import {newFactory} from "./utils/BookFab.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
+import {newBook} from "./utils/BookFab.sol";
 
 /// @notice NOTES-yield.md Level 0: "yield-bearing pairs are just pairs".
 /// The book trades the VAULT SHARE token; share price appreciates while
@@ -16,7 +15,7 @@ contract YieldTest is Test {
     MockERC20 internal weth;
     MockERC20 internal usdc;
     MockYieldVault internal vault; // waWETH-style wrapper
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
 
     address internal mm;
     address internal taker;
@@ -33,8 +32,7 @@ contract YieldTest is Test {
         vault = new MockYieldVault(address(weth), "Wrapped Aave WETH", "waWETH");
 
         // book trades (waWETH, USDC)
-        FrontierBookFactory factory = newFactory(address(0));
-        book = RollingFrontierBook(factory.createBook(address(vault), address(usdc), 1, 100));
+        book = newBook(address(vault), address(usdc), 1, 100, address(0), address(0));
 
         // maker wraps WETH into shares 1:1 at start
         weth.mint(mm, 100 * uint256(L));

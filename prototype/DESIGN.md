@@ -1,5 +1,12 @@
 # Prototype Design: Fill-Clock Range Take-Profit Book
 
+> Historical design record. The rolling/linear/shaped book described here
+> was the original prototype and is now archived on the
+> `archive/rolling-frontier-book` branch. The shipped product is the
+> geometric/uniform path: `GeometricFrontierBook` (extends
+> `UniformFrontierBook`), created through `FrontierGeoBookFactory`. The
+> conceptual narrative below is preserved as-is.
+
 Status: working prototype — standalone book + real v4 hook + width-O(1)
 rolling-frontier book, 79 tests passing incl. Base mainnet fork via the
 deployed Universal Router

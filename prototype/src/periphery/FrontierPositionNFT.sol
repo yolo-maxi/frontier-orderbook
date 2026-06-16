@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {RollingFrontierBook} from "../RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../UniformFrontierBook.sol";
 import {IERC20Minimal} from "../RangeTakeProfitBook.sol";
 
 interface IERC20Aux {
@@ -35,7 +35,7 @@ contract FrontierPositionNFT {
     string public constant name = "Frontier Positions";
     string public constant symbol = "FRONT-POS";
 
-    RollingFrontierBook public immutable book;
+    UniformFrontierBook public immutable book;
 
     uint256 public nextTokenId = 1;
     mapping(uint256 => uint256) public bookPositionOf; // tokenId => book position id
@@ -51,7 +51,7 @@ contract FrontierPositionNFT {
     event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
 
-    constructor(RollingFrontierBook _book) {
+    constructor(UniformFrontierBook _book) {
         book = _book;
         // the wrapper deposits with its own balance; max-approve once
         _approveMax(address(_book.token0()), address(_book));
@@ -62,17 +62,11 @@ contract FrontierPositionNFT {
     // Ways in
     // ------------------------------------------------------------------
 
-    function mintAsk(int24 lower, int24 upper, uint128 liquidity, int128 slope)
-        external
-        returns (uint256 tokenId)
-    {
+    function mintAsk(int24 lower, int24 upper, uint128 liquidity) external returns (uint256 tokenId) {
         uint24 n = uint24(upper - lower) / uint24(book.tickSpacing());
-        int256 principal = int256(uint256(liquidity)) * int256(uint256(uint24(n)))
-            + (int256(slope) * int256(uint256(uint24(n))) * (int256(uint256(uint24(n))) - 1)) / 2;
-        require(principal >= 0, "bad shape");
-        require(book.token0().transferFrom(msg.sender, address(this), uint256(principal)), "pull0 failed");
-        uint256 positionId =
-            slope == 0 ? book.deposit(lower, upper, liquidity) : book.depositShaped(lower, upper, liquidity, slope);
+        uint256 principal = uint256(liquidity) * uint256(n);
+        require(book.token0().transferFrom(msg.sender, address(this), principal), "pull0 failed");
+        uint256 positionId = book.deposit(lower, upper, liquidity);
         tokenId = _mintFor(positionId, msg.sender);
     }
 

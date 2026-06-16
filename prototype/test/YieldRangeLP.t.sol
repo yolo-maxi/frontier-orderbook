@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {MockYieldVault} from "../src/MockYieldVault.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {YieldRangeLP, YieldRangeLPFactory, IYieldVault} from "../src/periphery/YieldRangeLP.sol";
 import {newBook} from "./utils/BookFab.sol";
 
@@ -16,7 +16,7 @@ contract YieldRangeLPTest is Test {
     MockERC20 internal t1;
     MockYieldVault internal v0;
     MockYieldVault internal v1;
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
     YieldRangeLP internal lp;
 
     address internal fran = makeAddr("fran");

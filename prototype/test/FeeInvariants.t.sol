@@ -3,11 +3,11 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {newBookWithFees} from "./utils/BookFab.sol";
 
 contract FeeBookHandler is Test {
-    RollingFrontierBook public book;
+    UniformFrontierBook public book;
     MockERC20 public t0;
     MockERC20 public t1;
     address public feeRecipient;
@@ -17,7 +17,7 @@ contract FeeBookHandler is Test {
     int24 internal constant MIN_TICK = -60;
     int24 internal constant MAX_TICK = 120;
 
-    constructor(RollingFrontierBook _book, MockERC20 _t0, MockERC20 _t1, address _feeRecipient) {
+    constructor(UniformFrontierBook _book, MockERC20 _t0, MockERC20 _t1, address _feeRecipient) {
         book = _book;
         t0 = _t0;
         t1 = _t1;
@@ -49,15 +49,13 @@ contract FeeBookHandler is Test {
         assertGe(t1.balanceOf(feeRecipient), before1, "token1 fees decreased");
     }
 
-    function depositAsk(uint256 seed, int24 lower, uint24 width, uint96 size, int8 slopeSeed) external feesNeverDecrease {
+    function depositAsk(uint256 seed, int24 lower, uint24 width, uint96 size) external feesNeverDecrease {
         int24 cur = book.currentTick();
         lower = int24(bound(lower, cur + 1, MAX_TICK - 2));
         int24 upper = int24(bound(int24(uint24(bound(width, 1, 40))) + lower, lower + 1, MAX_TICK));
         uint128 l0 = uint128(bound(size, 1e6, 1e24));
-        int128 m = int128(int256(bound(slopeSeed, -2, 2))) * int128(uint128(l0 / 64 + 1));
-        if (m < 0 && uint256(uint128(-m)) * uint256(uint24(upper - lower - 1)) >= l0) m = 0;
         vm.prank(_actor(seed));
-        uint256 id = m == 0 ? book.deposit(lower, upper, l0) : book.depositShaped(lower, upper, l0, m);
+        uint256 id = book.deposit(lower, upper, l0);
         allPositions.push(id);
     }
 
@@ -97,7 +95,7 @@ contract FeeBookHandler is Test {
 }
 
 contract FeeInvariantsTest is Test {
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
     MockERC20 internal t0;
     MockERC20 internal t1;
     FeeBookHandler internal handler;

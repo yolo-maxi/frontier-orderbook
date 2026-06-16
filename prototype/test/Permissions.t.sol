@@ -3,10 +3,9 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
-import {RollingFrontierBook} from "../src/RollingFrontierBook.sol";
-import {FrontierBookFactory} from "../src/FrontierBookFactory.sol";
+import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {PermissionRegistry} from "../src/permissions/PermissionRegistry.sol";
-import {newFactory} from "./utils/BookFab.sol";
+import {newBook} from "./utils/BookFab.sol";
 
 /// @notice Delegatable permissions (ERC Approval Registry) on the book:
 /// owners grant selector-scoped rights to operators (bots, keepers) who can
@@ -15,7 +14,7 @@ contract PermissionsTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
     PermissionRegistry internal registry;
-    RollingFrontierBook internal book;
+    UniformFrontierBook internal book;
 
     address internal mm; // position owner
     address internal bot; // delegated operator
@@ -30,8 +29,7 @@ contract PermissionsTest is Test {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
         registry = new PermissionRegistry();
-        FrontierBookFactory factory = newFactory(address(registry));
-        book = RollingFrontierBook(factory.createBook(address(t0), address(t1), 1, 0));
+        book = newBook(address(t0), address(t1), 1, 0, address(0), address(registry));
 
         t0.mint(mm, 1e30);
         vm.prank(mm);
@@ -113,8 +111,7 @@ contract PermissionsTest is Test {
 
     function testNoRegistryMeansOwnerOnly() public {
         // a book created without a registry keeps strict owner-only behavior
-        FrontierBookFactory bare = newFactory(address(0));
-        RollingFrontierBook bareBook = RollingFrontierBook(bare.createBook(address(t0), address(t1), 1, 0));
+        UniformFrontierBook bareBook = newBook(address(t0), address(t1), 1, 0, address(0), address(0));
         vm.prank(mm);
         t0.approve(address(bareBook), type(uint256).max);
         vm.prank(mm);

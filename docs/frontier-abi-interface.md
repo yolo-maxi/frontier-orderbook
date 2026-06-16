@@ -29,9 +29,7 @@ Not part of the deploy-day path:
 Generated JSON ABIs live at the repo root:
 
 - `abi/FrontierGeoBookFactory.json`
-- `abi/FrontierBookFactory.json` — broader test/experiment factory
 - `abi/GeometricFrontierBook.json`
-- `abi/RollingFrontierBook.json`
 - `abi/FrontierRouter.json`
 - `abi/FrontierLens.json`
 - `abi/PermissionRegistry.json`
@@ -184,7 +182,7 @@ function unfilledPrincipal(uint256 positionId) external view returns (uint256);
 
 `claimable(...)`, `claim(...)`, `claimTo(...)`, and ask cancel proceeds are net of maker fee when maker fees are enabled.
 
-Note: the deployed `GeometricFrontierBook` is **uniform-only** — ask ladders rest the same `liquidity` at every level. The shaped-ladder surface (`depositShaped`/`requoteShaped`, per-level `slope`) is not present on the geometric runtime at all (no selector, no slope arithmetic, no `_positionSlope`/`frontierSlope` writes). Approximate a sloped profile with a few uniform `deposit` ladders. Shaped ladders remain available only on the linear demo book `RollingFrontierBook` (test/experiment factory). The `frontierSlope(int24)` getter and the `slope` field of `positions(...)` are retained on the geometric ABI for tooling compatibility (e.g. `FrontierLens`) but always read `0`.
+Note: the deployed `GeometricFrontierBook` is **uniform-only** — ask ladders rest the same `liquidity` at every level. The shaped-ladder surface (`depositShaped`/`requoteShaped`, per-level `slope`) has been removed entirely; it lives only on the `archive/rolling-frontier-book` branch (no selector, no slope arithmetic, no `_positionSlope`/`frontierSlope` writes on the active book). Approximate a sloped profile with a few uniform `deposit` ladders. The `frontierSlope(int24)` getter and the `slope` field of `positions(...)` are retained on the ABI for tooling compatibility (e.g. `FrontierLens`) but always read `0`.
 
 Note: `claimInternal`, `recycleBidIntoAsk`, `recycleAskIntoBid`, and `withdrawInternal` were removed to stay under the EIP-170 24576-byte limit.
 
@@ -230,7 +228,7 @@ function requote(uint256 positionId, int24 newLower, int24 newUpper, uint128 new
 function requoteBid(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external;
 ```
 
-On the uniform-only `GeometricFrontierBook` the `slope` field is always `0` (the shaped `requoteShaped` re-price entrypoint is not present; it exists only on the linear `RollingFrontierBook`).
+On the uniform-only `GeometricFrontierBook` the `slope` field is always `0` (the shaped `requoteShaped` re-price entrypoint has been removed entirely; it lives only on the `archive/rolling-frontier-book` branch).
 
 Requotes and transfers require the owner or an authorized delegate.
 
@@ -282,20 +280,20 @@ For router calls, approve the input token to the router. The router handles book
 ## Lens ABI
 
 ```solidity
-function summary(RollingFrontierBook book, int24 scanWindow) external view returns (BookSummary memory);
-function depth(RollingFrontierBook book, int24 fromTick, int24 toTick, uint256 maxLevels)
+function summary(FrontierBookBase book, int24 scanWindow) external view returns (BookSummary memory);
+function depth(FrontierBookBase book, int24 fromTick, int24 toTick, uint256 maxLevels)
     external
     view
     returns (Level[] memory);
-function quoteBuy(RollingFrontierBook book, uint256 amount1In)
+function quoteBuy(FrontierBookBase book, uint256 amount1In)
     external
     view
     returns (uint256 amount0Out, uint256 amount1Spent, int24 endTick);
-function quoteSell(RollingFrontierBook book, uint256 amount0In, uint256 maxRuns)
+function quoteSell(FrontierBookBase book, uint256 amount0In, uint256 maxRuns)
     external
     view
     returns (uint256 amount1Out, uint256 amount0Spent, int24 endTick);
-function curveOf(RollingFrontierBook book) external view returns (Curve memory);
+function curveOf(FrontierBookBase book) external view returns (Curve memory);
 ```
 
 Agent rule: quote first, apply slippage, then submit through router or direct book.

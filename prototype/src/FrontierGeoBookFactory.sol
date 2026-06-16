@@ -3,11 +3,10 @@ pragma solidity ^0.8.24;
 
 import {GeometricBookDeployer, GeometricOpsDeployer} from "./FrontierDeployers.sol";
 
-/// @notice Minimal production deploy factory for geometric Frontier books.
-/// @dev This is the deploy-day factory. It intentionally omits the linear/demo
-/// book deployer so the deploy script does not need to deploy oversized helper
-/// contracts on EIP-170 chains. The broader FrontierBookFactory remains useful
-/// for tests and experiments; deploy-facing agents should use this factory.
+/// @notice Production deploy factory for geometric Frontier books — the only
+/// book factory. It deploys the geometric pair (book + maker-ops companion)
+/// via the thin one-initcode deployers so the factory itself stays under
+/// EIP-170. Both deploy-day markets and the test suite go through it.
 contract FrontierGeoBookFactory {
     event BookCreated(
         address indexed book,
