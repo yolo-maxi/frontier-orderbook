@@ -8,7 +8,7 @@ pragma solidity ^0.8.24;
 /// The book skips callbacks for actions the hook itself initiates (the v4
 /// noSelfCall lesson, learned on the fork test).
 interface IFrontierHooks {
-    function beforeDeposit(address maker, int24 lower, int24 upper, uint128 liquidity, int128 slope, bool isBid)
+    function beforeDeposit(address maker, int24 lower, int24 upper, uint128 liquidity, bool isBid)
         external
         returns (bytes4);
 

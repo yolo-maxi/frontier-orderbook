@@ -59,7 +59,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     function deposit(int24 lower, int24 upper, uint128 liquidity) external returns (uint256 positionId) {
         require(liquidity > 0, "zero liquidity");
         _checkRange(lower, upper);
-        if (address(hooks) != address(0)) _callBeforeDepositHook(msg.sender, lower, upper, liquidity, 0, false);
+        if (address(hooks) != address(0)) _callBeforeDepositHook(msg.sender, lower, upper, liquidity, false);
 
         _addFlatOrder(lower, upper, liquidity);
 
@@ -128,7 +128,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         require(lower < upper, "empty range");
         require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
         require(upper <= _currentTick, "range not below price");
-        if (address(hooks) != address(0)) _callBeforeDepositHook(msg.sender, lower, upper, liquidity, 0, true);
+        if (address(hooks) != address(0)) _callBeforeDepositHook(msg.sender, lower, upper, liquidity, true);
 
         _addBid(lower, upper, liquidity);
 
@@ -331,7 +331,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
                 S.owed0 += out0;
                 S.owed1 += cost1;
                 if (S.clock == 0) S.clock = ++fillClock;
-                emit RunFilled(e, runEnd, uint256(a0), 0, S.clock);
+                emit RunFilled(e, runEnd, uint256(a0), S.clock);
             }
 
             S.B = a0; // uniform: arrival base at runEnd unchanged
@@ -365,7 +365,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             S.owed1 += fc1;
             if (S.clock == 0) S.clock = ++fillClock;
             int24 park = e + int24(uint24(fit)) * tickSpacing;
-            emit RunFilled(e, park, uint256(a0), 0, S.clock);
+            emit RunFilled(e, park, uint256(a0), S.clock);
             _writeFlatDelta(e, 0);
             // survivors materialize at the park point, per-level-equivalent
             _writeFlatDelta(park, frontierDelta[park] + a0);
@@ -438,7 +438,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
                 S.owed0 += in0;
                 S.owed1 += out1;
                 if (S.clock == 0) S.clock = ++fillClock;
-                emit RunFilled(e, runEnd, uint256(a0), 0, S.clock);
+                emit RunFilled(e, runEnd, uint256(a0), S.clock);
             }
 
             S.B = a0; // uniform: arrival base at runEnd unchanged
@@ -480,7 +480,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             S.owed1 += fo1;
             if (S.clock == 0) S.clock = ++fillClock;
             int24 firstUnfilled = e - int24(uint24(fit)) * tickSpacing;
-            emit RunFilled(e, firstUnfilled, uint256(a0), 0, S.clock);
+            emit RunFilled(e, firstUnfilled, uint256(a0), S.clock);
             _writeBidDelta(e, 0);
             // survivors materialize at the park point, per-level-equivalent
             _writeBidDelta(firstUnfilled, bidDelta[firstUnfilled] + a0);

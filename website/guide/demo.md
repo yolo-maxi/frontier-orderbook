@@ -13,9 +13,9 @@
 2. Hit **Faucet** — mints 10 WETH + 50,000 USDC.
 3. **Trade** tab: market buy/sell with live, execution-exact quotes
    (average price, impact, min received, slippage presets).
-4. **Make** tab: place limit ladders — pick a price range, size per
-   level, optionally front-load with a slope. One position can span
-   thousands of thin levels; placing it costs the same as one level.
+4. **Make** tab: place limit ladders — pick a price range and a size per
+   level (uniform across the range). One position can span thousands of
+   thin levels; placing it costs the same as one level.
 5. **Positions** tab: live fill status; claim proceeds or cancel for the
    unfilled remainder at any time. Settlement is lazy — claims never
    expire and never depend on anyone else.

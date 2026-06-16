@@ -21,6 +21,5 @@ What this replicates from AMM LPing: passive two-sided liquidity, spread
 capture, inventory rotation. What it doesn't: continuous infinitesimal
 rebalancing — it's keeper-stepped, which is also how production ALM vaults
 (Arrakis/Gamma) actually behave — and fee-on-volume revenue; earnings come
-from the quoted spread itself. Shaped ladders can approximate any
-liquidity curve, including x·y=k's, with a few linear segments via the
-MakerKit.
+from the quoted spread itself. Stacked uniform ladders can approximate any
+liquidity curve, including x·y=k's, with a few segments via the MakerKit.

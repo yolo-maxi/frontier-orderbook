@@ -266,11 +266,11 @@ contract FrontierQuoterTest is Test {
         view
         returns (address owner, uint128 liq, int24 lo, int24 up, uint64 clock, int24 cu, bool live)
     {
-        (owner, lo, up, liq,, clock, cu, live,) = book.positions(id);
+        (owner, lo, up, liq, clock, cu, live,) = book.positions(id);
         return (owner, liq, lo, up, clock, cu, live);
     }
 
     function _depClock(uint256 id) internal view returns (uint64 clock) {
-        (,,,,, clock,,,) = book.positions(id);
+        (,,,, clock,,,) = book.positions(id);
     }
 }

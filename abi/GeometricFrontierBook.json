@@ -524,25 +524,6 @@
   },
   {
     "type": "function",
-    "name": "frontierSlope",
-    "inputs": [
-      {
-        "name": "",
-        "type": "int24",
-        "internalType": "int24"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "int256",
-        "internalType": "int256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "geoD",
     "inputs": [],
     "outputs": [
@@ -686,11 +667,6 @@
         "name": "liquidity",
         "type": "uint128",
         "internalType": "uint128"
-      },
-      {
-        "name": "slope",
-        "type": "int128",
-        "internalType": "int128"
       },
       {
         "name": "depositClock",
@@ -1203,12 +1179,6 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
-      },
-      {
-        "name": "slopePerLevel",
-        "type": "int256",
-        "indexed": false,
-        "internalType": "int256"
       },
       {
         "name": "clock",

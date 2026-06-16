@@ -80,7 +80,7 @@ contract FeeBookHandler is Test {
         seed;
         if (allPositions.length == 0) return;
         uint256 id = allPositions[pick % allPositions.length];
-        (address owner,,,,,,, bool live, bool isBid) = book.positions(id);
+        (address owner,,,,,, bool live, bool isBid) = book.positions(id);
         if (!live) return;
         vm.startPrank(owner);
         if (isBid) {
@@ -117,7 +117,7 @@ contract FeeInvariantsTest is Test {
         uint256 n = handler.positionsCount();
         for (uint256 i; i < n; i++) {
             uint256 id = handler.allPositions(i);
-            (,,,,,,, bool live, bool isBid) = book.positions(id);
+            (,,,,,, bool live, bool isBid) = book.positions(id);
             if (!live) continue;
             if (isBid) {
                 owed0 += book.bidClaimable(id);
@@ -147,7 +147,7 @@ contract FeeInvariantsTest is Test {
         uint256 snap = vm.snapshotState();
         for (uint256 i; i < n; i++) {
             uint256 id = handler.allPositions(i);
-            (address owner,,,,,,, bool live, bool isBid) = book.positions(id);
+            (address owner,,,,,, bool live, bool isBid) = book.positions(id);
             if (!live) continue;
             vm.startPrank(owner);
             if (isBid) book.cancelBid(id);

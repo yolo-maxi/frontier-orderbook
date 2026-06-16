@@ -51,15 +51,13 @@ contract FrontierLens {
         Level[] memory buf = new Level[](maxLevels);
         uint256 n;
 
-        // ask side: prefix-sum of value+slope ledgers from below
+        // ask side: prefix-sum of the value ledger from below
         {
             int256 acc;
-            int256 slope;
             // start the prefix far enough below to capture rolled state
             int24 start = fromTick - s * 512;
             for (int24 t = start; t < toTick && n < maxLevels; t += s) {
-                slope += book.frontierSlope(t);
-                acc += book.frontierDelta(t) + slope;
+                acc += book.frontierDelta(t);
                 if (t >= fromTick && acc > 0) {
                     buf[n] = Level({tick: t, askSize: uint128(uint256(acc)), bidSize: 0});
                     n++;
@@ -107,10 +105,8 @@ contract FrontierLens {
 
         int24 s = out.tickSpacing;
         int256 acc;
-        int256 slope;
         for (int24 t = out.currentTick - scanWindow; t <= out.currentTick + scanWindow; t += s) {
-            slope += book.frontierSlope(t);
-            acc += book.frontierDelta(t) + slope;
+            acc += book.frontierDelta(t);
             if (t > out.currentTick && acc > 0 && out.bestAsk == type(int24).max) {
                 out.bestAsk = t;
             }
@@ -150,7 +146,6 @@ contract FrontierLens {
         int24 lastLevel = _maxTick(c, s) - s;
 
         int256 B;
-        int256 S;
         endTick = cur;
 
         (int24 e, bool found) = _nextActiveAsk(book, _nextBoundaryAbove(cur, s) - s, lastLevel, s);
@@ -159,16 +154,15 @@ contract FrontierLens {
             int24 runEnd = found2 ? e2 : e; // no further endpoint: run is just the tail at e..? handled below
             if (!found2) runEnd = lastLevel + s;
 
-            int256 S2 = S + book.frontierSlope(e);
-            int256 a0 = B + book.frontierDelta(e) + S2;
+            int256 a0 = B + book.frontierDelta(e);
             uint256 n = uint256(uint24(runEnd - e)) / uint256(uint24(s));
             if (a0 < 0) break; // defensive
 
-            (uint256 out0, uint256 cost1) = _runAmounts(c, e, a0, S2, n, s);
+            (uint256 out0, uint256 cost1) = _runAmounts(c, e, a0, n, s);
             if (amount1Spent + cost1 > grossBudget) {
-                uint256 fit = _maxAffordable(c, e, a0, S2, n, grossBudget - amount1Spent, s);
+                uint256 fit = _maxAffordable(c, e, a0, n, grossBudget - amount1Spent, s);
                 if (fit > 0) {
-                    (uint256 fo0, uint256 fc1) = _runAmounts(c, e, a0, S2, fit, s);
+                    (uint256 fo0, uint256 fc1) = _runAmounts(c, e, a0, fit, s);
                     amount0Out += fo0;
                     amount1Spent += fc1;
                     endTick = e + int24(uint24(fit)) * s;
@@ -181,8 +175,7 @@ contract FrontierLens {
             amount0Out += out0;
             amount1Spent += cost1;
             endTick = runEnd;
-            B = a0 + int256(n - 1) * S2;
-            S = S2;
+            B = a0;
             e = e2;
             found = found2;
         }
@@ -255,18 +248,17 @@ contract FrontierLens {
     // internals (mirror the book's math/bitmap walks, read-only)
     // ------------------------------------------------------------------
 
-    /// @dev ask run [e, e+n*s): taker pays ceil. Mirrors the book's
-    /// `_runAmounts` override on each curve.
-    function _runAmounts(Curve memory c, int24 e, int256 a0, int256 slope, uint256 n, int24 s)
+    /// @dev ask run [e, e+n*s): uniform size `a0`, taker pays ceil. Mirrors
+    /// the book's `_askRun` override on each curve.
+    function _runAmounts(Curve memory c, int24 e, int256 a0, uint256 n, int24 s)
         internal
         pure
         returns (uint256 out0, uint256 cost1)
     {
         if (c.geo) {
-            // geometric books enforce uniform ladders (slope == 0); the
-            // a0 == 0 short-circuit also keeps powX18 inside its domain on
-            // the open-ended tail run past the last endpoint
-            if (slope != 0 || a0 <= 0) return (0, 0);
+            // the a0 == 0 short-circuit keeps powX18 inside its domain on the
+            // open-ended tail run past the last endpoint
+            if (a0 <= 0) return (0, 0);
             out0 = uint256(a0) * n;
             uint256 num = uint256(a0) * (GeoTickMath.powX18(e + int24(uint24(n)) * s) - GeoTickMath.powX18(e));
             cost1 = (num + c.d - 1) / c.d;
@@ -274,11 +266,10 @@ contract FrontierLens {
         }
         int256 ni = int256(n);
         int256 sumK = (ni * (ni - 1)) / 2;
-        int256 sumK2 = ((ni - 1) * ni * (2 * ni - 1)) / 6;
-        int256 tot0 = a0 * ni + slope * sumK;
+        int256 tot0 = a0 * ni;
         int256 c0 = int256(PRICE_SCALE) + int256(e) * 1e15;
         int256 c1 = int256(s) * 1e15;
-        int256 val = a0 * c0 * ni + (a0 * c1 + slope * c0) * sumK + slope * c1 * sumK2;
+        int256 val = a0 * c0 * ni + a0 * c1 * sumK;
         if (tot0 < 0 || val < 0) return (0, 0);
         out0 = uint256(tot0);
         cost1 = (uint256(val) + PRICE_SCALE - 1) / PRICE_SCALE;
@@ -309,7 +300,7 @@ contract FrontierLens {
         out1 = uint256(val) / PRICE_SCALE;
     }
 
-    function _maxAffordable(Curve memory c, int24 e, int256 a0, int256 slope, uint256 n, uint256 budget, int24 s)
+    function _maxAffordable(Curve memory c, int24 e, int256 a0, uint256 n, uint256 budget, int24 s)
         internal
         pure
         returns (uint256 m)
@@ -318,7 +309,7 @@ contract FrontierLens {
         uint256 hi = n;
         while (lo < hi) {
             uint256 mid = (lo + hi + 1) / 2;
-            (, uint256 cost) = _runAmounts(c, e, a0, slope, mid, s);
+            (, uint256 cost) = _runAmounts(c, e, a0, mid, s);
             if (cost <= budget) lo = mid;
             else hi = mid - 1;
         }

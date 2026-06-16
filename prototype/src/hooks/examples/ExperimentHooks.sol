@@ -7,7 +7,7 @@ import {IFrontierHooks} from "../IFrontierHooks.sol";
 /// still has to return its selector when flagged; unflagged callbacks are
 /// never called at all, so these defaults cost nothing in practice.
 abstract contract BaseHook is IFrontierHooks {
-    function beforeDeposit(address, int24, int24, uint128, int128, bool) external virtual returns (bytes4) {
+    function beforeDeposit(address, int24, int24, uint128, bool) external virtual returns (bytes4) {
         return IFrontierHooks.beforeDeposit.selector;
     }
 

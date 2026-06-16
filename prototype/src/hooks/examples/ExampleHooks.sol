@@ -22,7 +22,7 @@ contract GatedVolumeHook is IFrontierHooks {
         allowed[maker] = ok;
     }
 
-    function beforeDeposit(address maker, int24, int24, uint128, int128, bool) external view returns (bytes4) {
+    function beforeDeposit(address maker, int24, int24, uint128, bool) external view returns (bytes4) {
         require(allowed[maker], "maker not allowed");
         return IFrontierHooks.beforeDeposit.selector;
     }

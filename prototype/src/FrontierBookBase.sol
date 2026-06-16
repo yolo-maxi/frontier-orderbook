@@ -48,13 +48,6 @@ abstract contract FrontierBookBase {
 
     // signed: +L at live frontiers, -L at order uppers; rolls self-cancel
     mapping(int24 => int256) public frontierDelta;
-    // SECOND-ORDER deltas for shaped (linear-ladder) orders: the aggregate
-    // per-level size increment in effect from each boundary. Rolls forward
-    // with the value accumulator: A(t+s) = A(t) + S(t+s). Uniform orders
-    // never touch it. Levels covered by any order always have size >= 1
-    // (enforced at deposit), so the value bitmap alone drives sweeps and the
-    // slope accumulator piggybacks on the roll chain.
-    mapping(int24 => int256) public frontierSlope;
     // one bit per tick-spacing interval with nonzero frontierDelta, so sweeps
     // skip empty price regions in O(1) per 256 intervals instead of one SLOAD
     // per interval (which would brick sweeps across wide gaps)
@@ -107,14 +100,11 @@ abstract contract FrontierBookBase {
         int24 claimedUpper;
         bool live;
         bool isBid;
-        uint128 liquidity; // size at `lower` (L0)
+        uint128 liquidity; // size at every covered level (uniform ladder)
         uint64 depositClock;
     }
 
     mapping(uint256 => Position) internal _positions;
-    // Ask-only per-level size increment; bids and flat asks leave this slot
-    // unset, saving one fresh position SSTORE on the hot flat paths.
-    mapping(uint256 => int128) internal _positionSlope;
 
     function positions(uint256 positionId)
         public
@@ -124,7 +114,6 @@ abstract contract FrontierBookBase {
             int24 lower,
             int24 upper,
             uint128 liquidity,
-            int128 slope,
             uint64 depositClock,
             int24 claimedUpper,
             bool live,
@@ -137,7 +126,6 @@ abstract contract FrontierBookBase {
             p.lower,
             p.upper,
             p.liquidity,
-            _positionSlope[positionId],
             p.depositClock,
             p.claimedUpper,
             p.live,
@@ -174,7 +162,7 @@ abstract contract FrontierBookBase {
 
     event Deposit(uint256 indexed positionId, address indexed owner, int24 lower, int24 upper, uint128 liquidity);
     event IntervalFilled(int24 indexed lowerTick, uint128 liquidity, uint256 proceeds1, uint64 clock);
-    event RunFilled(int24 indexed fromLevel, int24 toBoundary, uint256 startSize, int256 slopePerLevel, uint64 clock);
+    event RunFilled(int24 indexed fromLevel, int24 toBoundary, uint256 startSize, uint64 clock);
     event Claim(uint256 indexed positionId, uint256 proceeds1);
     event Cancel(uint256 indexed positionId, uint256 proceeds1, uint256 principal0);
     event Requote(uint256 indexed positionId, int24 lower, int24 upper, uint128 liquidity);
@@ -255,13 +243,12 @@ abstract contract FrontierBookBase {
         int24 lower,
         int24 upper,
         uint128 liquidity,
-        int128 slope,
         bool isBid
     ) internal {
         address h = address(hooks);
         if (h == address(0) || !h.hasFlag(FrontierHookFlags.BEFORE_DEPOSIT_FLAG) || msg.sender == h) return;
         (bool ok, bytes memory ret) =
-            h.call(abi.encodeCall(IFrontierHooks.beforeDeposit, (owner, lower, upper, liquidity, slope, isBid)));
+            h.call(abi.encodeCall(IFrontierHooks.beforeDeposit, (owner, lower, upper, liquidity, isBid)));
         require(
             ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == IFrontierHooks.beforeDeposit.selector,
             "hook rejected"
@@ -295,66 +282,15 @@ abstract contract FrontierBookBase {
         return uint24(t - p.lower) / uint24(tickSpacing);
     }
 
-    /// @dev size at level j of a shaped order
-    function _sizeAt(uint128 l0, int128 m, uint24 j) internal pure returns (int256) {
-        return int256(uint256(l0)) + int256(m) * int256(uint256(j));
-    }
-
-    function _checkShape(int24 lower, int24 upper, uint128 l0, int128 m) internal view virtual {
-        uint24 n = _levels(lower, upper);
-        // linear => extrema at the endpoints; every covered level must hold
-        // at least 1 unit so the sweep bitmap sees it
-        require(_sizeAt(l0, m, 0) >= 1 && _sizeAt(l0, m, n - 1) >= 1, "level size < 1");
-    }
-
-    function _addOrder(int24 lower, int24 upper, uint128 liquidity, int128 slope) internal {
-        _writeDelta(lower, frontierDelta[lower] + int256(uint256(liquidity)));
-        uint24 n = _levels(lower, upper);
-        int256 lastSize = _sizeAt(liquidity, slope, n - 1);
-        _writeDelta(upper, frontierDelta[upper] - lastSize);
-        if (slope != 0) {
-            // slope takes effect from the SECOND level; ends at upper.
-            // (single-level orders: the two writes hit the same slot, net 0)
-            _writeSlope(lower + tickSpacing, frontierSlope[lower + tickSpacing] + int256(slope));
-            _writeSlope(upper, frontierSlope[upper] - int256(slope));
-        }
-        if (lower < _minBoundary) _minBoundary = lower;
-    }
-
-    /// @dev Remove an order's remaining tail [frontier, upper). At an
-    /// untouched frontier (== lower) the order's slot contribution is its L0
-    /// jump and its slope entry rests at lower+s. At a rolled-into frontier,
-    /// the value slot holds the order's PREVIOUS level's base (the slope
-    /// advance is applied at consumption), and its slope lives in the
-    /// frontier's absorbed slope slot.
-    function _removeOrderAt(int24 frontier, int24 lower, int24 upper, uint128 liquidity, int128 slope) internal {
-        uint24 jF = uint24(frontier - lower) / uint24(tickSpacing);
-        uint24 n = _levels(lower, upper);
-        if (frontier == lower) {
-            _writeDelta(frontier, frontierDelta[frontier] - _sizeAt(liquidity, slope, 0));
-            if (slope != 0) _writeSlope(lower + tickSpacing, frontierSlope[lower + tickSpacing] - int256(slope));
-        } else {
-            _writeDelta(frontier, frontierDelta[frontier] - _sizeAt(liquidity, slope, jF - 1));
-            if (slope != 0) _writeSlope(frontier, frontierSlope[frontier] - int256(slope));
-        }
-        _writeDelta(upper, frontierDelta[upper] + _sizeAt(liquidity, slope, n - 1));
-        if (slope != 0) _writeSlope(upper, frontierSlope[upper] + int256(slope));
-    }
-
     // ------------------------------------------------------------------
-    // UNIFORM-ONLY ask helpers (no slope). These are the slope == 0
-    // specializations of the shaped machinery above, used by the deployed
-    // uniform-curve book/ops (UniformFrontierBook / UniformMakerOps and the
-    // geometric pair built on them). They never touch frontierSlope or
-    // _positionSlope, so a book whose reachable call graph uses only these
-    // links no slope code into its runtime. The shaped contracts never call
-    // them, so they are dead-stripped from the linear book/ops.
+    // UNIFORM ask helpers: every covered level rests the same `liquidity`,
+    // so the book links only two endpoint writes per order regardless of
+    // width and the value bitmap alone drives sweeps.
     // ------------------------------------------------------------------
 
-    /// @dev Flat-order endpoint write: keeps the ask bitmap in sync against
-    /// frontierDelta ALONE. A uniform book has no slope-only endpoints (every
-    /// covered level carries nonzero frontierDelta after the roll), so the
-    /// bit is set iff frontierDelta != 0 — no frontierSlope read.
+    /// @dev Endpoint write keeping the ask bitmap in sync against
+    /// frontierDelta: every covered level carries nonzero frontierDelta after
+    /// the roll, so the bit is set iff frontierDelta != 0.
     function _writeFlatDelta(int24 t, int256 newVal) internal {
         int256 old = frontierDelta[t];
         if (old == newVal) return;
@@ -368,8 +304,7 @@ abstract contract FrontierBookBase {
         }
     }
 
-    /// @dev Uniform mirror of _addOrder: two endpoint writes, size `liquidity`
-    /// at every covered level.
+    /// @dev Two endpoint writes, size `liquidity` at every covered level.
     function _addFlatOrder(int24 lower, int24 upper, uint128 liquidity) internal {
         int256 liq = int256(uint256(liquidity));
         _writeFlatDelta(lower, frontierDelta[lower] + liq);
@@ -377,10 +312,9 @@ abstract contract FrontierBookBase {
         if (lower < _minBoundary) _minBoundary = lower;
     }
 
-    /// @dev Uniform mirror of _removeOrderAt: every covered level holds the
-    /// same `liquidity`, so the frontier/rolled-into distinction collapses —
-    /// the remaining tail [frontier, upper) is just -liq at the frontier and
-    /// +liq at the upper.
+    /// @dev Every covered level holds the same `liquidity`, so the remaining
+    /// tail [frontier, upper) is just -liq at the frontier and +liq at the
+    /// upper.
     function _removeFlatOrderAt(int24 frontier, int24 upper, uint128 liquidity) internal {
         int256 liq = int256(uint256(liquidity));
         _writeFlatDelta(frontier, frontierDelta[frontier] - liq);
@@ -388,9 +322,8 @@ abstract contract FrontierBookBase {
     }
 
     /// @dev Uniform ask run [e, e+n*s): token0 sold and token1 collected
-    /// (ceil, contract-favorable) for `n` levels of constant size `a0`. The
-    /// slope == 0 specialization of _runAmounts. Virtual so the curve mixin
-    /// swaps in its closed form.
+    /// (ceil, contract-favorable) for `n` levels of constant size `a0`.
+    /// Virtual so the curve mixin swaps in its closed form.
     function _askRun(int24 e, int256 a0, uint256 n) internal view virtual returns (uint256 out0, uint256 cost1) {
         require(a0 >= 0, "negative run");
         int256 ni = int256(n);
@@ -404,8 +337,8 @@ abstract contract FrontierBookBase {
     }
 
     /// @dev Uniform claim span: token1 proceeds (floor) for the position's
-    /// levels in [a, b) at constant size p.liquidity. The slope == 0
-    /// specialization of _spanAmt1. Virtual so the curve mixin swaps its form.
+    /// levels in [a, b) at constant size p.liquidity. Virtual so the curve
+    /// mixin swaps its form.
     function _askSpan(Position storage p, int24 a, int24 b) internal view virtual returns (uint256) {
         int256 sp = int256(tickSpacing);
         int256 ja = (int256(a) - int256(p.lower)) / sp;
@@ -588,28 +521,6 @@ abstract contract FrontierBookBase {
         return uint256(r);
     }
 
-    /// @dev token0 sold and token1 collected (ceil, contract-favorable) for
-    /// an affine run of `n` levels starting at level `e` with start size
-    /// `a0` and per-level slope `slope`. Closed form: size linear in k,
-    /// rate linear in tick => quadratic series.
-    function _runAmounts(int24 e, int256 a0, int256 slope, uint256 n)
-        internal
-        view
-        virtual
-        returns (uint256 out0, uint256 cost1)
-    {
-        int256 ni = int256(n);
-        int256 sumK = (ni * (ni - 1)) / 2;
-        int256 sumK2 = ((ni - 1) * ni * (2 * ni - 1)) / 6;
-        int256 tot0 = a0 * ni + slope * sumK;
-        int256 c0 = int256(PRICE_SCALE) + int256(e) * 1e15;
-        int256 c1 = int256(tickSpacing) * 1e15;
-        int256 val = a0 * c0 * ni + (a0 * c1 + slope * c0) * sumK + slope * c1 * sumK2;
-        require(tot0 >= 0 && val >= 0, "negative run");
-        out0 = uint256(tot0);
-        cost1 = (uint256(val) + PRICE_SCALE - 1) / PRICE_SCALE;
-    }
-
     /// @dev token0 collected and token1 paid out (floor, contract-favorable)
     /// for a uniform descending run of `n` levels starting at level `e` with
     /// per-level size `a0`. Rate linear in tick => arithmetic series.
@@ -674,10 +585,8 @@ abstract contract FrontierBookBase {
         if (takerFeeBps > 0) emit TakerFee(payer, address(token), grossInput, fee, totalPaid, feeRecipient);
     }
 
-    /// @dev Single write paths for the ask ledgers, keeping the bitmap in
-    /// sync. Bit set <=> frontierDelta != 0 OR frontierSlope != 0 — runs
-    /// telescope between set bits, so a slope-only endpoint MUST be visible
-    /// or a run would sail over a shape change.
+    /// @dev Single write path for the ask ledger, keeping the bitmap in sync.
+    /// Bit set <=> frontierDelta != 0 — runs telescope between set bits.
     function _writeDelta(int24 t, int256 newVal) internal {
         int256 old = frontierDelta[t];
         if (old == newVal) return;
@@ -685,15 +594,8 @@ abstract contract FrontierBookBase {
         if (old == 0 || newVal == 0) _syncAskBit(t);
     }
 
-    function _writeSlope(int24 t, int256 newVal) internal {
-        int256 old = frontierSlope[t];
-        if (old == newVal) return;
-        frontierSlope[t] = newVal;
-        if (old == 0 || newVal == 0) _syncAskBit(t);
-    }
-
     function _syncAskBit(int24 t) internal {
-        bool set = frontierDelta[t] != 0 || frontierSlope[t] != 0;
+        bool set = frontierDelta[t] != 0;
         int24 c = t / tickSpacing; // exact: t is always spacing-aligned
         int16 wordPos = int16(c >> 8);
         uint8 bitPos = uint8(uint24(c)); // low 8 bits, two's complement safe
@@ -818,40 +720,6 @@ abstract contract FrontierBookBase {
             n--;
         }
         _lowWaters.push(LowWater({clock: clock, low: low}));
-    }
-
-    /// @dev Proceeds for the position's levels in [a, b): closed-form sum of
-    /// size(j) * rate(tick(j)) — size linear in j, rate linear in tick, so
-    /// the sum is a quadratic series, floored ONCE over the whole span (the
-    /// single rounding is what makes O(1) payouts possible).
-    /// rate(t) = 1e18 + t*1e15, same linear curve as RangeTakeProfitBook.
-    function _spanAmt1(Position storage p, int128 slope, int24 a, int24 b) internal view virtual returns (uint256) {
-        int256 sp = int256(tickSpacing);
-        int256 ja = (int256(a) - int256(p.lower)) / sp;
-        int256 n = (int256(b) - int256(a)) / sp;
-        int256 jb = ja + n; // exclusive
-        // sums over j in [ja, jb)
-        int256 s1 = n;
-        int256 sj = ((ja + jb - 1) * n) / 2;
-        int256 sj2 = ((jb - 1) * jb * (2 * jb - 1) - (ja - 1) * ja * (2 * ja - 1)) / 6;
-        // size(j) = L0 + m*j ; rate(j) = C0 + C1*j, with C0 = 1e18 + lower*1e15, C1 = s*1e15
-        int256 l0 = int256(uint256(p.liquidity));
-        int256 m = int256(slope);
-        int256 c0 = int256(PRICE_SCALE) + int256(p.lower) * 1e15;
-        int256 c1 = sp * 1e15;
-        int256 total = l0 * c0 * s1 + (l0 * c1 + m * c0) * sj + m * c1 * sj2;
-        require(total >= 0, "rate underflow");
-        return uint256(total) / PRICE_SCALE;
-    }
-
-    /// @dev Sum of level sizes for levels j in [jStart, jEnd).
-    function _principalSpan(uint128 l0, int128 m, uint24 jStart, uint24 jEnd) internal pure returns (uint256) {
-        int256 n = int256(uint256(jEnd)) - int256(uint256(jStart));
-        if (n <= 0) return 0;
-        int256 sj = ((int256(uint256(jStart)) + int256(uint256(jEnd)) - 1) * n) / 2;
-        int256 total = int256(uint256(l0)) * n + int256(m) * sj;
-        require(total >= 0, "negative principal");
-        return uint256(total);
     }
 
     function _nextBoundaryAbove(int24 tick) internal view returns (int24) {

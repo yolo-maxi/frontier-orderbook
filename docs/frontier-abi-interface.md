@@ -182,7 +182,7 @@ function unfilledPrincipal(uint256 positionId) external view returns (uint256);
 
 `claimable(...)`, `claim(...)`, `claimTo(...)`, and ask cancel proceeds are net of maker fee when maker fees are enabled.
 
-Note: the deployed `GeometricFrontierBook` is **uniform-only** — ask ladders rest the same `liquidity` at every level. The shaped-ladder surface (`depositShaped`/`requoteShaped`, per-level `slope`) has been removed entirely; it lives only on the `archive/rolling-frontier-book` branch (no selector, no slope arithmetic, no `_positionSlope`/`frontierSlope` writes on the active book). Approximate a sloped profile with a few uniform `deposit` ladders. The `frontierSlope(int24)` getter and the `slope` field of `positions(...)` are retained on the ABI for tooling compatibility (e.g. `FrontierLens`) but always read `0`.
+Note: the deployed `GeometricFrontierBook` is **uniform-only** — ask ladders rest the same `liquidity` at every level. The shaped-ladder surface (`depositShaped`/`requoteShaped`, per-level `slope`) has been removed entirely; it lives only on the `archive/rolling-frontier-book` branch (no selector, no slope arithmetic, no `_positionSlope`/`frontierSlope` storage on the active book). Approximate a sloped profile with a few uniform `deposit` ladders. The `frontierSlope(int24)` getter and the `slope` field of `positions(...)` no longer exist on the ABI.
 
 Note: `claimInternal`, `recycleBidIntoAsk`, `recycleAskIntoBid`, and `withdrawInternal` were removed to stay under the EIP-170 24576-byte limit.
 
@@ -216,7 +216,6 @@ function positions(uint256 positionId) external view returns (
     int24 lower,
     int24 upper,
     uint128 liquidity,
-    int128 slope,
     uint64 depositClock,
     int24 claimedUpper,
     bool live,
@@ -228,7 +227,7 @@ function requote(uint256 positionId, int24 newLower, int24 newUpper, uint128 new
 function requoteBid(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external;
 ```
 
-On the uniform-only `GeometricFrontierBook` the `slope` field is always `0` (the shaped `requoteShaped` re-price entrypoint has been removed entirely; it lives only on the `archive/rolling-frontier-book` branch).
+The uniform-only `GeometricFrontierBook` has no shaped re-price entrypoint (`requoteShaped` lives only on the `archive/rolling-frontier-book` branch).
 
 Requotes and transfers require the owner or an authorized delegate.
 

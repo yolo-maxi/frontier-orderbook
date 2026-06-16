@@ -148,7 +148,7 @@ filled-vs-refunded correctly.
 ## Composition
 
 Hooks compose with everything else: a hooked book still has delegatable
-permissions, shaped orders, telescoped sweeps, and works through the
+permissions, uniform ladders, telescoped sweeps, and works through the
 router. The hook surface is per-book, and books are cheap and parallel —
 a gated, oracle-bearing, speed-bumped market can run *next to* the
 unrestricted book for the same pair, and flow picks the venue it prefers.

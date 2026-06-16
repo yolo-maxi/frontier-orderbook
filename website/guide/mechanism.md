@@ -47,21 +47,20 @@ claims/cancels verify in O(1); witnesses are optional sugar.
 
 ## 3. Runs settle in closed form (endpoint telescoping)
 
-Between two order endpoints the active ladder is a straight line —
-constant per level, or linear for shaped orders. So a sweep doesn't
-transition state per tick: it settles the whole run with **one closed-form
-series** (token amounts exact to the wei), absorbs the endpoint, and
-materializes survivors once at the end. Cost: O(order endpoints crossed +
-bitmap words), independent of tick count. `maxPay` budgets park
-mid-run at the exact affordable thin tick and resume losslessly.
+Between two order endpoints the active ladder is constant per level
+(uniform). So a sweep doesn't transition state per tick: it settles the
+whole run with **one closed-form series** (token amounts exact to the wei),
+absorbs the endpoint, and materializes survivors once at the end. Cost:
+O(order endpoints crossed + bitmap words), independent of tick count.
+`maxPay` budgets park mid-run at the exact affordable thin tick and resume
+losslessly.
 
-## 4. Shapes are second-order notes
+## 4. Uniform ladders, composed
 
-A ladder with linearly varying size (`L0 + slope·k`) adds two entries to a
-slope ledger that rolls alongside the value ledger. One position = one
-front-loaded quoting curve; piecewise curves compose from a few segments;
-claims stay closed-form (quadratic series). Every level must carry ≥1 unit
-so the sweep bitmap sees it.
+The shipped book rests the same `liquidity` at every covered level. One
+position = one uniform ladder; a front-loaded or piecewise quoting curve
+composes from a few uniform segments; claims stay closed-form. Every level
+carries the same ≥1 unit so the sweep bitmap sees it.
 
 ## Also in the core
 

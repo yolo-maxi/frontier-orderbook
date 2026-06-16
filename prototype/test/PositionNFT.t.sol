@@ -109,7 +109,7 @@ contract PositionNFTTest is Test {
         uint256 tokenId = nft.wrap(positionId);
         vm.stopPrank();
 
-        (address owner,,,,,,,,) = book.positions(positionId);
+        (address owner,,,,,,,) = book.positions(positionId);
         assertEq(owner, address(nft), "book position custodied by the wrapper");
         assertEq(nft.ownerOf(tokenId), alice);
 
@@ -120,7 +120,7 @@ contract PositionNFTTest is Test {
 
         vm.prank(alice);
         nft.unwrap(tokenId);
-        (owner,,,,,,,,) = book.positions(positionId);
+        (owner,,,,,,,) = book.positions(positionId);
         assertEq(owner, alice, "raw position handed back");
         vm.expectRevert(bytes("no token"));
         nft.ownerOf(tokenId);
