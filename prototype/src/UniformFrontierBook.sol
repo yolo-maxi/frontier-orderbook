@@ -23,6 +23,8 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// delegatecall (same storage layout + immutables; see FrontierBookBase).
     address public immutable makerOps;
 
+    uint256 internal constant SHADOW_FEE_BPS = 30;
+
     constructor(
         address _token0,
         address _token1,
@@ -216,6 +218,14 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         _makerOpsCall();
     }
 
+    function depositShadow(uint256, uint256, uint256) external returns (uint256, uint256, uint256) {
+        _makerOpsCall();
+    }
+
+    function withdrawShadow(uint256, uint256, uint256) external returns (uint256, uint256) {
+        _makerOpsCall();
+    }
+
     function _makerOpsCall() private {
         address m = makerOps;
         assembly {
@@ -260,7 +270,15 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             IFrontierHooks.beforeSweep.selector
         );
         if (target > oldTick) {
-            (reached, paid, received) = _sweepUp(oldTick, target, maxFills, _maxGrossForTotal(maxPay, takerFeeBps));
+            uint256 grossBudget = _maxGrossForTotal(maxPay, takerFeeBps);
+            (reached, paid, received) = _sweepUp(
+                oldTick, target, maxFills, shadowReserve0 == 0 ? grossBudget : _shadowUpRealBudget(grossBudget)
+            );
+            if (paid > 0 && received > 0 && shadowReserve0 > 0) {
+                (uint256 shadowPaid, uint256 shadowOut) = _mirrorShadowAsk(paid, received, grossBudget);
+                paid += shadowPaid;
+                received += shadowOut;
+            }
             uint256 fee;
             (paid, fee) = _takerTotal(paid);
             _currentTick = reached;
@@ -269,7 +287,14 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             _payTakerFee(token1, msg.sender, paid - fee, fee, paid);
             if (received > 0) require(token0.transfer(msg.sender, received), "fill payout failed");
         } else {
-            (reached, paid, received) = _sweepDown(oldTick, target, maxFills, _maxGrossForTotal(maxPay, takerFeeBps));
+            uint256 grossBudget = _maxGrossForTotal(maxPay, takerFeeBps);
+            (reached, paid, received) =
+                _sweepDown(oldTick, target, maxFills, shadowReserve1 == 0 ? grossBudget : grossBudget / 2);
+            if (paid > 0 && received > 0 && shadowReserve1 > 0) {
+                (uint256 shadowPaid, uint256 shadowOut) = _mirrorShadowBid(paid, received);
+                paid += shadowPaid;
+                received += shadowOut;
+            }
             uint256 fee;
             (paid, fee) = _takerTotal(paid);
             _currentTick = reached;
@@ -283,6 +308,52 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             abi.encodeCall(IFrontierHooks.afterSweep, (msg.sender, oldTick, reached, paid, received)),
             IFrontierHooks.afterSweep.selector
         );
+    }
+
+    function _shadowUpRealBudget(uint256 grossBudget) private pure returns (uint256) {
+        uint256 denom = 2 * FEE_BPS_DENOMINATOR + SHADOW_FEE_BPS;
+        return (grossBudget / denom) * FEE_BPS_DENOMINATOR + ((grossBudget % denom) * FEE_BPS_DENOMINATOR) / denom;
+    }
+
+    function _mirrorShadowAsk(uint256 realPaid, uint256 realOut, uint256 grossBudget)
+        private
+        returns (uint256 shadowPaid, uint256 shadowOut)
+    {
+        shadowOut = shadowReserve0 < realOut ? shadowReserve0 : realOut;
+        if (shadowOut == 0 || realPaid >= grossBudget) return (0, 0);
+
+        uint256 gross = _mulDivUp(realPaid, shadowOut, realOut);
+        uint256 fee = _mulDivUp(gross, SHADOW_FEE_BPS, FEE_BPS_DENOMINATOR);
+        shadowPaid = gross + fee;
+        if (shadowPaid > grossBudget - realPaid) return (0, 0);
+
+        shadowReserve0 -= shadowOut;
+        shadowReserve1 += shadowPaid;
+    }
+
+    function _mirrorShadowBid(uint256 realPaid, uint256 realOut)
+        private
+        returns (uint256 shadowPaid, uint256 shadowOut)
+    {
+        shadowPaid = realPaid;
+        uint256 grossOut = realOut;
+        uint256 fee = _feeAmount(grossOut, uint16(SHADOW_FEE_BPS));
+        shadowOut = grossOut - fee;
+        if (shadowOut > shadowReserve1) {
+            shadowPaid = (shadowPaid * shadowReserve1) / shadowOut;
+            if (shadowPaid == 0) return (0, 0);
+            grossOut = (realOut * shadowPaid) / realPaid;
+            fee = _feeAmount(grossOut, uint16(SHADOW_FEE_BPS));
+            shadowOut = grossOut - fee;
+            if (shadowOut > shadowReserve1) return (0, 0);
+        }
+
+        shadowReserve0 += shadowPaid;
+        shadowReserve1 -= shadowOut;
+    }
+
+    function _mulDivUp(uint256 x, uint256 y, uint256 d) private pure returns (uint256) {
+        return (x * y + d - 1) / d;
     }
 
     /// @dev ENDPOINT-TELESCOPED up-sweep, uniform-only. Between order endpoints
@@ -523,6 +594,14 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     function isConsumedFor(uint256 positionId, int24 lowerTick) external view returns (bool) {
         Position storage p = _positions[positionId];
         return _highSince(p.depositClock) >= lowerTick + tickSpacing;
+    }
+
+    function shadowReserves() external view returns (uint256 reserve0, uint256 reserve1, uint256 totalShares) {
+        return (shadowReserve0, shadowReserve1, shadowTotalShares);
+    }
+
+    function shadowSharesOf(address user) external view returns (uint256) {
+        return shadowShares[user];
     }
 
     /// @notice The book's price curve at a tick (X18 token1 per token0).

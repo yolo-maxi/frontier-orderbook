@@ -42,6 +42,64 @@ contract UniformMakerOps is FrontierBookBase {
         emit PositionTransferred(positionId, msg.sender, to);
     }
 
+    /// @notice Add funds to the pooled shadow inventory at the pool's
+    /// current reserve ratio. The first depositor sets the ratio; later
+    /// deposits are pro-rata and oracle-free.
+    function depositShadow(uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
+        external
+        returns (uint256 shares, uint256 amount0, uint256 amount1)
+    {
+        require(amount0Max > 0 || amount1Max > 0, "zero amounts");
+        uint256 total = shadowTotalShares;
+        if (total == 0) {
+            require(amount0Max > 0 && amount1Max > 0, "imbalanced first deposit");
+            amount0 = amount0Max;
+            amount1 = amount1Max;
+            shares = amount0 + amount1;
+        } else {
+            uint256 r0 = shadowReserve0;
+            uint256 r1 = shadowReserve1;
+            require(r0 > 0 || r1 > 0, "empty pool");
+            uint256 s0 = r0 == 0 ? type(uint256).max : (amount0Max * total) / r0;
+            uint256 s1 = r1 == 0 ? type(uint256).max : (amount1Max * total) / r1;
+            shares = s0 < s1 ? s0 : s1;
+            amount0 = r0 == 0 ? 0 : (shares * r0) / total;
+            amount1 = r1 == 0 ? 0 : (shares * r1) / total;
+        }
+        require(shares >= minSharesOut && shares > 0, "insufficient shares");
+
+        shadowTotalShares = total + shares;
+        shadowShares[msg.sender] += shares;
+        shadowReserve0 += amount0;
+        shadowReserve1 += amount1;
+
+        _transferInExact(token0, msg.sender, amount0, "non-exact token0 transfer");
+        _transferInExact(token1, msg.sender, amount1, "non-exact token1 transfer");
+        emit ShadowDeposit(msg.sender, amount0, amount1, shares);
+    }
+
+    /// @notice Burn shadow shares for a pro-rata slice of both reserves.
+    function withdrawShadow(uint256 shares, uint256 minAmount0Out, uint256 minAmount1Out)
+        external
+        returns (uint256 amount0, uint256 amount1)
+    {
+        require(shares > 0, "zero shares");
+        uint256 total = shadowTotalShares;
+        require(total > 0 && shadowShares[msg.sender] >= shares, "insufficient shares");
+        amount0 = (shares * shadowReserve0) / total;
+        amount1 = (shares * shadowReserve1) / total;
+        require(amount0 >= minAmount0Out && amount1 >= minAmount1Out, "insufficient amounts");
+
+        shadowShares[msg.sender] -= shares;
+        shadowTotalShares = total - shares;
+        shadowReserve0 -= amount0;
+        shadowReserve1 -= amount1;
+
+        if (amount0 > 0) require(token0.transfer(msg.sender, amount0), "transfer0 failed");
+        if (amount1 > 0) require(token1.transfer(msg.sender, amount1), "transfer1 failed");
+        emit ShadowWithdraw(msg.sender, amount0, amount1, shares);
+    }
+
     /// @notice O(1) re-price (and optionally re-size) of a completely UNFILLED
     /// uniform order; tokens settle difference-only, clock refreshes.
     function requote(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external {
