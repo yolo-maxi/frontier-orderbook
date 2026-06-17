@@ -95,6 +95,15 @@ export interface Balances {
   usdc: bigint;
 }
 
+/** Pooled shadow-liquidity inventory (mirrors real fills at book price). */
+export interface ShadowInfo {
+  reserve0: bigint; // token0 available to mirror ask fills
+  reserve1: bigint; // token1 available to mirror bid fills
+  totalShares: bigint;
+  myShares: bigint; // shares held by the demo wallet
+  feeBps: number; // SHADOW_FEE_BPS routed to the protocol
+}
+
 /** What the chart should preview on top of live data. */
 export interface ChartPreview {
   kind: "make" | "trade";
@@ -125,6 +134,7 @@ interface AppData {
   makerEvents: MakerEvent[];
   priceHistory: PricePoint[];
   balances: Balances;
+  shadow: ShadowInfo;
   positions: PositionRow[];
   marketMode: MarketMode;
   market: MarketProfile;
@@ -238,6 +248,13 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [makerEvents, setMakerEvents] = useState<MakerEvent[]>([]);
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n });
+  const [shadow, setShadow] = useState<ShadowInfo>({
+    reserve0: 0n,
+    reserve1: 0n,
+    totalShares: 0n,
+    myShares: 0n,
+    feeBps: 30,
+  });
   const [positions, setPositions] = useState<PositionRow[]>([]);
   const [marketMode, setMarketModeState] = useState<MarketMode>(() => {
     const stored = window.localStorage.getItem(MARKET_STORAGE_KEY);
@@ -520,7 +537,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     let stop = false;
     const tick = async () => {
       try {
-        const [eth, weth, usdc] = await Promise.all([
+        const [eth, weth, usdc, reserves, myShares, feeBps] = await Promise.all([
           client.getBalance({ address: account.address }),
           client.readContract({
             address: cfg.contracts.weth,
@@ -534,8 +551,33 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             functionName: "balanceOf",
             args: [account.address],
           }),
+          client.readContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "shadowReserves",
+          }),
+          client.readContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "shadowSharesOf",
+            args: [account.address],
+          }),
+          client.readContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "SHADOW_FEE_BPS",
+          }),
         ]);
-        if (!stop) setBalances({ eth, weth, usdc });
+        if (!stop) {
+          setBalances({ eth, weth, usdc });
+          setShadow({
+            reserve0: reserves[0],
+            reserve1: reserves[1],
+            totalShares: reserves[2],
+            myShares,
+            feeBps: Number(feeBps),
+          });
+        }
       } catch {
         /* covered by main poll's error banner */
       }
@@ -732,6 +774,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     makerEvents,
     priceHistory,
     balances,
+    shadow,
     positions,
     rpcError,
     toasts,
