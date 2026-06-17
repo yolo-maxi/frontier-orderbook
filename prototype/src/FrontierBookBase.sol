@@ -193,6 +193,7 @@ abstract contract FrontierBookBase {
     );
     event ShadowDeposit(address indexed user, uint256 amount0, uint256 amount1, uint256 shares);
     event ShadowWithdraw(address indexed user, uint256 amount0, uint256 amount1, uint256 shares);
+    event ShadowFee(address indexed token, uint256 fee, address recipient);
 
     uint256 internal constant PRICE_SCALE = 1e18;
     uint256 public constant FEE_BPS_DENOMINATOR = 10_000;

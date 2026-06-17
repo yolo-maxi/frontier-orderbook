@@ -23,7 +23,13 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// delegatecall (same storage layout + immutables; see FrontierBookBase).
     address public immutable makerOps;
 
-    uint256 internal constant SHADOW_FEE_BPS = 30;
+    /// @notice Fee (bps) charged on the token1 leg of every shadow-mirrored
+    /// fill and routed to the protocol fee recipient. Shadow depth mirrors real
+    /// price discovery without contributing any, so it pays the full rate and
+    /// earns no maker treatment — the extra protocol revenue is what lets real
+    /// makers be charged less. EXPERIMENT: a constant here; production would
+    /// promote it to an immutable fee-config field (see _shadowFee).
+    uint16 public constant SHADOW_FEE_BPS = 30;
 
     constructor(
         address _token0,
@@ -270,12 +276,18 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             IFrontierHooks.beforeSweep.selector
         );
         if (target > oldTick) {
+            // Reserve half the gross budget for the shadow mirror when shadow
+            // inventory is live; the mirror costs ~the real input, so this caps
+            // total spend at the budget without a second pass. SHORTCUT: this
+            // halves real fill even when shadow inventory is tiny (documented).
             uint256 grossBudget = _maxGrossForTotal(maxPay, takerFeeBps);
-            (reached, paid, received) = _sweepUp(
-                oldTick, target, maxFills, shadowReserve0 == 0 ? grossBudget : _shadowUpRealBudget(grossBudget)
-            );
+            (reached, paid, received) =
+                _sweepUp(oldTick, target, maxFills, shadowReserve0 == 0 ? grossBudget : grossBudget / 2);
+            uint256 shadowFee;
             if (paid > 0 && received > 0 && shadowReserve0 > 0) {
-                (uint256 shadowPaid, uint256 shadowOut) = _mirrorShadowAsk(paid, received, grossBudget);
+                uint256 shadowPaid;
+                uint256 shadowOut;
+                (shadowPaid, shadowOut, shadowFee) = _mirrorShadowAsk(paid, received);
                 paid += shadowPaid;
                 received += shadowOut;
             }
@@ -285,13 +297,17 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             require(received >= minOut, "insufficient output");
             if (paid > 0) _transferInExact(token1, msg.sender, paid, "non-exact token1 transfer");
             _payTakerFee(token1, msg.sender, paid - fee, fee, paid);
+            if (shadowFee > 0) _payShadowFee(shadowFee);
             if (received > 0) require(token0.transfer(msg.sender, received), "fill payout failed");
         } else {
             uint256 grossBudget = _maxGrossForTotal(maxPay, takerFeeBps);
             (reached, paid, received) =
                 _sweepDown(oldTick, target, maxFills, shadowReserve1 == 0 ? grossBudget : grossBudget / 2);
+            uint256 shadowFee;
             if (paid > 0 && received > 0 && shadowReserve1 > 0) {
-                (uint256 shadowPaid, uint256 shadowOut) = _mirrorShadowBid(paid, received);
+                uint256 shadowPaid;
+                uint256 shadowOut;
+                (shadowPaid, shadowOut, shadowFee) = _mirrorShadowBid(paid, received);
                 paid += shadowPaid;
                 received += shadowOut;
             }
@@ -301,6 +317,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             require(received >= minOut, "insufficient output");
             if (paid > 0) _transferInExact(token0, msg.sender, paid, "non-exact token0 transfer");
             _payTakerFee(token0, msg.sender, paid - fee, fee, paid);
+            if (shadowFee > 0) _payShadowFee(shadowFee);
             if (received > 0) require(token1.transfer(msg.sender, received), "fill payout failed");
         }
         _callHook(
@@ -310,46 +327,60 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         );
     }
 
-    function _shadowUpRealBudget(uint256 grossBudget) private pure returns (uint256) {
-        uint256 denom = 2 * FEE_BPS_DENOMINATOR + SHADOW_FEE_BPS;
-        return (grossBudget / denom) * FEE_BPS_DENOMINATOR + ((grossBudget % denom) * FEE_BPS_DENOMINATOR) / denom;
-    }
-
-    function _mirrorShadowAsk(uint256 realPaid, uint256 realOut, uint256 grossBudget)
+    /// @dev ASK mirror: shadow inventory matches the real token0 fill 1:1 at the
+    /// BOOK price (no premium), capped by its token0 reserve. The taker pays the
+    /// mirrored token1; the shadow fee is taken from that token1 and routed to
+    /// the protocol (see `_payShadowFee`), so shadow depth never captures the
+    /// maker spread fee-free. Because the real input is capped at grossBudget/2
+    /// when shadow is live and the mirror costs `realPaid * shadowOut/realOut`
+    /// <= realPaid, total spend can never exceed the budget — no guard needed.
+    function _mirrorShadowAsk(uint256 realPaid, uint256 realOut)
         private
-        returns (uint256 shadowPaid, uint256 shadowOut)
+        returns (uint256 shadowPaid, uint256 shadowOut, uint256 shadowFee)
     {
         shadowOut = shadowReserve0 < realOut ? shadowReserve0 : realOut;
-        if (shadowOut == 0 || realPaid >= grossBudget) return (0, 0);
-
-        uint256 gross = _mulDivUp(realPaid, shadowOut, realOut);
-        uint256 fee = _mulDivUp(gross, SHADOW_FEE_BPS, FEE_BPS_DENOMINATOR);
-        shadowPaid = gross + fee;
-        if (shadowPaid > grossBudget - realPaid) return (0, 0);
-
+        if (shadowOut == 0) return (0, 0, 0);
+        shadowPaid = _mulDivUp(realPaid, shadowOut, realOut);
+        shadowFee = _shadowFee(shadowPaid);
         shadowReserve0 -= shadowOut;
-        shadowReserve1 += shadowPaid;
+        shadowReserve1 += shadowPaid - shadowFee;
     }
 
+    /// @dev BID mirror: pool buys token0 (`shadowPaid`) and pays token1, matching
+    /// the real fill 1:1 at book price, capped by its token1 reserve. The shadow
+    /// fee is taken from the token1 leg and routed to the protocol; the taker
+    /// receives the mirrored token1 net of that fee (`shadowOut`).
     function _mirrorShadowBid(uint256 realPaid, uint256 realOut)
         private
-        returns (uint256 shadowPaid, uint256 shadowOut)
+        returns (uint256 shadowPaid, uint256 shadowOut, uint256 shadowFee)
     {
-        shadowPaid = realPaid;
         uint256 grossOut = realOut;
-        uint256 fee = _feeAmount(grossOut, uint16(SHADOW_FEE_BPS));
-        shadowOut = grossOut - fee;
-        if (shadowOut > shadowReserve1) {
-            shadowPaid = (shadowPaid * shadowReserve1) / shadowOut;
-            if (shadowPaid == 0) return (0, 0);
-            grossOut = (realOut * shadowPaid) / realPaid;
-            fee = _feeAmount(grossOut, uint16(SHADOW_FEE_BPS));
-            shadowOut = grossOut - fee;
-            if (shadowOut > shadowReserve1) return (0, 0);
+        shadowPaid = realPaid;
+        if (grossOut > shadowReserve1) {
+            grossOut = shadowReserve1;
+            shadowPaid = (realPaid * grossOut) / realOut;
+            if (shadowPaid == 0) return (0, 0, 0);
         }
-
+        shadowFee = _shadowFee(grossOut);
+        shadowOut = grossOut - shadowFee;
         shadowReserve0 += shadowPaid;
-        shadowReserve1 -= shadowOut;
+        shadowReserve1 -= grossOut;
+    }
+
+    /// @dev Shadow fee on a token1 leg. Zero unless the book has a fee
+    /// recipient, so fee-less books mirror at pure book price and never try to
+    /// transfer to address(0). EXPERIMENT: the rate is a constant; production
+    /// would make it an immutable fee-config field alongside maker/taker bps.
+    function _shadowFee(uint256 grossToken1) private view returns (uint256) {
+        if (feeRecipient == address(0)) return 0;
+        return _feeAmount(grossToken1, SHADOW_FEE_BPS);
+    }
+
+    /// @dev The shadow fee always settles in token1 (the quote leg) for both
+    /// sweep directions, so it routes straight to the fee recipient here.
+    function _payShadowFee(uint256 fee) private {
+        require(token1.transfer(feeRecipient, fee), "shadow fee transfer failed");
+        emit ShadowFee(address(token1), fee, feeRecipient);
     }
 
     function _mulDivUp(uint256 x, uint256 y, uint256 d) private pure returns (uint256) {

@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
-import {newBook} from "./utils/BookFab.sol";
+import {newBookWithFees} from "./utils/BookFab.sol";
 
 contract FrontierShadowTest is Test {
     MockERC20 internal t0;
@@ -15,6 +15,7 @@ contract FrontierShadowTest is Test {
     address internal taker = makeAddr("taker");
     address internal lp = makeAddr("lp");
     address internal lp2 = makeAddr("lp2");
+    address internal feeRecipient = makeAddr("feeRecipient");
 
     uint128 internal constant L = 1e18;
     uint256 internal constant SHADOW_FEE_BPS = 30;
@@ -23,7 +24,10 @@ contract FrontierShadowTest is Test {
     function setUp() public {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        book = newBook(address(t0), address(t1), 1, 100, address(0), address(0));
+        // Fee recipient set, maker/taker bps = 0: isolates the shadow fee so the
+        // economic assertions read cleanly. The shadow fee routes to the
+        // protocol (feeRecipient), never back into the pool.
+        book = newBookWithFees(address(t0), address(t1), 1, 100, address(0), address(0), feeRecipient, 0, 0);
 
         address[4] memory users = [maker, taker, lp, lp2];
         for (uint256 i = 0; i < users.length; i++) {
@@ -56,8 +60,8 @@ contract FrontierShadowTest is Test {
         return acc / 1e18;
     }
 
-    function _shadowFeeUp(uint256 amount) internal pure returns (uint256) {
-        return (amount * SHADOW_FEE_BPS + BPS - 1) / BPS;
+    function _shadowFee(uint256 amount) internal pure returns (uint256) {
+        return (amount * SHADOW_FEE_BPS) / BPS;
     }
 
     function _seedShadow() internal returns (uint256 shares) {
@@ -93,20 +97,24 @@ contract FrontierShadowTest is Test {
         vm.prank(maker);
         uint256 id = book.deposit(101, 103, L);
 
+        // Shadow mirrors the real token1 input 1:1 at book price (no premium);
+        // its fee is taken from that token1 and routed to the protocol, so the
+        // taker pays exactly 2x the real input and the pool keeps input - fee.
         uint256 realPaid = _ceilSpan1(101, 103, L);
-        uint256 shadowFee = _shadowFeeUp(realPaid);
+        uint256 shadowFee = _shadowFee(realPaid);
         vm.prank(taker);
         (int24 reached, uint256 paid, uint256 received) =
             book.sweepWithLimits(103, type(uint256).max, type(uint256).max, 0, block.timestamp);
 
         assertEq(reached, 103, "reached target");
-        assertEq(paid, 2 * realPaid + shadowFee, "real plus shadow input");
+        assertEq(paid, 2 * realPaid, "real plus shadow input, no premium");
         assertEq(received, 4 * uint256(L), "real output doubled by shadow");
         assertEq(book.claimable(id), _floorSpan1(101, 103, L), "maker claim is real-only");
+        assertEq(t1.balanceOf(feeRecipient), shadowFee, "shadow fee routed to protocol");
 
         (uint256 r0, uint256 r1,) = book.shadowReserves();
         assertEq(r0, 8 * uint256(L), "shadow sold token0");
-        assertEq(r1, 10_000 * uint256(L) + realPaid + shadowFee, "shadow collected token1");
+        assertEq(r1, 10_000 * uint256(L) + realPaid - shadowFee, "shadow keeps input net of fee");
     }
 
     function testShadowBidMirrorsRealFillAndBouncesInventory() public {
@@ -115,7 +123,7 @@ contract FrontierShadowTest is Test {
         uint256 id = book.depositBid(97, 100, L);
 
         uint256 realOut = _floorSpan1(97, 100, L);
-        uint256 shadowFee = (realOut * SHADOW_FEE_BPS) / BPS;
+        uint256 shadowFee = _shadowFee(realOut);
         vm.prank(taker);
         (int24 reached, uint256 paid, uint256 received) =
             book.sweepWithLimits(97, type(uint256).max, type(uint256).max, 0, block.timestamp);
@@ -124,10 +132,13 @@ contract FrontierShadowTest is Test {
         assertEq(paid, 6 * uint256(L), "real input doubled by shadow");
         assertEq(received, 2 * realOut - shadowFee, "shadow output net of fee");
         assertEq(book.bidClaimable(id), 3 * uint256(L), "maker claim is real-only");
+        assertEq(t1.balanceOf(feeRecipient), shadowFee, "shadow fee routed to protocol");
 
+        // Pool pays the full token1 leg; the fee is carved out of the taker's
+        // output and sent to the protocol, not retained by the pool.
         (uint256 r0, uint256 r1,) = book.shadowReserves();
         assertEq(r0, 13 * uint256(L), "shadow bought token0");
-        assertEq(r1, 10_000 * uint256(L) - (realOut - shadowFee), "shadow paid token1");
+        assertEq(r1, 10_000 * uint256(L) - realOut, "shadow paid full token1 leg");
     }
 
     function testFiniteBudgetSplitsBetweenRealAndShadow() public {
@@ -135,8 +146,11 @@ contract FrontierShadowTest is Test {
         vm.prank(maker);
         book.deposit(101, 103, L);
 
+        // No premium on the taker: budget splits evenly between the real level
+        // and its shadow mirror. The shadow fee is paid by the pool, not added
+        // to the taker's spend.
         uint256 oneLevel = _ceilSpan1(101, 102, L);
-        uint256 maxPay = 2 * oneLevel + _shadowFeeUp(oneLevel);
+        uint256 maxPay = 2 * oneLevel;
         vm.prank(taker);
         (int24 reached, uint256 paid, uint256 received) =
             book.sweepWithLimits(103, type(uint256).max, maxPay, 0, block.timestamp);
@@ -144,6 +158,35 @@ contract FrontierShadowTest is Test {
         assertEq(reached, 102, "real fill parks after one level");
         assertEq(paid, maxPay, "budget spent on one real and one shadow level");
         assertEq(received, 2 * uint256(L), "one real level plus one shadow level");
+        assertEq(t1.balanceOf(feeRecipient), _shadowFee(oneLevel), "shadow fee routed to protocol");
+    }
+
+    /// @notice With no fee recipient the shadow fee is zero: the pool mirrors at
+    /// pure book price and never attempts a transfer to address(0).
+    function testShadowFeelessWhenNoRecipient() public {
+        UniformFrontierBook freeBook =
+            newBookWithFees(address(t0), address(t1), 1, 100, address(0), address(0), address(0), 0, 0);
+        vm.startPrank(lp);
+        t0.approve(address(freeBook), type(uint256).max);
+        t1.approve(address(freeBook), type(uint256).max);
+        freeBook.depositShadow(10 * uint256(L), 10_000 * uint256(L), 0);
+        vm.stopPrank();
+        vm.prank(maker);
+        t0.approve(address(freeBook), type(uint256).max);
+        vm.prank(maker);
+        freeBook.deposit(101, 103, L);
+
+        uint256 realPaid = _ceilSpan1(101, 103, L);
+        vm.prank(taker);
+        t1.approve(address(freeBook), type(uint256).max);
+        vm.prank(taker);
+        (, uint256 paid, uint256 received) =
+            freeBook.sweepWithLimits(103, type(uint256).max, type(uint256).max, 0, block.timestamp);
+
+        assertEq(paid, 2 * realPaid, "no premium");
+        assertEq(received, 4 * uint256(L), "full mirror");
+        (, uint256 r1,) = freeBook.shadowReserves();
+        assertEq(r1, 10_000 * uint256(L) + realPaid, "pool keeps full input, no fee carved");
     }
 
     function _cool(address targetBook) internal {
