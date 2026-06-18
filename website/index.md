@@ -23,7 +23,44 @@ hero:
   <span><span class="dot">●</span> fills that <b>wait for you</b></span>
 </div>
 
+## A book is a belief, priced
+
+A prediction market is a Frontier book where the price *is* the probability. List
+a YES outcome token against USDC and the order book does the rest: a YES resting
+at **$0.62** is a 62%-implied bet, a limit order is a conditional wager, and the
+spread is the market's uncertainty made visible. No bonding curve, no LMSR
+operator setting odds — just real bids and asks on a thin-tick grid, settling
+onchain.
+
+<div class="fr-pm">
+  <div class="fr-pm-book">
+    <div class="fr-pm-row ask"><span>NO &nbsp;0.41</span><span class="bar"><i style="width:38%"></i></span><span class="sz">1,200</span></div>
+    <div class="fr-pm-row ask"><span>NO &nbsp;0.40</span><span class="bar"><i style="width:62%"></i></span><span class="sz">3,050</span></div>
+    <div class="fr-pm-frontier"><span>← 62% YES</span><span>the frontier</span></div>
+    <div class="fr-pm-row bid"><span>YES 0.62</span><span class="bar"><i style="width:70%"></i></span><span class="sz">4,400</span></div>
+    <div class="fr-pm-row bid"><span>YES 0.61</span><span class="bar"><i style="width:33%"></i></span><span class="sz">980</span></div>
+  </div>
+  <div class="fr-pm-copy">
+    <p><b>Probability is the y-axis.</b> Every tick is a half-cent of implied odds; the book is the crowd's distribution over the outcome.</p>
+    <p><b>Make the odds, don't take them.</b> Seed a fresh market with one ladder across the range — no curve to babysit, fills accrue and claim whenever.</p>
+    <p><b>Resolution is just the last trade.</b> Winners hold tokens worth $1, losers $0. It's the same settlement that powers every fill.</p>
+    <p class="fr-pm-cta"><a href="https://clob.repo.box">Open a market →</a> · <a href="/guide/mechanism">How the book works →</a></p>
+  </div>
+</div>
+
+## The whole order book, onchain
+
 <FeatureGrid />
+
+## Build on the venue
+
+The book is a contract; everything above it is open and typed. A
+[TypeScript SDK](/guide/build), an [MCP server](/guide/build) that hands the
+venue to any agent, an [indexer](/guide/build) serving markets, trades, and depth
+over REST + WebSocket, and a drop-in [agent skill](/guide/build) — all generated
+from the same canonical ABIs, so they never drift from the contracts.
+
+*[Build with Frontier →](/guide/build)*
 
 ## Live right now
 

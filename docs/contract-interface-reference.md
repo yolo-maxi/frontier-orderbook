@@ -128,6 +128,31 @@ Settle filled proceeds (net of maker fee) in `token1`. Emits `Claim`, and
 
 Claim only up to `target` tick. Useful to bound gas.
 
+#### `claimAuto(uint256 positionId, uint256 minProceeds) → uint256 proceeds1`
+
+Keeper-friendly claim: settles the ask to its current frontier and reverts
+unless net proceeds reach `minProceeds`. Proceeds still go to the position
+**owner** — operators manage, never receive — so a bot can batch claims and
+fail cheaply when there's nothing material to harvest, removing the off-chain
+"is this tx worth it?" race. The owner may call it directly; any other caller
+needs a `claimTo` grant in the `PermissionRegistry` (the authorized selector
+reached internally). Reverts: `"not live"`, `"use bid methods"`,
+`"nothing to claim"`, `"below min proceeds"`.
+
+```solidity
+// harvest only if the position has earned at least 25 USDC, else revert cheap
+uint256 proceeds1 = book.claimAuto(positionId, 25e6);
+```
+
+#### `frontierOf(uint256 positionId) → int24`
+
+The position's current **ask frontier**: the highest boundary covered by any
+up-sweep since deposit, clamped to the position's range. Exposes on-chain what
+integrators previously reconstructed from a boundary witness off-chain; returns
+`claimedUpper` for a fully-unfilled position. Reverts `"not a live ask"` for
+dead or non-ask positions. Pair with `claimTo(positionId, frontierOf(...))` for
+a fully on-chain witnessed claim.
+
 #### `cancel(uint256 positionId) → (uint256 proceeds1, uint256 principal0)`
 
 Return filled proceeds + unfilled `token0` principal and end eligibility.
@@ -146,6 +171,8 @@ Symmetric to asks but pays `token1` and receives `token0`.
 | `depositBid(lower, upper, liquidity)` | `uint256 positionId` | Buy token0 at/below price; approve token1. Reverts `"range not below price"` if `upper > currentTick`. |
 | `claimBid(positionId)` | `uint256 proceeds0` | Net token0 proceeds. |
 | `claimBidTo(positionId, target)` | `uint256 proceeds0` | Bounded claim. |
+| `claimBidAuto(positionId, minProceeds)` | `uint256 proceeds0` | Keeper-friendly mirror of `claimAuto`: settles the bid to its frontier, reverting `"nothing to claim"` / `"below min proceeds"`. Proceeds go to the owner. |
+| `bidFrontierOf(positionId)` | `int24` | Current **bid frontier**: lowest boundary covered by any down-sweep since deposit, clamped to range. Reverts `"not a live bid"`. Mirror of `frontierOf`. |
 | `cancelBid(positionId)` | `(proceeds0, refund1)` | Proceeds + token1 refund. |
 | `cancelBidWithWitness(positionId, frontier)` | `(proceeds0, refund1)` | Witnessed cancel. |
 
@@ -174,7 +201,13 @@ Transfer ownership (owner/delegate). Emits `PositionTransferred`.
 | `isConsumedFor(positionId, lowerTick)` | `bool` | Whether a level is consumed. |
 | `activeLiquidity(lowerTick)` | `uint128` | Aggregate ask liquidity at a level. |
 | `bidLiquidity(lowerTick)` | `uint128` | Aggregate bid liquidity at a level. |
+| `frontierOf(positionId)` | `int24` | Ask fill frontier on-chain (see [Ask maker](#ask-maker)). |
+| `bidFrontierOf(positionId)` | `int24` | Bid fill frontier on-chain (see [Bid maker](#bid-maker)). |
 | `rateAt(int24 t)` | `uint256` | Geometric rate at a tick. |
+
+> For a single fully-resolved snapshot — owner, range, frontier, claimable, and
+> unfilled principal in one struct — prefer `FrontierLens.positionView` /
+> `positionViews` / `positionsOf` over composing these getters by hand.
 
 ### Taker (direct)
 
@@ -269,9 +302,61 @@ Read-only. **Quote first, apply slippage, then submit.**
 | `quoteSell(book, amount0In, maxRuns)` | `(amount1Out, amount0Spent, endTick)` | Sell token0; `maxRuns` bounds the scan. |
 | `depth(book, fromTick, toTick, maxLevels)` | `Level[]` | `{ tick, askSize, bidSize }`. |
 | `summary(book, scanWindow)` | `BookSummary` | `{ currentTick, tickSpacing, token0, token1, bestAsk, bestBid }`. |
+| `bestPrices(book, scanWindow)` | `TopOfBook` | Inside market in one call (see below). |
+| `positionView(book, positionId)` | `PositionView` | One fully-resolved position snapshot (see below). |
+| `positionViews(book, positionIds[])` | `PositionView[]` | Batch snapshot for an explicit id set. |
+| `positionsOf(book, owner, fromId, toId)` | `PositionView[]` | Every **live** position owned by `owner`, scanning ids in `[fromId, toId)` (`toId == 0` → `nextPositionId()`, `fromId == 0` → `1`). |
 | `curveOf(book)` | `Curve` | `{ bool geo, uint256 d }`. |
 
-Quotes are point-in-time; the book can move before execution.
+Quotes are point-in-time; the book can move before execution. The
+`positionsOf` scan is bounded by the caller's window so it stays an
+`eth_call`-only convenience — page wide books, or use the indexer's
+`/positions/{owner}` endpoint for unbounded history.
+
+#### `bestPrices(book, scanWindow) → TopOfBook`
+
+Top-of-book in a single read: best ask and bid, their resting sizes, X18 rates,
+and the spread in ticks — everything a UI needs to render the inside market.
+`scanWindow` bounds the search either side of `currentTick`.
+
+```solidity
+struct TopOfBook {
+  int24 currentTick;
+  int24 bestAsk;        // type(int24).max if no live ask in window
+  uint128 bestAskSize;  // token0 resting at bestAsk
+  uint256 bestAskRate;  // X18 token1/token0 at bestAsk (0 if none)
+  int24 bestBid;        // type(int24).min if no live bid in window
+  uint128 bestBidSize;  // token0-denominated size at bestBid
+  uint256 bestBidRate;  // X18 at bestBid (0 if none)
+  int24 spreadTicks;    // bestAsk - bestBid (type(int24).max if either side empty)
+}
+```
+
+#### `positionView(book, positionId) → PositionView`
+
+One fully-resolved position snapshot, routed through the book's own
+frontier/claimable getters so the numbers match what a claim would actually
+pay. Dead or zero ids return a zeroed view with `live == false`.
+
+```solidity
+struct PositionView {
+  uint256 positionId;
+  address owner;
+  int24 lower;
+  int24 upper;
+  uint128 liquidity;
+  int24 claimedUpper;
+  bool live;
+  bool isBid;
+  int24 frontier;     // current fill frontier (ask: highest covered; bid: lowest)
+  uint256 claimable;  // net token proceeds harvestable right now
+  uint256 unfilled;   // principal still resting (token0 asks / token1 refundable bids)
+}
+```
+
+`positionViews` returns the same struct for an explicit id list (one round
+trip for a dashboard); `positionsOf` filters a contiguous id range to a single
+owner's live positions.
 
 ---
 
@@ -320,6 +405,8 @@ Verified against the bundled ABI by the SDK test suite.
 | --- | --- |
 | `claim(uint256)` | `0x379607f5` |
 | `claimTo(uint256,int24)` | `0xac3b68e3` |
+| `claimAuto(uint256,uint256)` | `0x9dcda791` |
+| `claimBidAuto(uint256,uint256)` | `0x74abbb9a` |
 | `cancel(uint256)` | `0x40e58ee5` |
 | `cancelWithWitness(uint256,int24)` | `0x260cfd8f` |
 | `claimBid(uint256)` | `0x21113057` |
@@ -337,6 +424,11 @@ sel[1] = book.cancel.selector;
 sel[2] = book.requote.selector;
 registry.grantSelectorBundle(agent, address(book), sel, uint48(block.timestamp + 1 days));
 ```
+
+> Keeper note: `claimAuto` / `claimBidAuto` authorize the caller against the
+> `claimTo` selector internally, so grant `claimTo(uint256,int24)` (`0xac3b68e3`)
+> — not `claimAuto` — when delegating a harvest bot. Proceeds always pay the
+> position owner regardless of who triggers the claim.
 
 ---
 

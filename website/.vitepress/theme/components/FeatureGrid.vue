@@ -1,13 +1,42 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import FrIcon from './FrIcon.vue'
 
 // Modular feature cards with scroll-in motion and accent styling.
-// Each card carries a Frontier icon, an accent (green/gold/red), and an
+// Each card carries a Frontier icon, an accent (green/gold/red/cyan), and an
 // optional link. Motion is information: cards rise + fade as they enter
 // the viewport, staggered. Reduced-motion users get them fully visible.
+//
+// `only` selects a named set: omit it for the landing's protocol features, or
+// pass `only="build"` for the developer/ecosystem set used on /guide/build.
 
-const features = [
+const props = defineProps({ only: { type: String, default: '' } })
+
+// the ecosystem/developer set — cyan is the venue/system voice (code, infra)
+const buildFeatures = [
+  {
+    icon: 'book', accent: 'cyan',
+    title: 'Typed SDK',
+    body: 'Every contract as an `as const` ABI for full viem inference, plus MarketCreator / MakerAgent / TakerAgent helpers that quote, apply slippage, and submit in one call.',
+  },
+  {
+    icon: 'hooks', accent: 'cyan',
+    title: 'MCP server',
+    body: 'The market, maker, taker, position, and lens surface as Model Context Protocol tools — describe, simulate, execute. Hand any MCP agent the venue.',
+  },
+  {
+    icon: 'settlement', accent: 'cyan',
+    title: 'Indexer + API',
+    body: 'REST + WebSocket over normalized chain state: markets, positions, the trade tape, stats, OHLC candles, depth. One SQLite file, no external infra.',
+  },
+  {
+    icon: 'claim', accent: 'cyan',
+    title: 'Agent skill',
+    body: 'A drop-in operating guide that teaches an agent to route intents to calls and apply the guardrails on every write. Payouts only ever go to the owner.',
+  },
+]
+
+const protocolFeatures = [
   {
     icon: 'ticks', accent: 'green',
     title: 'Ticks finer than a cent',
@@ -42,6 +71,10 @@ const features = [
     link: '/guide/hooks', linkText: 'See the experiments',
   },
 ]
+
+const features = computed(() =>
+  props.only === 'build' ? buildFeatures : protocolFeatures
+)
 
 const root = ref(null)
 let io = null
@@ -128,6 +161,7 @@ onUnmounted(() => io && io.disconnect())
 .accent-green { --rail: var(--fr-green); }
 .accent-gold { --rail: var(--fr-gold); }
 .accent-red { --rail: var(--fr-red); }
+.accent-cyan { --rail: var(--fr-cyan); }
 a.fcard:hover { border-color: var(--rail); }
 .fc-icon {
   display: inline-flex;

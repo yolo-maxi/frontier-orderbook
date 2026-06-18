@@ -12,6 +12,7 @@ export default defineConfig({
     siteTitle: 'FRONTIER · DOCS',
     nav: [
       { text: 'App', link: 'https://clob.repo.box' },
+      { text: 'Build', link: '/guide/build' },
       { text: 'GitHub', link: 'https://github.com/yolo-maxi/frontier-orderbook' },
     ],
     sidebar: [
@@ -38,7 +39,13 @@ export default defineConfig({
           { text: 'Shadow Liquidity', link: '/experiments/shadow-liquidity' },
         ],
       },
-      { text: 'Live Demo Guide', link: '/guide/demo' },
+      {
+        text: 'Build',
+        items: [
+          { text: 'Build with Frontier', link: '/guide/build' },
+          { text: 'Live Demo Guide', link: '/guide/demo' },
+        ],
+      },
       { text: 'Roadmap & Caveats', link: '/roadmap' },
       { text: 'Brand', link: '/brand' },
     ],

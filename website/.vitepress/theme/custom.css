@@ -356,6 +356,80 @@ table {
 .fr-hero-strip .dot { color: var(--fr-green); }
 
 /* ================================================================
+   LANDING — prediction-market panel
+   A mini order book where price is probability. Bids (YES) ride the
+   green depth ramp, asks (NO) the red ramp, and a gold frontier line
+   marks the implied odds — the touch, "you are here."
+   ================================================================ */
+.fr-pm {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) 1.1fr;
+  gap: 22px;
+  align-items: center;
+  margin: 1.4rem 0 0.6rem;
+}
+.fr-pm-book {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 14px;
+  background: var(--fr-ink-2);
+  padding: 14px;
+  font-family: var(--fr-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
+.fr-pm-row {
+  display: grid;
+  grid-template-columns: 5.2em 1fr 4em;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px;
+  border-radius: 6px;
+}
+.fr-pm-row .bar {
+  position: relative;
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+}
+.fr-pm-row .bar i {
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  border-radius: 3px;
+  display: block;
+}
+.fr-pm-row .sz { color: var(--fr-dim); text-align: right; font-size: 0.74rem; }
+.fr-pm-row.ask { color: var(--fr-red); }
+.fr-pm-row.ask .bar i {
+  right: 0; left: auto;
+  background: linear-gradient(90deg, var(--fr-depth-ask-2), var(--fr-depth-ask-0));
+}
+.fr-pm-row.bid { color: var(--fr-green); }
+.fr-pm-row.bid .bar i {
+  background: linear-gradient(90deg, var(--fr-depth-bid-0), var(--fr-depth-bid-2));
+}
+.fr-pm-frontier {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 7px 2px;
+  padding: 3px 6px;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--fr-gold);
+  border-top: 1px solid var(--fr-gold);
+  border-bottom: 1px solid rgba(240, 185, 11, 0.25);
+  background: linear-gradient(90deg, rgba(240, 185, 11, 0.10), transparent);
+}
+.fr-pm-frontier span:last-child { color: var(--fr-dim); text-transform: uppercase; }
+.fr-pm-copy p { margin: 0 0 0.7rem; font-size: 0.92rem; line-height: 1.55; color: var(--fr-dim); }
+.fr-pm-copy p b { color: var(--fr-bone); }
+.fr-pm-cta { font-family: var(--fr-mono); font-size: 0.8rem; }
+@media (max-width: 720px) {
+  .fr-pm { grid-template-columns: 1fr; }
+}
+
+/* ================================================================
    BRAND component variants (B3) — reusable showcases for /brand
    ================================================================ */
 

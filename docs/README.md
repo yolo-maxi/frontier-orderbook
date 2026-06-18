@@ -11,6 +11,7 @@ TypeScript SDK + an MCP server + a packaged agent skill.
 
 | If you want to… | Read |
 | --- | --- |
+| Go from zero to a first trade or quote | [`getting-started.md`](./getting-started.md) |
 | Understand the whole system | [`../README.md`](../README.md), [`../requirements.md`](../requirements.md), [`../invariants.md`](../invariants.md) |
 | Route an intent to a contract call | [`agent-decision-tree.md`](./agent-decision-tree.md) |
 | Look up an exact method / event / revert | [`contract-interface-reference.md`](./contract-interface-reference.md) |
@@ -18,15 +19,27 @@ TypeScript SDK + an MCP server + a packaged agent skill.
 | Operate as a market creator / maker / taker agent | [`../skill.md`](../skill.md), [`../skill/`](../skill) |
 | Build software against Frontier | [`../sdk/`](../sdk) |
 | Wire Frontier into an MCP client | [`../mcp/`](../mcp) |
-| Query indexed markets/positions/trades | [`../indexer/openapi.yaml`](../indexer/openapi.yaml) |
+| Query indexed markets/positions/trades | [`indexer-api.md`](./indexer-api.md), [`../indexer/openapi.yaml`](../indexer/openapi.yaml) |
 
 ## Documents in this directory
+
+### Start here
+
+- **[`getting-started.md`](./getting-started.md)** — the shortest path from
+  "what is it" to a first trade, quote, SDK call, or indexer query, with the
+  core model (`token0`/`token1`, ranges, the geometric grid, prediction markets
+  as YES/collateral books).
 
 ### Reference
 
 - **[`contract-interface-reference.md`](./contract-interface-reference.md)** —
   OpenRPC-style reference for the five core contracts: every read and write
-  method, events, revert conditions, and examples.
+  method, events, revert conditions, and examples. Covers the lens snapshot
+  surface (`positionView`/`positionViews`/`positionsOf`, `bestPrices`) and the
+  on-chain frontier + keeper helpers (`frontierOf`/`bidFrontierOf`,
+  `claimAuto`/`claimBidAuto`).
+- **[`indexer-api.md`](./indexer-api.md)** — the indexer's REST + WebSocket read
+  API, backed by [`../indexer/openapi.yaml`](../indexer/openapi.yaml).
 - **[`frontier-abi-interface.md`](./frontier-abi-interface.md)** — compact ABI
   map and deploy-script reference.
 - **[`agent-decision-tree.md`](./agent-decision-tree.md)** — intent → contract
@@ -68,7 +81,9 @@ Generated ABIs live in [`../abi/*.json`](../abi) and are re-exported as typed
 
 ```
 docs/                         human + machine reference (this directory)
+  getting-started.md
   contract-interface-reference.md
+  indexer-api.md
   agent-decision-tree.md
   deployment-schema.json
   position-schema.json
