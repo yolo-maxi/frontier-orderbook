@@ -125,8 +125,11 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// go to the position owner (operators manage, never receive). The guard
     /// lets a bot batch claims and fail cheaply when there's nothing material
     /// to harvest, removing the off-chain "is it worth a tx?" race. The owner
-    /// can call it directly; anyone else needs a `claimTo` grant in the
-    /// permission registry (claimTo is the authorized selector reached below).
+    /// can call it directly; anyone else must hold a permission grant for THIS
+    /// entrypoint's selector — `claimAuto.selector` — on the position owner.
+    /// Authorization follows the per-entrypoint selector model (`_authOwner`
+    /// keys off `msg.sig`, which stays `claimAuto.selector` through the internal
+    /// `claimTo` call); a `claimTo` grant alone does NOT authorize `claimAuto`.
     function claimAuto(uint256 positionId, uint256 minProceeds) external returns (uint256 proceeds1) {
         Position storage p = _positions[positionId];
         if (!p.live) revert NotLive();
@@ -210,7 +213,8 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
 
     /// @notice Keeper-friendly bid claim: mirror of `claimAuto`. Settles the
     /// bid to its frontier, reverting unless net token0 proceeds reach
-    /// `minProceeds`. Proceeds go to the owner.
+    /// `minProceeds`. Proceeds go to the owner. Delegated callers need a grant
+    /// for `claimBidAuto.selector` (per-entrypoint selector model; see claimAuto).
     function claimBidAuto(uint256 positionId, uint256 minProceeds) external returns (uint256 proceeds0) {
         Position storage p = _positions[positionId];
         if (!p.live) revert NotLive();
@@ -324,6 +328,12 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             }
             uint256 fee;
             (paid, fee) = _takerTotal(paid);
+            // CEI: all book state (currentTick, consumed liquidity, fill clock)
+            // is finalized HERE, before any external token transfer below. Any
+            // reentrant call during a transfer therefore observes fully
+            // consistent state and a fresh sweep simply pays its own way — it
+            // cannot corrupt accounting. (Do NOT move this write below the
+            // transfers: that would expose stale-currentTick read-only reentrancy.)
             _currentTick = reached;
             if (received < minOut) revert InsufficientOutput();
             if (paid > 0) _transferInExact(token1, msg.sender, paid);
