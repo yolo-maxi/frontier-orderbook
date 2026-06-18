@@ -5,6 +5,9 @@ export default defineConfig({
   description: 'The order book is back onchain — a thin-tick CLOB with compressed settlement',
   base: '/docs/',
   appearance: 'force-dark',
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/docs/brand/mark.svg' }],
+  ],
   themeConfig: {
     siteTitle: 'FRONTIER · DOCS',
     nav: [
