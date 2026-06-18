@@ -10,6 +10,7 @@ interface Bucket {
   cum: number;
   shadow: number; // token0 units mirrored by copy inventory at this level
   shadowCum: number; // cumulative copy depth through this level
+  copyFill: number; // 0..1 portion of the active bar covered by copy liquidity
 }
 
 /** Walk buckets from best price outward, assigning each the copy size the
@@ -34,7 +35,9 @@ function applyShadow(buckets: Bucket[], side: "ask" | "bid", reserve0: number, r
     b.shadow = s;
     cum += s;
     b.shadowCum = cum;
+    b.copyFill = b.size > 0 ? Math.min(1, s / b.size) : 0;
   }
+  return Math.max(0, budget);
 }
 
 const BUCKETS_PER_SIDE = 25;
@@ -56,7 +59,7 @@ function bucketize(
   for (const k of keys.slice(0, BUCKETS_PER_SIDE)) {
     const size = map.get(k)!;
     cum += size;
-    out.push({ price: k, size, cum, shadow: 0, shadowCum: 0 });
+    out.push({ price: k, size, cum, shadow: 0, shadowCum: 0, copyFill: 0 });
   }
   return out;
 }
@@ -130,9 +133,9 @@ export function OrderBook() {
     const dp = stepDecimals(step);
     const askBuckets = bucketize(asks, step, "ask");
     const bidBuckets = bucketize(bids, step, "bid");
-    applyShadow(askBuckets, "ask", shadowR0, shadowR1);
-    applyShadow(bidBuckets, "bid", shadowR0, shadowR1);
-    const sideMax = (bs: Bucket[]) => (bs.length ? bs[bs.length - 1].cum + bs[bs.length - 1].shadowCum : 0);
+    const askCopyOffBook = applyShadow(askBuckets, "ask", shadowR0, shadowR1);
+    const bidCopyOffBook = applyShadow(bidBuckets, "bid", shadowR0, shadowR1);
+    const sideMax = (bs: Bucket[]) => (bs.length ? bs[bs.length - 1].cum : 0);
     const maxCum = Math.max(sideMax(askBuckets), sideMax(bidBuckets), 1e-12);
     const mid =
       summary.hasAsk && summary.hasBid
@@ -142,7 +145,7 @@ export function OrderBook() {
       summary.hasAsk && summary.hasBid
         ? tickToPrice(summary.bestAsk) - tickToPrice(summary.bestBid)
         : null;
-    return { askBuckets, bidBuckets, maxCum, mid, spread, dp, step };
+    return { askBuckets, bidBuckets, askCopyOffBook, bidCopyOffBook, maxCum, mid, spread, dp, step };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [summary, depth, shadowR0, shadowR1]);
 
@@ -214,7 +217,7 @@ export function OrderBook() {
     );
   }
 
-  const { askBuckets, bidBuckets, maxCum, mid, spread, dp, step } = model;
+  const { askBuckets, bidBuckets, askCopyOffBook, bidCopyOffBook, maxCum, mid, spread, dp, step } = model;
   const sizeDp = 3;
 
   // mid-price direction (vs. previous non-equal mid) for the spread divider arrow
@@ -224,6 +227,9 @@ export function OrderBook() {
   }
   tracker.prev = mid;
   const midDir = tracker.dir;
+  const activePct = (b: Bucket) => Math.min(100, (b.cum / maxCum) * 100);
+  const copyPct = (b: Bucket) => activePct(b) * b.copyFill;
+  const copyRightPct = (b: Bucket) => Math.max(0, activePct(b) - copyPct(b));
 
   return (
     <section className="panel book-panel">
@@ -232,6 +238,16 @@ export function OrderBook() {
         {shadowActive && (
           <span className="shadow-legend num" title={`Copy liquidity mirrors real fills at the book price, capped by pooled inventory. Copy fills pay ${shadow.feeBps} bps to the protocol.`}>
             <i className="shadow-swatch" /> copy {fmtSize(shadowR0, 2)} {market.baseSymbol} · {fmtSize(shadowR1, 0)} {market.quoteSymbol}
+          </span>
+        )}
+        {shadowActive && (askCopyOffBook > 0.0005 || bidCopyOffBook > 0.5) && (
+          <span
+            className="copy-offbook-chip num"
+            title="Copy liquidity beyond visible resting depth is held off-book until more active liquidity appears."
+          >
+            off-book copy {askCopyOffBook > 0.0005 ? `${fmtSize(askCopyOffBook, 2)} ${market.baseSymbol}` : ""}
+            {askCopyOffBook > 0.0005 && bidCopyOffBook > 0.5 ? " · " : ""}
+            {bidCopyOffBook > 0.5 ? `${fmtSize(bidCopyOffBook, 0)} ${market.quoteSymbol}` : ""}
           </span>
         )}
         {previewRange && (
@@ -269,19 +285,19 @@ export function OrderBook() {
                   className="book-bar bar-ask"
                   style={{ width: `${Math.min(100, (b.cum / maxCum) * 100)}%` }}
                 />
-                {b.shadowCum > 0 && (
+                {b.shadow > 0 && (
                   <div
-                    className="book-bar bar-shadow bar-shadow-ask"
+                    className="book-bar bar-copy bar-copy-ask"
                     style={{
-                      right: `${Math.min(100, (b.cum / maxCum) * 100)}%`,
-                      width: `${Math.min(100, (b.shadowCum / maxCum) * 100)}%`,
+                      right: `${copyRightPct(b)}%`,
+                      width: `${copyPct(b)}%`,
                     }}
                   />
                 )}
                 <span className="px ask num">{fmtPrice(b.price, dp)}</span>
                 <span className="num">
                   {fmtSize(b.size, sizeDp)}
-                  {b.shadow > 0.0005 && <em className="shadow-tag" title="copy-mirrored depth">+{fmtSize(b.shadow, sizeDp)}</em>}
+                  {b.shadow > 0.0005 && <em className="shadow-tag" title="copy-mirrored depth">+{fmtSize(Math.min(b.shadow, b.size), sizeDp)}</em>}
                 </span>
                 <span className="num dim">{fmtSize(b.cum, sizeDp)}</span>
               </div>
@@ -326,19 +342,19 @@ export function OrderBook() {
                   className="book-bar bar-bid"
                   style={{ width: `${Math.min(100, (b.cum / maxCum) * 100)}%` }}
                 />
-                {b.shadowCum > 0 && (
+                {b.shadow > 0 && (
                   <div
-                    className="book-bar bar-shadow bar-shadow-bid"
+                    className="book-bar bar-copy bar-copy-bid"
                     style={{
-                      right: `${Math.min(100, (b.cum / maxCum) * 100)}%`,
-                      width: `${Math.min(100, (b.shadowCum / maxCum) * 100)}%`,
+                      right: `${copyRightPct(b)}%`,
+                      width: `${copyPct(b)}%`,
                     }}
                   />
                 )}
                 <span className="px bid num">{fmtPrice(b.price, dp)}</span>
                 <span className="num">
                   {fmtSize(b.size, sizeDp)}
-                  {b.shadow > 0.0005 && <em className="shadow-tag" title="copy-mirrored depth">+{fmtSize(b.shadow, sizeDp)}</em>}
+                  {b.shadow > 0.0005 && <em className="shadow-tag" title="copy-mirrored depth">+{fmtSize(Math.min(b.shadow, b.size), sizeDp)}</em>}
                 </span>
                 <span className="num dim">{fmtSize(b.cum, sizeDp)}</span>
               </div>
