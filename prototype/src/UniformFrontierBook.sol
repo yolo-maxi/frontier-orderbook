@@ -310,6 +310,15 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             abi.encodeCall(IFrontierHooks.beforeSweep, (msg.sender, oldTick, target)),
             IFrontierHooks.beforeSweep.selector
         );
+        // Re-read the tick AFTER the beforeSweep hook. A reactive hook may
+        // legitimately move the book (e.g. a maker-grid/take-profit hook that
+        // deposits or even sweeps in its callback); re-reading means this sweep
+        // always starts from the true current state rather than a pre-hook
+        // snapshot, so a reentrant hook can never strand the outer sweep on a
+        // stale tick. Each (nested or outer) sweep still finalizes its own state
+        // before its transfers (CEI below) and pays for exactly what it consumes.
+        oldTick = _currentTick;
+        if (target == oldTick) return (oldTick, 0, 0);
         if (target > oldTick) {
             // Reserve half the gross budget for the shadow mirror when shadow
             // inventory is live; the mirror costs ~the real input, so this caps

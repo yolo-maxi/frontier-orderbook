@@ -40,6 +40,18 @@ function clampParam(raw: string | undefined, min: number, max: number): number |
   return Math.min(Math.max(Math.floor(n), min), max);
 }
 
+/**
+ * Parse an optional integer query param, rejecting non-finite values. Returns
+ * undefined when absent OR malformed (e.g. ?fromBlock=notanumber) so a bad value
+ * never silently becomes NaN — which SQLite coerces to NULL, bypassing filters.
+ */
+function finiteInt(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.floor(n);
+}
+
 export interface RateLimitOptions {
   /** Enable the rate limiter. Default true. Tests can disable it. */
   enabled?: boolean;
@@ -102,7 +114,7 @@ export async function buildApi(deps: ApiDeps): Promise<FastifyInstance> {
       const { market } = req.params;
       if (!isAddress(market)) return reply.code(400).send({ error: "invalid market address" });
       if (!getMarket(db, market)) return reply.code(404).send({ error: "unknown market" });
-      const levels = req.query.levels ? Math.min(Number(req.query.levels), 1000) : 200;
+      const levels = Math.min(finiteInt(req.query.levels) ?? 200, 1000);
       return depthSnapshot(db, market, levels);
     },
   );
@@ -137,9 +149,9 @@ export async function buildApi(deps: ApiDeps): Promise<FastifyInstance> {
       market: q.market,
       taker: q.taker,
       side: q.side as "buy" | "sell" | undefined,
-      fromBlock: q.fromBlock !== undefined ? Number(q.fromBlock) : undefined,
-      toBlock: q.toBlock !== undefined ? Number(q.toBlock) : undefined,
-      limit: q.limit !== undefined ? Number(q.limit) : undefined,
+      fromBlock: finiteInt(q.fromBlock),
+      toBlock: finiteInt(q.toBlock),
+      limit: finiteInt(q.limit),
       cursor: q.cursor,
     });
     // `trades` kept for back-compat; `nextCursor` drives pagination.
@@ -178,9 +190,9 @@ export async function buildApi(deps: ApiDeps): Promise<FastifyInstance> {
       candles: candles(db, {
         market,
         interval,
-        from: req.query.from !== undefined ? Number(req.query.from) : undefined,
-        to: req.query.to !== undefined ? Number(req.query.to) : undefined,
-        limit: req.query.limit !== undefined ? Number(req.query.limit) : undefined,
+        from: finiteInt(req.query.from),
+        to: finiteInt(req.query.to),
+        limit: finiteInt(req.query.limit),
       }),
     };
   });
