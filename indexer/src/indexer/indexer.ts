@@ -16,8 +16,15 @@ import {
 } from "viem";
 import type { DB } from "../db/index.js";
 import { getCursor, setCursor } from "../db/index.js";
-import { applyBatch } from "../ingest.js";
-import { bookViewAbi, bookEventsAbi, factoryEventsAbi, positionNftEventsAbi } from "../abi.js";
+import { applyBatch, setClaimTokenMapping, reconcileClaimTokensFromDeposits } from "../ingest.js";
+import {
+  bookViewAbi,
+  bookEventsAbi,
+  factoryEventsAbi,
+  positionNftEventsAbi,
+  positionNftViewAbi,
+  ZERO_ADDRESS,
+} from "../abi.js";
 import type { IndexerConfig } from "../config.js";
 import type { Bus } from "../bus.js";
 import { decodeLogs } from "./decode.js";
@@ -89,6 +96,89 @@ export class Indexer {
     for (const wrapper of this.cfg.nftWrappers) {
       await this.syncScope(`nft:${wrapper}`, wrapper as Address, head, "nft");
     }
+
+    // 4) resolve claim-token -> (market, positionId) mappings.
+    await this.reconcileClaimTokens();
+  }
+
+  /**
+   * Resolve claim_tokens rows that are missing their wrapped (market,
+   * positionId). Strategy, cheapest first:
+   *   1) pure-DB correlation via the mint tx's Deposit (no RPC),
+   *   2) on-chain `bookPositionOf(tokenId)` view on the wrapper, then match the
+   *      returned positionId to the book that holds it.
+   * Tolerant of wrappers that don't expose the view (pre-Swept / partial ABI):
+   * such tokens simply remain unresolved and are retried next pass.
+   */
+  async reconcileClaimTokens(): Promise<void> {
+    // Step 1: free DB-only correlation.
+    try {
+      reconcileClaimTokensFromDeposits(this.db);
+    } catch (err) {
+      this.log("claim-token DB reconcile failed:", String(err));
+    }
+
+    // Step 2: on-chain read for whatever is still pending.
+    const pending = this.db
+      .prepare(
+        `SELECT wrapper, token_id FROM claim_tokens
+         WHERE position_id IS NULL AND burned = 0`,
+      )
+      .all() as Array<{ wrapper: string; token_id: string }>;
+    if (!pending.length) return;
+
+    const books = [...this.books];
+    for (const ct of pending) {
+      let positionId: bigint;
+      try {
+        positionId = (await this.client.readContract({
+          address: ct.wrapper as Address,
+          abi: positionNftViewAbi,
+          functionName: "bookPositionOf",
+          args: [BigInt(ct.token_id)],
+        })) as bigint;
+      } catch {
+        // wrapper has no such view (or RPC down) — leave pending, retry later
+        continue;
+      }
+      const pid = positionId.toString();
+
+      // Which book holds this positionId? Prefer an indexed position row; if
+      // none yet, fall back to probing each book's positions(id) view to see
+      // whether the id is live there.
+      let market = this.bookForPosition(pid);
+      if (!market) market = await this.probeBookForPosition(books, pid);
+      if (market) {
+        setClaimTokenMapping(this.db, ct.wrapper, ct.token_id, market, pid);
+      }
+    }
+  }
+
+  /** Find which indexed book already has a row for this positionId, if any. */
+  private bookForPosition(positionId: string): string | null {
+    const rows = this.db
+      .prepare("SELECT market FROM positions WHERE position_id = ?")
+      .all(positionId) as Array<{ market: string }>;
+    return rows.length === 1 ? rows[0]!.market : null;
+  }
+
+  /** On-chain probe: which configured book reports a non-zero owner for id? */
+  private async probeBookForPosition(books: string[], positionId: string): Promise<string | null> {
+    for (const book of books) {
+      try {
+        const res = (await this.client.readContract({
+          address: book as Address,
+          abi: bookViewAbi,
+          functionName: "positions",
+          args: [BigInt(positionId)],
+        })) as readonly unknown[];
+        const owner = String(res[0]).toLowerCase();
+        if (owner && owner !== ZERO_ADDRESS) return book;
+      } catch {
+        // book lacks the view or id unknown there — try the next
+      }
+    }
+    return null;
   }
 
   private eventsFor(source: "book" | "factory" | "nft") {

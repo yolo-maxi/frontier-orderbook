@@ -1,6 +1,7 @@
 // I5 + I7 — REST API (Fastify) and WebSocket subscriptions.
 //
-// REST:  GET /markets, /book/:market, /positions/:owner, /trades, /account/:owner
+// REST:  GET /markets, /book/:market, /positions/:owner, /trades (cursor-paged),
+//        /stats/:market, /candles/:market, /account/:owner
 // WS:    /fills, /depth  (server pushes ingest notifications to subscribers)
 
 import Fastify, { type FastifyInstance } from "fastify";
@@ -12,8 +13,10 @@ import {
   getMarket,
   depthSnapshot,
   positionsByOwner,
-  listTrades,
+  listTradesPage,
   accountSummary,
+  marketStats,
+  candles,
 } from "./queries.js";
 
 const isAddress = (s: string) => /^0x[0-9a-fA-F]{40}$/.test(s);
@@ -64,6 +67,7 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
       fromBlock?: string;
       toBlock?: string;
       limit?: string;
+      cursor?: string;
     };
   }>("/trades", async (req, reply) => {
     const q = req.query;
@@ -71,14 +75,50 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
     if (q.taker && !isAddress(q.taker)) return reply.code(400).send({ error: "invalid taker" });
     if (q.side && q.side !== "buy" && q.side !== "sell")
       return reply.code(400).send({ error: "side must be buy|sell" });
+    const page = listTradesPage(db, {
+      market: q.market,
+      taker: q.taker,
+      side: q.side as "buy" | "sell" | undefined,
+      fromBlock: q.fromBlock !== undefined ? Number(q.fromBlock) : undefined,
+      toBlock: q.toBlock !== undefined ? Number(q.toBlock) : undefined,
+      limit: q.limit !== undefined ? Number(q.limit) : undefined,
+      cursor: q.cursor,
+    });
+    // `trades` kept for back-compat; `nextCursor` drives pagination.
+    return { trades: page.items, nextCursor: page.nextCursor };
+  });
+
+  // ---- Stats / charts -------------------------------------------------------
+  app.get<{ Params: { market: string }; Querystring: { window?: string } }>(
+    "/stats/:market",
+    async (req, reply) => {
+      const { market } = req.params;
+      if (!isAddress(market)) return reply.code(400).send({ error: "invalid market address" });
+      if (!getMarket(db, market)) return reply.code(404).send({ error: "unknown market" });
+      const windowSecs = req.query.window ? Math.max(1, Number(req.query.window)) : undefined;
+      return marketStats(db, market, windowSecs);
+    },
+  );
+
+  app.get<{
+    Params: { market: string };
+    Querystring: { interval?: string; from?: string; to?: string; limit?: string };
+  }>("/candles/:market", async (req, reply) => {
+    const { market } = req.params;
+    if (!isAddress(market)) return reply.code(400).send({ error: "invalid market address" });
+    if (!getMarket(db, market)) return reply.code(404).send({ error: "unknown market" });
+    const interval = req.query.interval ? Number(req.query.interval) : 3600;
+    if (!Number.isFinite(interval) || interval <= 0)
+      return reply.code(400).send({ error: "interval must be a positive number of seconds" });
     return {
-      trades: listTrades(db, {
-        market: q.market,
-        taker: q.taker,
-        side: q.side as "buy" | "sell" | undefined,
-        fromBlock: q.fromBlock !== undefined ? Number(q.fromBlock) : undefined,
-        toBlock: q.toBlock !== undefined ? Number(q.toBlock) : undefined,
-        limit: q.limit !== undefined ? Number(q.limit) : undefined,
+      market: market.toLowerCase(),
+      interval,
+      candles: candles(db, {
+        market,
+        interval,
+        from: req.query.from !== undefined ? Number(req.query.from) : undefined,
+        to: req.query.to !== undefined ? Number(req.query.to) : undefined,
+        limit: req.query.limit !== undefined ? Number(req.query.limit) : undefined,
       }),
     };
   });

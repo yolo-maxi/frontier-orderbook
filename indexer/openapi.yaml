@@ -104,9 +104,16 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, default: 100, maximum: 1000 }
+        - name: cursor
+          in: query
+          description: >
+            Opaque keyset cursor from a prior response's `nextCursor`. Continues
+            strictly after that point in the (block, logIndex) ordering so
+            pagination is stable as new trades are appended.
+          schema: { type: string }
       responses:
         "200":
-          description: Matching trades, newest first
+          description: Matching trades, newest first, with a pagination cursor
           content:
             application/json:
               schema:
@@ -115,7 +122,69 @@ paths:
                   trades:
                     type: array
                     items: { $ref: "#/components/schemas/Trade" }
+                  nextCursor:
+                    type: [string, "null"]
+                    description: Pass back as `cursor` for the next page; null at end.
         "400": { $ref: "#/components/responses/BadRequest" }
+  /stats/{market}:
+    get:
+      summary: 24h-style stats for a market
+      description: >
+        Trade count, taker volume (per input token), token1 fill volume, taker
+        fees (per token), and a point-in-time open-interest snapshot over a
+        sliding window ending at the current time.
+      parameters:
+        - { $ref: "#/components/parameters/Market" }
+        - name: window
+          in: query
+          required: false
+          description: Window size in seconds (default 86400 = 24h).
+          schema: { type: integer, default: 86400, minimum: 1 }
+      responses:
+        "200":
+          description: Market stats
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketStats" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /candles/{market}:
+    get:
+      summary: OHLC candles derived from interval fills
+      description: >
+        Open/high/low/close price (1.0001^tick) plus token1 volume, bucketed by
+        block timestamp into `interval`-second windows. For charting.
+      parameters:
+        - { $ref: "#/components/parameters/Market" }
+        - name: interval
+          in: query
+          required: false
+          description: Bucket size in seconds (e.g. 60, 300, 3600).
+          schema: { type: integer, default: 3600, minimum: 1 }
+        - name: from
+          in: query
+          schema: { type: integer, description: "unix seconds lower bound" }
+        - name: to
+          in: query
+          schema: { type: integer, description: "unix seconds upper bound" }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 1000, maximum: 5000 }
+      responses:
+        "200":
+          description: OHLC candles, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  market: { type: string }
+                  interval: { type: integer }
+                  candles:
+                    type: array
+                    items: { $ref: "#/components/schemas/Candle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /account/{owner}:
     get:
       summary: Per-account rollup across markets, incl. claim tokens
@@ -225,6 +294,33 @@ components:
         logIndex: { type: integer }
         txHash: { type: string }
         timestamp: { type: [integer, "null"] }
+    MarketStats:
+      type: object
+      properties:
+        market: { type: string }
+        windowSecs: { type: integer }
+        since: { type: [integer, "null"] }
+        tradeCount: { type: integer }
+        volumeByToken:
+          type: object
+          additionalProperties: { type: string }
+          description: Taker gross input volume per input token (decimal strings).
+        volume1: { type: string, description: "token1 fill volume (sum proceeds1)" }
+        feesByToken:
+          type: object
+          additionalProperties: { type: string }
+        openInterest: { type: string, description: "token0 resting liquidity * levels" }
+        livePositions: { type: integer }
+    Candle:
+      type: object
+      properties:
+        time: { type: integer, description: "bucket start, unix seconds" }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        close: { type: number }
+        volume: { type: string, description: "token1 volume in the bucket" }
+        trades: { type: integer }
     Account:
       type: object
       properties:

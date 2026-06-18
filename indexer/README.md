@@ -25,13 +25,51 @@ src/
     decode.ts       raw viem logs -> DecodedEvent
     indexer.ts      persistent viem getLogs watcher (resumable, pre-Swept safe)
     run.ts          standalone indexer process
-  queries.ts        read model for the REST API
+  queries.ts        read model for the REST API (markets, depth, trades,
+                    pagination, stats, OHLC candles)
   api.ts            Fastify REST + WebSocket server
+  client.ts         typed REST + WS client (import as @frontier/indexer/client)
   bus.ts            in-process pub/sub bridging ingest -> WebSocket
   server.ts         combined entrypoint (indexer + API)
 openapi.yaml        OpenAPI 3.1 spec for the REST surface
-test/               vitest suite (ingest, decode, indexer, api)
+test/               vitest suite (ingest, decode, indexer, api, stats,
+                    reconcile, client)
 ```
+
+## TypeScript client
+
+A zero-dependency client lives at `src/client.ts` and is exported as
+`@frontier/indexer/client`:
+
+```ts
+import { FrontierClient } from "@frontier/indexer/client";
+
+const c = new FrontierClient("http://localhost:8787");
+const { markets } = await c.markets();
+const page = await c.trades({ market, limit: 50 });           // cursor pagination
+for await (const t of c.tradesAll({ market })) { /* ... */ }  // auto-paginate
+const stats = await c.stats(market);                          // 24h volume / OI
+const { candles } = await c.candles(market, 3600);            // hourly OHLC
+const stop = c.subscribeFills((m) => console.log(m), { market }); // WS
+```
+
+In Node, pass a `WebSocket` impl for the WS helpers:
+`new FrontierClient(url, { WebSocket: (await import("ws")).default })`.
+
+## Claim-token reconciliation
+
+An ERC-721 `Transfer` from the position-NFT wrapper alone does not carry the
+wrapped book `positionId`. The indexer fills in `claim_tokens.position_id` /
+`market` after the fact, cheapest path first:
+
+1. **DB correlation** (`reconcileClaimTokensFromDeposits`): if the mint shares a
+   block with exactly one `Deposit`, that's the wrapped position (no RPC).
+2. **On-chain** (`Indexer.reconcileClaimTokens`): read `bookPositionOf(tokenId)`
+   on the wrapper, then match the returned id to the book that holds it (indexed
+   row, else a `positions(id)` probe per book).
+
+Both run every `syncOnce`; tokens that can't be resolved yet stay pending and
+are retried next pass (pre-Swept / partial-ABI wrappers are tolerated).
 
 ## Schema (I2)
 

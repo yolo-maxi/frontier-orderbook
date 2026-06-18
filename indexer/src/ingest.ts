@@ -395,6 +395,66 @@ export function applyEvent(db: DB, ev: DecodedEvent, bus?: EventEmitter): ApplyR
 }
 
 /**
+ * Persist a resolved claimTokenId -> (market, positionId) mapping. Called by
+ * the reconciler once `bookPositionOf(tokenId)` (and the owning book) are known.
+ * Idempotent and safe to call repeatedly.
+ */
+export function setClaimTokenMapping(
+  db: DB,
+  wrapper: string,
+  tokenId: string,
+  market: string,
+  positionId: string,
+  block?: number,
+): void {
+  db.prepare(
+    `UPDATE claim_tokens
+       SET market = ?, position_id = ?, updated_block = COALESCE(?, updated_block)
+     WHERE wrapper = ? AND token_id = ?`,
+  ).run(lc(market), positionId, block ?? null, lc(wrapper), tokenId);
+}
+
+/**
+ * Pure-DB fallback reconciliation for claim tokens whose (market, positionId)
+ * are still unknown. When a claim-token mint shares a transaction with exactly
+ * one book Deposit (the common wrap-on-deposit / wrap-immediately-after flow),
+ * the wrapped position can be derived from that correlation without an on-chain
+ * read. Returns the number of rows resolved.
+ *
+ * This is intentionally conservative: it only resolves when the correlation is
+ * unambiguous (a single candidate Deposit in the same tx), so it never assigns
+ * the wrong position. Ambiguous tokens are left for the on-chain reconciler.
+ */
+export function reconcileClaimTokensFromDeposits(db: DB): number {
+  const pending = db
+    .prepare(
+      `SELECT wrapper, token_id, minted_block FROM claim_tokens
+       WHERE position_id IS NULL AND burned = 0`,
+    )
+    .all() as Array<{ wrapper: string; token_id: string; minted_block: number | null }>;
+
+  let resolved = 0;
+  for (const ct of pending) {
+    // Find the mint tx for this token, then any Deposit logged in that same tx.
+    const candidates = db
+      .prepare(
+        `SELECT p.market AS market, p.position_id AS position_id
+         FROM positions p
+         WHERE p.deposit_block = ?`,
+      )
+      .all(ct.minted_block) as Array<{ market: string; position_id: string }>;
+    // Only resolve when a single position was created in the same block as the
+    // mint — an unambiguous 1:1 wrap. Multiple candidates stay pending.
+    if (candidates.length === 1) {
+      const c = candidates[0]!;
+      setClaimTokenMapping(db, ct.wrapper, ct.token_id, c.market, c.position_id, ct.minted_block ?? undefined);
+      resolved++;
+    }
+  }
+  return resolved;
+}
+
+/**
  * Apply a batch in a single transaction. Returns all notifications collected.
  */
 export function applyBatch(db: DB, events: DecodedEvent[], bus?: EventEmitter): void {

@@ -10,6 +10,11 @@
   "bin": {
     "frontier-indexer": "./bin/cli.mjs"
   },
+  "exports": {
+    ".": "./src/server.ts",
+    "./client": "./src/client.ts",
+    "./queries": "./src/queries.ts"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
