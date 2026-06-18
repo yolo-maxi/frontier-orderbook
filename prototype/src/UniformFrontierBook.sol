@@ -119,6 +119,23 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         return claimTo(positionId, frontier);
     }
 
+    /// @notice Keeper-friendly claim: settles the ask position to its frontier
+    /// and reverts unless the net proceeds reach `minProceeds`. Proceeds still
+    /// go to the position owner (operators manage, never receive). The guard
+    /// lets a bot batch claims and fail cheaply when there's nothing material
+    /// to harvest, removing the off-chain "is it worth a tx?" race. The owner
+    /// can call it directly; anyone else needs a `claimTo` grant in the
+    /// permission registry (claimTo is the authorized selector reached below).
+    function claimAuto(uint256 positionId, uint256 minProceeds) external returns (uint256 proceeds1) {
+        Position storage p = _positions[positionId];
+        require(p.live, "not live");
+        require(!p.isBid, "use bid methods");
+        int24 frontier = _frontier(p);
+        require(frontier > p.claimedUpper, "nothing to claim");
+        proceeds1 = claimTo(positionId, frontier);
+        require(proceeds1 >= minProceeds, "below min proceeds");
+    }
+
     // ------------------------------------------------------------------
     // BID side: buy token0 with token1, resting below the price
     // (bids are always uniform — token0-denominated sizes)
@@ -188,6 +205,19 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             return 0;
         }
         return claimBidTo(positionId, frontier);
+    }
+
+    /// @notice Keeper-friendly bid claim: mirror of `claimAuto`. Settles the
+    /// bid to its frontier, reverting unless net token0 proceeds reach
+    /// `minProceeds`. Proceeds go to the owner.
+    function claimBidAuto(uint256 positionId, uint256 minProceeds) external returns (uint256 proceeds0) {
+        Position storage p = _positions[positionId];
+        require(p.live, "not live");
+        require(p.isBid, "not a bid");
+        int24 frontier = _bidFrontier(p);
+        require(frontier < p.claimedUpper, "nothing to claim");
+        proceeds0 = claimBidTo(positionId, frontier);
+        require(proceeds0 >= minProceeds, "below min proceeds");
     }
 
     // ------------------------------------------------------------------

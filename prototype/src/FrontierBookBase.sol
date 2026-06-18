@@ -46,6 +46,26 @@ abstract contract FrontierBookBase {
         return _nextPositionId;
     }
 
+    /// @notice The current ask frontier of a position: the highest boundary
+    /// covered by any up-sweep since deposit, clamped to the position's range.
+    /// Exposes on-chain what integrators previously had to reconstruct from a
+    /// boundary witness off-chain. Returns `claimedUpper` for a fully-unfilled
+    /// position; reverts for non-ask positions.
+    function frontierOf(uint256 positionId) public view returns (int24) {
+        Position storage p = _positions[positionId];
+        require(p.live && !p.isBid, "not a live ask");
+        return _frontier(p);
+    }
+
+    /// @notice The current bid frontier of a position: the lowest boundary
+    /// covered by any down-sweep since deposit, clamped to range. Mirror of
+    /// `frontierOf` for the bid side; reverts for non-bid positions.
+    function bidFrontierOf(uint256 positionId) public view returns (int24) {
+        Position storage p = _positions[positionId];
+        require(p.live && p.isBid, "not a live bid");
+        return _bidFrontier(p);
+    }
+
     // signed: +L at live frontiers, -L at order uppers; rolls self-cancel
     mapping(int24 => int256) public frontierDelta;
     // one bit per tick-spacing interval with nonzero frontierDelta, so sweeps
@@ -578,13 +598,18 @@ abstract contract FrontierBookBase {
         internal
         returns (uint256 netProceeds, uint256 fee)
     {
+        // G4: a fee-free book (the common case) skips the mul/div, the fee
+        // transfer, and the event entirely.
+        if (makerFeeBps == 0) return (grossProceeds, 0);
         fee = _feeAmount(grossProceeds, makerFeeBps);
         netProceeds = grossProceeds - fee;
         if (fee > 0) require(token.transfer(feeRecipient, fee), "fee transfer failed");
-        if (makerFeeBps > 0) emit MakerFee(positionId, address(token), grossProceeds, fee, netProceeds, feeRecipient);
+        emit MakerFee(positionId, address(token), grossProceeds, fee, netProceeds, feeRecipient);
     }
 
     function _takerTotal(uint256 grossInput) internal view returns (uint256 totalPaid, uint256 fee) {
+        // G4: fee-free book pays exactly the gross input, no fee math.
+        if (takerFeeBps == 0) return (grossInput, 0);
         fee = _feeAmount(grossInput, takerFeeBps);
         totalPaid = grossInput + fee;
     }

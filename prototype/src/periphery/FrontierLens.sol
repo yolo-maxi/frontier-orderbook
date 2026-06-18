@@ -5,6 +5,31 @@ import {FrontierBookBase} from "../FrontierBookBase.sol";
 import {IRangeOrderBook} from "../IRangeOrderBook.sol";
 import {GeoTickMath} from "../curve/GeoTickMath.sol";
 
+/// @dev The book's public position/frontier views used by the lens snapshots.
+interface IFrontierBookViews {
+    function positions(uint256 positionId)
+        external
+        view
+        returns (
+            address owner,
+            int24 lower,
+            int24 upper,
+            uint128 liquidity,
+            int128 slope,
+            uint64 depositClock,
+            int24 claimedUpper,
+            bool live,
+            bool isBid
+        );
+    function frontierOf(uint256 positionId) external view returns (int24);
+    function bidFrontierOf(uint256 positionId) external view returns (int24);
+    function claimable(uint256 positionId) external view returns (uint256);
+    function bidClaimable(uint256 positionId) external view returns (uint256);
+    function unfilledPrincipal(uint256 positionId) external view returns (uint256);
+    function bidRefundable(uint256 positionId) external view returns (uint256);
+    function nextPositionId() external view returns (uint256);
+}
+
 /// @title FrontierLens — read-only periphery for UIs, bots, and aggregators.
 /// Reconstructs book depth from the public ledgers and quotes swaps by
 /// replaying the sweep math off-chain (eth_call), without touching state.
@@ -37,6 +62,23 @@ contract FrontierLens {
         address token1;
         int24 bestAsk; // lowest live ask level (type(int24).max if none)
         int24 bestBid; // highest live bid level (type(int24).min if none)
+    }
+
+    /// @notice Fully-resolved snapshot of a single position for indexers/UI,
+    /// gathered in one eth_call so the client never reconstructs frontier
+    /// state from raw ledgers.
+    struct PositionView {
+        uint256 positionId;
+        address owner;
+        int24 lower;
+        int24 upper;
+        uint128 liquidity;
+        int24 claimedUpper;
+        bool live;
+        bool isBid;
+        int24 frontier; // current fill frontier (ask: highest covered; bid: lowest)
+        uint256 claimable; // net token proceeds harvestable right now
+        uint256 unfilled; // principal still resting (token0 for asks, token1 refundable for bids)
     }
 
     /// @notice Depth over [fromTick, toTick): walks the aggregate ledgers
@@ -119,6 +161,139 @@ contract FrontierLens {
                 break;
             }
         }
+    }
+
+    /// @notice One fully-resolved position snapshot. Dead/zero ids return a
+    /// zeroed view with `live == false`. Routes through the book's own
+    /// frontier/claimable getters so the result matches what a claim would pay.
+    function positionView(FrontierBookBase book, uint256 positionId) public view returns (PositionView memory v) {
+        IFrontierBookViews b = IFrontierBookViews(address(book));
+        (address owner, int24 lower, int24 upper, uint128 liquidity,,, int24 claimedUpper, bool live, bool isBid) =
+            b.positions(positionId);
+        v.positionId = positionId;
+        v.owner = owner;
+        v.lower = lower;
+        v.upper = upper;
+        v.liquidity = liquidity;
+        v.claimedUpper = claimedUpper;
+        v.live = live;
+        v.isBid = isBid;
+        if (!live) return v;
+        if (isBid) {
+            v.frontier = b.bidFrontierOf(positionId);
+            v.claimable = b.bidClaimable(positionId);
+            v.unfilled = b.bidRefundable(positionId);
+        } else {
+            v.frontier = b.frontierOf(positionId);
+            v.claimable = b.claimable(positionId);
+            v.unfilled = b.unfilledPrincipal(positionId);
+        }
+    }
+
+    /// @notice Batch position snapshots for an explicit id set — one round
+    /// trip for an indexer or a maker's dashboard.
+    function positionViews(FrontierBookBase book, uint256[] calldata positionIds)
+        external
+        view
+        returns (PositionView[] memory views)
+    {
+        views = new PositionView[](positionIds.length);
+        for (uint256 i = 0; i < positionIds.length; i++) {
+            views[i] = positionView(book, positionIds[i]);
+        }
+    }
+
+    /// @notice Every live position owned by `owner`, scanning ids in
+    /// [fromId, toId). `toId == 0` means "up to nextPositionId()". Bounded by
+    /// the caller's window so it stays an eth_call-only convenience.
+    function positionsOf(FrontierBookBase book, address owner, uint256 fromId, uint256 toId)
+        external
+        view
+        returns (PositionView[] memory views)
+    {
+        IFrontierBookViews b = IFrontierBookViews(address(book));
+        if (toId == 0) toId = b.nextPositionId();
+        if (fromId == 0) fromId = 1;
+        PositionView[] memory buf = new PositionView[](toId > fromId ? toId - fromId : 0);
+        uint256 n;
+        for (uint256 id = fromId; id < toId; id++) {
+            PositionView memory v = positionView(book, id);
+            if (v.live && v.owner == owner) {
+                buf[n] = v;
+                n++;
+            }
+        }
+        views = new PositionView[](n);
+        for (uint256 i = 0; i < n; i++) {
+            views[i] = buf[i];
+        }
+    }
+
+    /// @notice Top-of-book: best ask/bid levels with their resting sizes and
+    /// X18 rates, plus the absolute spread in ticks. A single call gives a UI
+    /// everything it needs to render the inside market. `scanWindow` bounds the
+    /// search either side of the current tick (eth_call only).
+    struct TopOfBook {
+        int24 currentTick;
+        int24 bestAsk; // type(int24).max if no live ask in window
+        uint128 bestAskSize; // token0 resting at bestAsk
+        uint256 bestAskRate; // X18 token1/token0 at bestAsk (0 if none)
+        int24 bestBid; // type(int24).min if no live bid in window
+        uint128 bestBidSize; // token0-denominated size at bestBid
+        uint256 bestBidRate; // X18 at bestBid (0 if none)
+        int24 spreadTicks; // bestAsk - bestBid (type(int24).max if either side empty)
+    }
+
+    function bestPrices(FrontierBookBase book, int24 scanWindow) external view returns (TopOfBook memory out) {
+        int24 s = book.tickSpacing();
+        out.currentTick = IRangeOrderBook(address(book)).currentTick();
+        out.bestAsk = type(int24).max;
+        out.bestBid = type(int24).min;
+        out.spreadTicks = type(int24).max;
+
+        // ask side: prefix-sum value+slope ledgers; first level above price
+        // with positive aggregate size is the best ask
+        {
+            int256 acc;
+            int256 slope;
+            int24 start = out.currentTick - s * 512;
+            for (int24 t = start; t <= out.currentTick + scanWindow; t += s) {
+                slope += book.frontierSlope(t);
+                acc += book.frontierDelta(t) + slope;
+                if (t > out.currentTick && acc > 0) {
+                    out.bestAsk = t;
+                    out.bestAskSize = uint128(uint256(acc));
+                    break;
+                }
+            }
+        }
+        // bid side: suffix-sum from above; first level at/below price with
+        // positive aggregate size is the best bid
+        {
+            int256 acc;
+            for (int24 t = out.currentTick + scanWindow; t >= out.currentTick - scanWindow; t -= s) {
+                acc += book.bidDelta(t);
+                if (t <= out.currentTick - s && acc > 0) {
+                    out.bestBid = t;
+                    out.bestBidSize = uint128(uint256(acc));
+                    break;
+                }
+            }
+        }
+
+        Curve memory c = curveOf(book);
+        if (out.bestAsk != type(int24).max) out.bestAskRate = _rateAt(c, out.bestAsk, s);
+        if (out.bestBid != type(int24).min) out.bestBidRate = _rateAt(c, out.bestBid, s);
+        if (out.bestAsk != type(int24).max && out.bestBid != type(int24).min) {
+            out.spreadTicks = out.bestAsk - out.bestBid;
+        }
+    }
+
+    /// @dev X18 token1/token0 rate at a tick on the book's curve.
+    function _rateAt(Curve memory c, int24 t, int24) internal pure returns (uint256) {
+        if (c.geo) return GeoTickMath.powX18(t);
+        int256 r = int256(PRICE_SCALE) + int256(t) * 1e15;
+        return r > 0 ? uint256(r) : 0;
     }
 
     /// @notice The book's price curve, detected from the contract itself.
