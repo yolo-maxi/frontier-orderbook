@@ -15,7 +15,6 @@ interface IFrontierBookViews {
             int24 lower,
             int24 upper,
             uint128 liquidity,
-            int128 slope,
             uint64 depositClock,
             int24 claimedUpper,
             bool live,
@@ -168,7 +167,7 @@ contract FrontierLens {
     /// frontier/claimable getters so the result matches what a claim would pay.
     function positionView(FrontierBookBase book, uint256 positionId) public view returns (PositionView memory v) {
         IFrontierBookViews b = IFrontierBookViews(address(book));
-        (address owner, int24 lower, int24 upper, uint128 liquidity,,, int24 claimedUpper, bool live, bool isBid) =
+        (address owner, int24 lower, int24 upper, uint128 liquidity,, int24 claimedUpper, bool live, bool isBid) =
             b.positions(positionId);
         v.positionId = positionId;
         v.owner = owner;
@@ -251,15 +250,16 @@ contract FrontierLens {
         out.bestBid = type(int24).min;
         out.spreadTicks = type(int24).max;
 
-        // ask side: prefix-sum value+slope ledgers; first level above price
-        // with positive aggregate size is the best ask
+        // ask side: prefix-sum the frontierDelta ledger from below the inside
+        // market upward. The book is uniform — run size is constant across a run
+        // and equals the running delta sum (no slope ladder) — so the first
+        // level above the current tick with positive aggregate size is the best
+        // ask. Mirrors summary()'s aggregation, just resolving size too.
         {
             int256 acc;
-            int256 slope;
             int24 start = out.currentTick - s * 512;
             for (int24 t = start; t <= out.currentTick + scanWindow; t += s) {
-                slope += book.frontierSlope(t);
-                acc += book.frontierDelta(t) + slope;
+                acc += book.frontierDelta(t);
                 if (t > out.currentTick && acc > 0) {
                     out.bestAsk = t;
                     out.bestAskSize = uint128(uint256(acc));
