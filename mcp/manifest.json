@@ -1,0 +1,39 @@
+{
+  "name": "frontier-mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for the Frontier on-chain order-book + prediction-market venue. Exposes market/maker/taker/position/lens and delegation tools with read, quote, dry-run simulation, and execute paths.",
+  "transport": "stdio",
+  "command": "frontier-mcp",
+  "homepage": "https://clob.repo.box",
+  "env": {
+    "FRONTIER_RPC_URL": { "required": true, "description": "JSON-RPC endpoint." },
+    "FRONTIER_CHAIN_ID": { "required": false, "description": "Chain id (recommended)." },
+    "FRONTIER_FACTORY": { "required": false, "description": "FrontierGeoBookFactory address." },
+    "FRONTIER_ROUTER": { "required": false, "description": "FrontierRouter address." },
+    "FRONTIER_LENS": { "required": false, "description": "FrontierLens address." },
+    "FRONTIER_REGISTRY": { "required": false, "description": "PermissionRegistry address." },
+    "FRONTIER_BOOK": { "required": false, "description": "Default GeometricFrontierBook address." },
+    "FRONTIER_PRIVATE_KEY": {
+      "required": false,
+      "description": "0x private key. Without it, write tools dry-run and return calldata only."
+    }
+  },
+  "tools": [
+    { "name": "frontier_book_config", "category": "lens", "write": false, "description": "Read a book's tokens, spacing, current tick, fee config, hooks, permissions." },
+    { "name": "frontier_lens_summary", "category": "lens", "write": false, "description": "Lens summary: current tick, spacing, tokens, best ask/bid." },
+    { "name": "frontier_lens_depth", "category": "lens", "write": false, "description": "Aggregated bid/ask depth levels between two ticks." },
+    { "name": "frontier_quote", "category": "lens", "write": false, "description": "Quote a buy or sell before trading." },
+    { "name": "frontier_market_find", "category": "market", "write": false, "description": "Look up existing books for a token pair." },
+    { "name": "frontier_market_create", "category": "market", "write": true, "description": "Create a geometric market (validated, simulated, optional execute)." },
+    { "name": "frontier_maker_deposit", "category": "maker", "write": true, "description": "Place an ask or bid (validated, simulated, optional execute)." },
+    { "name": "frontier_maker_claim", "category": "maker", "write": true, "description": "Claim net proceeds for a position." },
+    { "name": "frontier_maker_cancel", "category": "maker", "write": true, "description": "Cancel a position; returns proceeds + principal/refund." },
+    { "name": "frontier_maker_requote", "category": "maker", "write": true, "description": "Move/resize a live position." },
+    { "name": "frontier_taker_swap", "category": "taker", "write": true, "description": "Router exact-input swap with quote + slippage." },
+    { "name": "frontier_taker_sweep", "category": "taker", "write": true, "description": "Advanced direct sweep with explicit limits." },
+    { "name": "frontier_position_get", "category": "position", "write": false, "description": "Read a position and its live entitlements." },
+    { "name": "frontier_position_transfer", "category": "position", "write": true, "description": "Transfer position ownership." },
+    { "name": "frontier_delegation_grant", "category": "position", "write": true, "description": "Grant selector-scoped delegation with optional expiry." },
+    { "name": "frontier_delegation_check", "category": "position", "write": false, "description": "Check whether an operator is authorized for a selector." }
+  ]
+}

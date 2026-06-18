@@ -1,0 +1,5 @@
+# Self-rooted workspace: stops pnpm from walking up into any unrelated parent
+# workspace. The SDK installs its own isolated node_modules and does not hoist
+# into the Frontier repo root or grandparent directories.
+packages:
+  - "."

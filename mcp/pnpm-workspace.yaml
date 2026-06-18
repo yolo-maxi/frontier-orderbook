@@ -1,0 +1,4 @@
+# Self-rooted workspace so installs stay isolated and do not hoist into a parent
+# workspace. The MCP server links the SDK via file:../sdk.
+packages:
+  - "."
