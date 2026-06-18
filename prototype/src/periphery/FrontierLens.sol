@@ -233,6 +233,73 @@ contract FrontierLens {
         }
     }
 
+    /// @notice Top-of-book: best ask/bid levels with their resting sizes and
+    /// X18 rates, plus the absolute spread in ticks. A single call gives a UI
+    /// everything it needs to render the inside market. `scanWindow` bounds the
+    /// search either side of the current tick (eth_call only).
+    struct TopOfBook {
+        int24 currentTick;
+        int24 bestAsk; // type(int24).max if no live ask in window
+        uint128 bestAskSize; // token0 resting at bestAsk
+        uint256 bestAskRate; // X18 token1/token0 at bestAsk (0 if none)
+        int24 bestBid; // type(int24).min if no live bid in window
+        uint128 bestBidSize; // token0-denominated size at bestBid
+        uint256 bestBidRate; // X18 at bestBid (0 if none)
+        int24 spreadTicks; // bestAsk - bestBid (type(int24).max if either side empty)
+    }
+
+    function bestPrices(FrontierBookBase book, int24 scanWindow) external view returns (TopOfBook memory out) {
+        int24 s = book.tickSpacing();
+        out.currentTick = IRangeOrderBook(address(book)).currentTick();
+        out.bestAsk = type(int24).max;
+        out.bestBid = type(int24).min;
+        out.spreadTicks = type(int24).max;
+
+        // ask side: prefix-sum value+slope ledgers; first level above price
+        // with positive aggregate size is the best ask
+        {
+            int256 acc;
+            int256 slope;
+            int24 start = out.currentTick - s * 512;
+            for (int24 t = start; t <= out.currentTick + scanWindow; t += s) {
+                slope += book.frontierSlope(t);
+                acc += book.frontierDelta(t) + slope;
+                if (t > out.currentTick && acc > 0) {
+                    out.bestAsk = t;
+                    out.bestAskSize = uint128(uint256(acc));
+                    break;
+                }
+            }
+        }
+        // bid side: suffix-sum from above; first level at/below price with
+        // positive aggregate size is the best bid
+        {
+            int256 acc;
+            for (int24 t = out.currentTick + scanWindow; t >= out.currentTick - scanWindow; t -= s) {
+                acc += book.bidDelta(t);
+                if (t <= out.currentTick - s && acc > 0) {
+                    out.bestBid = t;
+                    out.bestBidSize = uint128(uint256(acc));
+                    break;
+                }
+            }
+        }
+
+        Curve memory c = curveOf(book);
+        if (out.bestAsk != type(int24).max) out.bestAskRate = _rateAt(c, out.bestAsk, s);
+        if (out.bestBid != type(int24).min) out.bestBidRate = _rateAt(c, out.bestBid, s);
+        if (out.bestAsk != type(int24).max && out.bestBid != type(int24).min) {
+            out.spreadTicks = out.bestAsk - out.bestBid;
+        }
+    }
+
+    /// @dev X18 token1/token0 rate at a tick on the book's curve.
+    function _rateAt(Curve memory c, int24 t, int24) internal pure returns (uint256) {
+        if (c.geo) return GeoTickMath.powX18(t);
+        int256 r = int256(PRICE_SCALE) + int256(t) * 1e15;
+        return r > 0 ? uint256(r) : 0;
+    }
+
     /// @notice The book's price curve, detected from the contract itself.
     function curveOf(FrontierBookBase book) public view returns (Curve memory c) {
         (bool ok, bytes memory ret) = address(book).staticcall(abi.encodeWithSignature("geoD()"));

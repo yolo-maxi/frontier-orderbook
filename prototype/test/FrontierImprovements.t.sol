@@ -225,6 +225,37 @@ contract FrontierImprovementsTest is Test {
         assertFalse(vs[2].live);
     }
 
+    // ------------------------------------------------------------------
+    // Periphery: top-of-book
+    // ------------------------------------------------------------------
+
+    function testBestPricesReportsInsideMarket() public {
+        vm.startPrank(mm);
+        book.deposit(55, 60, L); // asks; best ask at 55
+        book.deposit(58, 62, L); // overlapping asks
+        book.depositBid(40, 45, L); // bids; best bid at 44
+        vm.stopPrank();
+
+        FrontierLens.TopOfBook memory t = lens.bestPrices(book, 100);
+        assertEq(t.currentTick, 50);
+        assertEq(t.bestAsk, 55, "best ask is lowest live ask");
+        assertEq(t.bestAskSize, L, "best ask size");
+        assertEq(t.bestBid, 44, "best bid is highest live bid");
+        assertEq(t.bestBidSize, L, "best bid size");
+        assertEq(t.spreadTicks, 55 - 44, "spread in ticks");
+        assertEq(t.bestAskRate, book.rateAt(55), "ask rate matches curve");
+        assertEq(t.bestBidRate, book.rateAt(44), "bid rate matches curve");
+    }
+
+    function testBestPricesEmptySides() public view {
+        FrontierLens.TopOfBook memory t = lens.bestPrices(book, 100);
+        assertEq(t.bestAsk, type(int24).max, "no asks");
+        assertEq(t.bestBid, type(int24).min, "no bids");
+        assertEq(t.spreadTicks, type(int24).max, "undefined spread");
+        assertEq(t.bestAskRate, 0);
+        assertEq(t.bestBidRate, 0);
+    }
+
     // geometric (production curve) sanity: frontierOf works there too
     function testGeoFrontierOf() public {
         GeometricFrontierBook geo = newGeoBook(address(t0), address(t1), 1, 50, address(0), address(0));
