@@ -8,6 +8,7 @@ import { MarketPanel } from "./components/MarketPanel";
 import { SidePanel } from "./components/SidePanel";
 import { Toasts } from "./components/Toasts";
 import { Brand } from "./components/Brand";
+import { CommandPalette } from "./components/CommandPalette";
 
 type ConfigState =
   | { phase: "loading" }
@@ -106,6 +107,7 @@ function Shell() {
       )}
       <Footer />
       <Toasts />
+      <CommandPalette />
     </div>
   );
 }

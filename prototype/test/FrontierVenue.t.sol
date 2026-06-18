@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "../src/FrontierErrors.sol";
+
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
@@ -138,7 +140,7 @@ contract FrontierVenueTest is Test {
 
         // naive deposit is blocked...
         vm.prank(bob);
-        vm.expectRevert(bytes("range not above price"));
+        vm.expectRevert(RangeNotAbovePrice.selector);
         book.deposit(1, 100, L);
 
         // ...but retreats are free, permissionless, and harmless to others,

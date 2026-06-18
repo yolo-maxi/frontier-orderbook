@@ -1,3 +1,6 @@
 prototype/out/
 prototype/cache/
 prototype/broadcast/
+
+# Node deps (UI + bots) — never ship in the repo
+node_modules/

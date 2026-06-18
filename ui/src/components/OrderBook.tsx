@@ -1,13 +1,40 @@
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useApp } from "../state/app";
 import { fmtPrice, niceStep, stepDecimals, tickToPrice } from "../lib/format";
-import { baseDecimals } from "../lib/config";
+import { baseDecimals, quoteDecimals } from "../lib/config";
 import { formatUnits } from "viem";
 
 interface Bucket {
   price: number; // bucket lower edge price
   size: number; // token0 units (float, display only)
   cum: number;
+  shadow: number; // token0 units mirrored by shadow inventory at this level
+  shadowCum: number; // cumulative shadow depth through this level
+}
+
+/** Walk buckets from best price outward, assigning each the shadow size the
+ * pooled inventory can mirror, capped by the running reserve budget. Asks
+ * spend a token0 budget directly; bids spend a token1 budget converted at the
+ * bucket price (approximate, for display). */
+function applyShadow(buckets: Bucket[], side: "ask" | "bid", reserve0: number, reserve1: number) {
+  let budget = side === "ask" ? reserve0 : reserve1;
+  let cum = 0;
+  for (const b of buckets) {
+    let s = 0;
+    if (side === "ask") {
+      s = Math.min(b.size, budget);
+      budget -= s;
+    } else {
+      const cost1 = b.size * b.price; // token1 the pool would pay for this level
+      if (cost1 > 0 && budget > 0) {
+        s = budget >= cost1 ? b.size : b.size * (budget / cost1);
+        budget -= Math.min(cost1, budget);
+      }
+    }
+    b.shadow = s;
+    cum += s;
+    b.shadowCum = cum;
+  }
 }
 
 const BUCKETS_PER_SIDE = 25;
@@ -29,14 +56,22 @@ function bucketize(
   for (const k of keys.slice(0, BUCKETS_PER_SIDE)) {
     const size = map.get(k)!;
     cum += size;
-    out.push({ price: k, size, cum });
+    out.push({ price: k, size, cum, shadow: 0, shadowCum: 0 });
   }
   return out;
 }
 
 export function OrderBook() {
-  const { cfg, summary, depth, preview, market } = useApp();
+  const { cfg, summary, depth, preview, market, shadow, dispatchCommand } = useApp();
   const baseDec = baseDecimals(cfg);
+  const quoteDec = quoteDecimals(cfg);
+  // U4 — hover detail + click-to-quote
+  const [hover, setHover] = useState<{ side: "ask" | "bid"; price: number } | null>(null);
+  const quoteAt = (side: "ask" | "bid", price: number) =>
+    dispatchCommand({ type: "quote-at-price", side, price });
+  const shadowR0 = Number(formatUnits(shadow.reserve0, baseDec));
+  const shadowR1 = Number(formatUnits(shadow.reserve1, quoteDec));
+  const shadowActive = shadow.totalShares > 0n && (shadow.reserve0 > 0n || shadow.reserve1 > 0n);
   // price range of the ladder being configured in Make (if any)
   const previewRange =
     preview?.kind === "make" && preview.lowerTick !== undefined && preview.upperTick !== undefined
@@ -95,11 +130,10 @@ export function OrderBook() {
     const dp = stepDecimals(step);
     const askBuckets = bucketize(asks, step, "ask");
     const bidBuckets = bucketize(bids, step, "bid");
-    const maxCum = Math.max(
-      askBuckets.length ? askBuckets[askBuckets.length - 1].cum : 0,
-      bidBuckets.length ? bidBuckets[bidBuckets.length - 1].cum : 0,
-      1e-12,
-    );
+    applyShadow(askBuckets, "ask", shadowR0, shadowR1);
+    applyShadow(bidBuckets, "bid", shadowR0, shadowR1);
+    const sideMax = (bs: Bucket[]) => (bs.length ? bs[bs.length - 1].cum + bs[bs.length - 1].shadowCum : 0);
+    const maxCum = Math.max(sideMax(askBuckets), sideMax(bidBuckets), 1e-12);
     const mid =
       summary.hasAsk && summary.hasBid
         ? (tickToPrice(summary.bestAsk) + tickToPrice(summary.bestBid)) / 2
@@ -109,7 +143,8 @@ export function OrderBook() {
         ? tickToPrice(summary.bestAsk) - tickToPrice(summary.bestBid)
         : null;
     return { askBuckets, bidBuckets, maxCum, mid, spread, dp, step };
-  }, [summary, depth]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary, depth, shadowR0, shadowR1]);
 
   useEffect(() => {
     if (!model) return;
@@ -194,6 +229,11 @@ export function OrderBook() {
     <section className="panel book-panel">
       <div className="panel-title">
         Order Book <span className="dim title-note">bucket ${fmtPrice(step, 3)}</span>
+        {shadowActive && (
+          <span className="shadow-legend num" title={`Shadow liquidity mirrors real fills at the book price, capped by pooled inventory. Shadow fills pay ${shadow.feeBps} bps to the protocol.`}>
+            <i className="shadow-swatch" /> shadow {fmtSize(shadowR0, 2)} {market.baseSymbol} · {fmtSize(shadowR1, 0)} {market.quoteSymbol}
+          </span>
+        )}
         {previewRange && (
           <span className="book-preview-chip num">
             your {previewRange.side} ladder {fmtPrice(previewRange.pLo, 3)}–{fmtPrice(previewRange.pHi, 3)}
@@ -216,14 +256,33 @@ export function OrderBook() {
                 <span className="num dim">—</span>
               </div>
             ) : (
-              <div className={`book-row ${inPreview("ask", b.price, step) ? "book-row-hl" : ""}`} key={`a${b.price}`}>
+              <div
+                className={`book-row book-row-live ${inPreview("ask", b.price, step) ? "book-row-hl" : ""} ${hover?.side === "ask" && hover.price === b.price ? "book-row-hover" : ""}`}
+                key={`a${b.price}`}
+                onMouseEnter={() => setHover({ side: "ask", price: b.price })}
+                onMouseLeave={() => setHover((h) => (h?.side === "ask" && h.price === b.price ? null : h))}
+                onClick={() => quoteAt("ask", b.price)}
+                title={`Click to quote an ask ladder from ${fmtPrice(b.price, dp)}`}
+              >
                 {flashOverlay(flashesRef.current.ask.get(b.price))}
                 <div
                   className="book-bar bar-ask"
                   style={{ width: `${Math.min(100, (b.cum / maxCum) * 100)}%` }}
                 />
+                {b.shadowCum > 0 && (
+                  <div
+                    className="book-bar bar-shadow bar-shadow-ask"
+                    style={{
+                      right: `${Math.min(100, (b.cum / maxCum) * 100)}%`,
+                      width: `${Math.min(100, (b.shadowCum / maxCum) * 100)}%`,
+                    }}
+                  />
+                )}
                 <span className="px ask num">{fmtPrice(b.price, dp)}</span>
-                <span className="num">{fmtSize(b.size, sizeDp)}</span>
+                <span className="num">
+                  {fmtSize(b.size, sizeDp)}
+                  {b.shadow > 0.0005 && <em className="shadow-tag" title="shadow-mirrored depth">+{fmtSize(b.shadow, sizeDp)}</em>}
+                </span>
                 <span className="num dim">{fmtSize(b.cum, sizeDp)}</span>
               </div>
             ),
@@ -254,21 +313,99 @@ export function OrderBook() {
                 <span className="num dim">—</span>
               </div>
             ) : (
-              <div className={`book-row ${inPreview("bid", b.price, step) ? "book-row-hl" : ""}`} key={`b${b.price}`}>
+              <div
+                className={`book-row book-row-live ${inPreview("bid", b.price, step) ? "book-row-hl" : ""} ${hover?.side === "bid" && hover.price === b.price ? "book-row-hover" : ""}`}
+                key={`b${b.price}`}
+                onMouseEnter={() => setHover({ side: "bid", price: b.price })}
+                onMouseLeave={() => setHover((h) => (h?.side === "bid" && h.price === b.price ? null : h))}
+                onClick={() => quoteAt("bid", b.price)}
+                title={`Click to quote a bid ladder to ${fmtPrice(b.price, dp)}`}
+              >
                 {flashOverlay(flashesRef.current.bid.get(b.price))}
                 <div
                   className="book-bar bar-bid"
                   style={{ width: `${Math.min(100, (b.cum / maxCum) * 100)}%` }}
                 />
+                {b.shadowCum > 0 && (
+                  <div
+                    className="book-bar bar-shadow bar-shadow-bid"
+                    style={{
+                      right: `${Math.min(100, (b.cum / maxCum) * 100)}%`,
+                      width: `${Math.min(100, (b.shadowCum / maxCum) * 100)}%`,
+                    }}
+                  />
+                )}
                 <span className="px bid num">{fmtPrice(b.price, dp)}</span>
-                <span className="num">{fmtSize(b.size, sizeDp)}</span>
+                <span className="num">
+                  {fmtSize(b.size, sizeDp)}
+                  {b.shadow > 0.0005 && <em className="shadow-tag" title="shadow-mirrored depth">+{fmtSize(b.shadow, sizeDp)}</em>}
+                </span>
                 <span className="num dim">{fmtSize(b.cum, sizeDp)}</span>
               </div>
             ),
           )}
         </div>
       </div>
+      <BookHoverDetail
+        hover={hover}
+        askBuckets={askBuckets}
+        bidBuckets={bidBuckets}
+        mid={mid}
+        dp={dp}
+        baseSym={market.baseSymbol}
+        quoteSym={market.quoteSymbol}
+      />
     </section>
+  );
+}
+
+function BookHoverDetail({
+  hover,
+  askBuckets,
+  bidBuckets,
+  mid,
+  dp,
+  baseSym,
+  quoteSym,
+}: {
+  hover: { side: "ask" | "bid"; price: number } | null;
+  askBuckets: Bucket[];
+  bidBuckets: Bucket[];
+  mid: number;
+  dp: number;
+  baseSym: string;
+  quoteSym: string;
+}) {
+  if (!hover) {
+    return (
+      <div className="book-detail book-detail-idle dim num">
+        hover a level for detail · click to quote a ladder there
+      </div>
+    );
+  }
+  const list = hover.side === "ask" ? askBuckets : bidBuckets;
+  const b = list.find((x) => x.price === hover.price);
+  if (!b) return <div className="book-detail dim num">—</div>;
+  const distBps = mid > 0 ? Math.abs((b.price - mid) / mid) * 10000 : 0;
+  const notional = b.size * b.price; // approx quote notional at this level
+  const cumNotional = b.cum * b.price;
+  return (
+    <div className={`book-detail num ${hover.side === "ask" ? "detail-ask" : "detail-bid"}`}>
+      <span className="detail-px">{fmtPrice(b.price, dp)}</span>
+      <span className="detail-cell">
+        <span className="dim">size</span> {fmtSize(b.size, 3)} {baseSym}
+      </span>
+      <span className="detail-cell">
+        <span className="dim">notional</span> {fmtSize(notional, 0)} {quoteSym}
+      </span>
+      <span className="detail-cell">
+        <span className="dim">cum</span> {fmtSize(cumNotional, 0)} {quoteSym}
+      </span>
+      <span className="detail-cell">
+        <span className="dim">from mid</span> {distBps.toFixed(1)} bps
+      </span>
+      <span className="detail-cta">click → quote {hover.side}</span>
+    </div>
   );
 }
 

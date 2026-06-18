@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clob.repo.box/schemas/position-schema.json",
+  "title": "Frontier Position",
+  "description": "Normalized view of a GeometricFrontierBook position. Mirrors the on-chain positions(positionId) record plus derived live entitlements. Agents should persist at least { book, positionId, owner, side, lower, upper } after every deposit. All token amounts are decimal strings of the underlying uint256 so no precision is lost over JSON.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "book",
+    "positionId",
+    "owner",
+    "side",
+    "lower",
+    "upper",
+    "liquidity",
+    "live"
+  ],
+  "properties": {
+    "book": {
+      "$ref": "#/$defs/address",
+      "description": "GeometricFrontierBook this position lives in."
+    },
+    "positionId": {
+      "$ref": "#/$defs/uint",
+      "description": "On-chain position id (uint256), returned by deposit/depositBid."
+    },
+    "owner": {
+      "$ref": "#/$defs/address",
+      "description": "Current owner. Funds settle to the owner; delegates may manage via PermissionRegistry."
+    },
+    "side": {
+      "type": "string",
+      "enum": ["ask", "bid"],
+      "description": "ask = sells token0 above current tick; bid = buys token0 at/below current tick. Mirrors the on-chain isBid flag (ask = false, bid = true)."
+    },
+    "lower": {
+      "$ref": "#/$defs/tick",
+      "description": "Lower tick of the half-open range [lower, upper). Aligned to tickSpacing."
+    },
+    "upper": {
+      "$ref": "#/$defs/tick",
+      "description": "Upper tick (exclusive). Must be > lower and aligned to tickSpacing."
+    },
+    "liquidity": {
+      "$ref": "#/$defs/uint",
+      "description": "Resting liquidity per level (uint128). The uniform book rests the same size at every level in range."
+    },
+    "depositClock": {
+      "$ref": "#/$defs/uint",
+      "description": "Lifecycle/epoch clock captured at deposit. Enforces epoch isolation / new-deposit freshness (invariants I2, I8): a deposit only earns from fills in its own lifecycle."
+    },
+    "claimedUpper": {
+      "$ref": "#/$defs/tick",
+      "description": "High-water mark up to which proceeds have been claimed for this position."
+    },
+    "live": {
+      "type": "boolean",
+      "description": "True while the position still has eligibility. Cancellation sets this false."
+    },
+    "claimableNet": {
+      "$ref": "#/$defs/uint",
+      "description": "Net claimable proceeds (after maker fee): token1 for asks, token0 for bids. Derived from claimable()/bidClaimable()."
+    },
+    "unfilledPrincipal": {
+      "$ref": "#/$defs/uint",
+      "description": "Ask only: unfilled token0 principal still resting. From unfilledPrincipal()."
+    },
+    "refundable": {
+      "$ref": "#/$defs/uint",
+      "description": "Bid only: refundable token1 for the unfilled portion. From bidRefundable()."
+    },
+    "claimToken": {
+      "description": "Optional ERC-721 (FrontierPositionNFT) wrapping this position, if tokenized.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["wrapper", "tokenId"],
+          "properties": {
+            "wrapper": { "$ref": "#/$defs/address" },
+            "tokenId": { "$ref": "#/$defs/uint" },
+            "owner": { "$ref": "#/$defs/address" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "depositBlock": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Block the position was created in (indexer-provided)."
+    },
+    "strategy": {
+      "type": ["string", "null"],
+      "description": "Free-form agent metadata: strategy/tag the bot associates with this position."
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "lower must be strictly below upper.",
+      "properties": {
+        "lower": { "type": "integer" },
+        "upper": { "type": "integer" }
+      }
+    },
+    {
+      "$comment": "Side-specific entitlement fields.",
+      "if": { "properties": { "side": { "const": "ask" } }, "required": ["side"] },
+      "then": { "not": { "required": ["refundable"] } },
+      "else": { "not": { "required": ["unfilledPrincipal"] } }
+    }
+  ],
+  "$defs": {
+    "address": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{40}$"
+    },
+    "uint": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Non-negative integer as a decimal string (uint256/uint128 safe over JSON)."
+    },
+    "tick": {
+      "type": "integer",
+      "minimum": -8388608,
+      "maximum": 8388607,
+      "description": "int24 tick."
+    }
+  },
+  "examples": [
+    {
+      "book": "0x6666666666666666666666666666666666666666",
+      "positionId": "42",
+      "owner": "0x1111111111111111111111111111111111111111",
+      "side": "ask",
+      "lower": 60,
+      "upper": 600,
+      "liquidity": "1000000000000000000",
+      "depositClock": "7",
+      "claimedUpper": 120,
+      "live": true,
+      "claimableNet": "4950000000000000",
+      "unfilledPrincipal": "900000000000000000",
+      "claimToken": null,
+      "depositBlock": 19000123,
+      "strategy": "ladder-up-10"
+    }
+  ]
+}

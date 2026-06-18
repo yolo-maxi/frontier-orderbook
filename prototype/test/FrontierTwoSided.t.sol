@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "../src/FrontierErrors.sol";
+
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
@@ -165,15 +167,15 @@ contract FrontierTwoSidedTest is Test {
         book.moveTickTo(93);
 
         vm.prank(mm);
-        vm.expectRevert(bytes("not filled"));
+        vm.expectRevert(NotFilled.selector);
         book.claimBidTo(id, 92); // below the true frontier
 
         vm.prank(mm);
-        vm.expectRevert(bytes("frontier not maximal"));
+        vm.expectRevert(FrontierNotMaximal.selector);
         book.cancelBidWithWitness(id, 94); // understated frontier
 
         vm.prank(mm);
-        vm.expectRevert(bytes("frontier not filled"));
+        vm.expectRevert(FrontierNotFilled.selector);
         book.cancelBidWithWitness(id, 92); // overstated frontier
 
         vm.prank(mm);
@@ -206,11 +208,11 @@ contract FrontierTwoSidedTest is Test {
 
     function testNoCrossingDeposits() public {
         vm.prank(mm);
-        vm.expectRevert(bytes("range not above price"));
+        vm.expectRevert(RangeNotAbovePrice.selector);
         book.deposit(99, 102, L); // ask at/below price
 
         vm.prank(mm);
-        vm.expectRevert(bytes("range not below price"));
+        vm.expectRevert(RangeNotBelowPrice.selector);
         book.depositBid(99, 102, L); // bid above price
 
         // touching quotes on both sides of the pointer are fine
@@ -279,13 +281,13 @@ contract FrontierTwoSidedTest is Test {
         book.deposit(101, 103, L); // only 2 levels available
 
         vm.prank(buyer);
-        vm.expectRevert(bytes("insufficient output"));
+        vm.expectRevert(InsufficientOutput.selector);
         book.sweepWithLimits(111, type(uint256).max, type(uint256).max, 3 * uint256(L), block.timestamp);
     }
 
     function testDeadlineReverts() public {
         vm.prank(buyer);
-        vm.expectRevert(bytes("expired"));
+        vm.expectRevert(Expired.selector);
         book.sweepWithLimits(111, type(uint256).max, type(uint256).max, 0, block.timestamp - 1);
     }
 

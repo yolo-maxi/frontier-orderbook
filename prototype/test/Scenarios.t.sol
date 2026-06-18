@@ -140,7 +140,7 @@ abstract contract ScenarioSuite is BookTestBase {
         assertEq(book.claimable(id), 0, "no future proceeds");
         assertEq(t1.balanceOf(bob), t1After, "no payout after cancel");
         vm.prank(bob);
-        vm.expectRevert(bytes("not live"));
+        _expectNotLive();
         book.claim(id);
     }
 
@@ -197,10 +197,10 @@ abstract contract ScenarioSuite is BookTestBase {
     function testBoundary_DepositAtOrBelowCurrentTickReverts() public {
         book.moveTickTo(5);
         vm.prank(bob);
-        vm.expectRevert(bytes("range not above price"));
+        _expectRangeNotAbovePrice();
         book.deposit(5, 10, L);
         vm.prank(bob);
-        vm.expectRevert(bytes("range not above price"));
+        _expectRangeNotAbovePrice();
         book.deposit(3, 10, L);
         // first interval strictly above price is fine
         dep(bob, 6, 10, L);
@@ -208,23 +208,23 @@ abstract contract ScenarioSuite is BookTestBase {
 
     function testBoundary_EmptyOrInvertedRangeReverts() public {
         vm.prank(bob);
-        vm.expectRevert(bytes("empty range"));
+        _expectEmptyRange();
         book.deposit(5, 5, L);
         vm.prank(bob);
-        vm.expectRevert(bytes("empty range"));
+        _expectEmptyRange();
         book.deposit(6, 5, L);
         vm.prank(bob);
-        vm.expectRevert(bytes("zero liquidity"));
+        _expectZeroLiquidity();
         book.deposit(5, 6, 0);
     }
 
     function testBoundary_MisalignedRangeReverts() public {
         _makeBook(10, 0);
         vm.prank(bob);
-        vm.expectRevert(bytes("unaligned"));
+        _expectUnaligned();
         book.deposit(5, 30, L);
         vm.prank(bob);
-        vm.expectRevert(bytes("unaligned"));
+        _expectUnaligned();
         book.deposit(10, 25, L);
         dep(bob, 10, 30, L); // aligned works
     }
@@ -248,6 +248,33 @@ abstract contract ScenarioSuite is BookTestBase {
         book.moveTickTo(6); // now [5,6) fully crossed
         assertEq(book.claimable(id), amt1(5, L), "[5,6) filled");
         assertEq(book.activeLiquidity(6), L, "[6,7) still active");
+    }
+
+    // ------------------------------------------------------------------
+    // Revert-expectation hooks. The reference/prod books still use string
+    // requires; the frontier book (gas pass G1) reverts with custom errors.
+    // The shared suite runs against all three, so it expects reverts through
+    // these virtuals — overridden in FrontierScenariosTest to the selectors.
+    // ------------------------------------------------------------------
+
+    function _expectNotLive() internal virtual {
+        vm.expectRevert(bytes("not live"));
+    }
+
+    function _expectRangeNotAbovePrice() internal virtual {
+        vm.expectRevert(bytes("range not above price"));
+    }
+
+    function _expectEmptyRange() internal virtual {
+        vm.expectRevert(bytes("empty range"));
+    }
+
+    function _expectZeroLiquidity() internal virtual {
+        vm.expectRevert(bytes("zero liquidity"));
+    }
+
+    function _expectUnaligned() internal virtual {
+        vm.expectRevert(bytes("unaligned"));
     }
 }
 

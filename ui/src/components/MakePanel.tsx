@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../state/app";
 import { bookAbi } from "../abi/book";
 import { erc20Abi } from "../abi/erc20";
@@ -29,8 +29,35 @@ interface Plan {
   error: string | null;
 }
 
+/**
+ * U7 — ladder shape presets. Each preset sets the side, a price band around
+ * the mid (as a +/- offset in price units) and the shape (flat or front-
+ * loaded). Sizing is left to the trader. Offsets are in absolute price so
+ * they read naturally on the $0.001-tick book.
+ */
+interface LadderPreset {
+  id: string;
+  label: string;
+  desc: string;
+  side: Side;
+  /** inner / outer offset from mid, in price units */
+  inner: number;
+  outer: number;
+  frontLoaded: boolean;
+}
+
+const LADDER_PRESETS: LadderPreset[] = [
+  { id: "tight-ask", label: "Tight ask", desc: "5 levels just above mid", side: "ask", inner: 0.01, outer: 0.06, frontLoaded: false },
+  { id: "tight-bid", label: "Tight bid", desc: "5 levels just below mid", side: "bid", inner: 0.01, outer: 0.06, frontLoaded: false },
+  { id: "wide-ask", label: "Wide ask", desc: "deep 20-level ask wall", side: "ask", inner: 0.01, outer: 0.21, frontLoaded: false },
+  { id: "wide-bid", label: "Wide bid", desc: "deep 20-level bid wall", side: "bid", inner: 0.01, outer: 0.21, frontLoaded: false },
+  { id: "front-ask", label: "Front-loaded ask", desc: "size concentrated at the touch", side: "ask", inner: 0.01, outer: 0.11, frontLoaded: true },
+  { id: "scalp-ask", label: "Scalp ask", desc: "1-2 levels at the touch", side: "ask", inner: 0.005, outer: 0.02, frontLoaded: false },
+  { id: "scalp-bid", label: "Scalp bid", desc: "1-2 levels at the touch", side: "bid", inner: 0.005, outer: 0.02, frontLoaded: false },
+];
+
 export function MakePanel() {
-  const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview, market } = useApp();
+  const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview, market, onCommand } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
   const [side, setSide] = useState<Side>("ask");
@@ -40,6 +67,7 @@ export function MakePanel() {
   const [totalStr, setTotalStr] = useState("");
   const [editingTotal, setEditingTotal] = useState(false);
   const [frontLoaded, setFrontLoaded] = useState(false);
+  const [activePreset, setActivePreset] = useState<string | null>(null);
   const [allowance, setAllowance] = useState<bigint | null>(null);
 
   const spacing = summary?.tickSpacing ?? 1;
@@ -67,7 +95,27 @@ export function MakePanel() {
     setFromStr("");
     setToStr("");
     setFrontLoaded(false);
+    setActivePreset(null);
   };
+
+  // U7 — apply a ladder shape preset: set side, band (relative to mid) + shape.
+  const applyPreset = useCallback(
+    (p: LadderPreset) => {
+      setSide(p.side);
+      setFrontLoaded(p.frontLoaded);
+      setActivePreset(p.id);
+      if (mid !== null) {
+        if (p.side === "ask") {
+          setFromStr((mid + p.inner).toFixed(3));
+          setToStr((mid + p.outer).toFixed(3));
+        } else {
+          setFromStr((mid - p.outer).toFixed(3));
+          setToStr((mid - p.inner).toFixed(3));
+        }
+      }
+    },
+    [mid],
+  );
 
   const sizePerLevel = parseAmount(sizeStr, baseDec);
 
@@ -260,8 +308,58 @@ export function MakePanel() {
     }
   };
 
+  // U2 — keep the latest submit handler addressable from the command effect
+  // without re-subscribing on every keystroke.
+  const submitRef = useRef(onSubmit);
+  submitRef.current = onSubmit;
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
+
+  useEffect(
+    () =>
+      onCommand((cmd) => {
+        if (cmd.type === "set-side") {
+          switchSide(cmd.side === "buy" ? "bid" : "ask");
+        } else if (cmd.type === "toggle-side") {
+          switchSide(side === "ask" ? "bid" : "ask");
+        } else if (cmd.type === "submit") {
+          if (readyRef.current) void submitRef.current();
+        } else if (cmd.type === "quote-at-price") {
+          // U4 — click-to-quote from the order book: seed a one-band ladder at
+          // the clicked price on the matching side.
+          setSide(cmd.side);
+          setActivePreset(null);
+          setFrontLoaded(false);
+          const p = cmd.price;
+          if (cmd.side === "ask") {
+            setFromStr(p.toFixed(3));
+            setToStr((p + 0.05).toFixed(3));
+          } else {
+            setFromStr((p - 0.05).toFixed(3));
+            setToStr(p.toFixed(3));
+          }
+        }
+      }),
+    [onCommand, side],
+  );
+
   return (
     <div className="trade-panel">
+      <div className="preset-row">
+        <span className="preset-title dim">Templates</span>
+        <div className="preset-chips">
+          {LADDER_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              className={`preset-chip ${activePreset === p.id ? "preset-chip-on" : ""} ${p.side === "ask" ? "preset-ask" : "preset-bid"}`}
+              onClick={() => applyPreset(p)}
+              title={p.desc}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="seg">
         <button className={`seg-btn ${side === "bid" ? "seg-buy" : ""}`} onClick={() => switchSide("bid")}>
           {market.makerBidLabel} <span className="seg-note">{market.bidNote}</span>

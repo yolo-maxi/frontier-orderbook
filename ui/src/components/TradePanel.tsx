@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../state/app";
 import { lensAbi } from "../abi/lens";
 import { erc20Abi } from "../abi/erc20";
@@ -20,7 +20,7 @@ const MAX_UINT = 2n ** 256n - 1n;
 const QUOTE_MAX_LEVELS = 500n;
 
 export function TradePanel() {
-  const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview, market } = useApp();
+  const { cfg, client, wallet, account, summary, balances, sendTx, busy, refresh, setPreview, market, onCommand, marketMode } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
   const [side, setSide] = useState<Side>("buy");
@@ -271,6 +271,46 @@ export function TradePanel() {
     setAmountStr(amountToInput(v, side === "buy" ? quoteDec : baseDec));
   };
 
+  // P8 — order-entry shortcuts (prediction mode). "Buy to N%" arms a resting
+  // limit buy at the implied probability price ($N/100 per YES); "Sell all"
+  // dumps the full base position into a market sell.
+  const buyToProb = (probPct: number) => {
+    setSide("buy");
+    setMode("limit");
+    setLimitPriceStr((probPct / 100).toFixed(3));
+    setAmountStr("");
+  };
+  const sellAll = () => {
+    setSide("sell");
+    setMode("market");
+    // sell side balance is base — 100%
+    setAmountStr(amountToInput(balances.weth, baseDec));
+  };
+
+  // U2 — command bus: side switching + submit. Submit routes to the active
+  // mode's action (market swap vs. resting limit). A ref keeps the latest
+  // closures addressable without re-subscribing every render.
+  const submitRef = useRef<() => void>(() => {});
+  submitRef.current = () => {
+    if (mode === "limit") void onPlaceLimit();
+    else void onSwap();
+  };
+  useEffect(
+    () =>
+      onCommand((cmd) => {
+        if (cmd.type === "set-side") {
+          setSide(cmd.side);
+          setAmountStr("");
+        } else if (cmd.type === "toggle-side") {
+          setSide((s) => (s === "buy" ? "sell" : "buy"));
+          setAmountStr("");
+        } else if (cmd.type === "submit") {
+          submitRef.current();
+        }
+      }),
+    [onCommand],
+  );
+
   return (
     <div className="trade-panel">
       <div className="seg">
@@ -302,6 +342,19 @@ export function TradePanel() {
           Limit
         </button>
       </div>
+
+      {marketMode === "prediction" && (
+        <div className="shortcut-row">
+          {[60, 70, 80, 90].map((p) => (
+            <button key={p} className="shortcut-btn shortcut-buy" onClick={() => buyToProb(p)} title={`Resting limit buy at ${p}% implied`}>
+              Buy to {p}%
+            </button>
+          ))}
+          <button className="shortcut-btn shortcut-sell" onClick={sellAll} title="Market-sell your entire position">
+            Sell all
+          </button>
+        </div>
+      )}
 
       {mode === "limit" && (
         <label className="field">

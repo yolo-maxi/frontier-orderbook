@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp, type PositionRow } from "../state/app";
-import { fmtAmount, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
+import { fmtAmount, fmtNum, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
 import { baseDecimals, quoteDecimals } from "../lib/config";
+import { ProbabilityPill } from "./ProbabilityPill";
 
 export function MarketPanel() {
-  const { cfg, summary, priceHistory, fills, makerEvents, market } = useApp();
+  const { cfg, summary, priceHistory, fills, makerEvents, market, marketMode, predictionMeta, marketStats, chainStatus } =
+    useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
   const [feedTab, setFeedTab] = useState<"trades" | "makers">("trades");
+  const isPrediction = marketMode === "prediction";
+  const head = chainStatus.head;
+  // confirmations of an event's block vs. the chain head; null when unknown
+  const confs = (block: bigint): number | null =>
+    head !== null && block > 0n && head >= block ? Number(head - block) : null;
 
   const last = summary ? tickToPrice(summary.currentTick) : null;
   const sessionOpen = priceHistory.length > 0 ? priceHistory[0].price : null;
@@ -31,8 +38,45 @@ export function MarketPanel() {
 
   const trendCls = change === null ? "" : change >= 0 ? "up" : "down";
 
+  const resolveDate =
+    isPrediction && predictionMeta
+      ? new Date(predictionMeta.resolutionDate + "T00:00:00Z").toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : null;
+
   return (
     <section className="center-col">
+      {isPrediction && predictionMeta && (
+        <div className="panel pred-meta">
+          <div className="pred-meta-top">
+            <span className="pred-cat">{predictionMeta.category}</span>
+            <span className="pred-meta-stats num dim">
+              Vol {fmtNum((marketStats?.volume ?? predictionMeta.volume) / 1000, 0)}k {market.quoteSymbol}
+              {marketStats && marketStats.volume24h > 0 && (
+                <> · 24h {fmtNum(marketStats.volume24h / 1000, 0)}k</>
+              )}{" "}
+              · Liq {fmtNum((marketStats?.liquidity ?? predictionMeta.liquidity) / 1000, 0)}k
+              {marketStats && marketStats.holders > 0 && (
+                <> · {fmtNum(marketStats.holders, 0)} holders</>
+              )}{" "}
+              · resolves {resolveDate}
+              {marketStats ? (
+                <span className="pred-src pred-src-live" title="Aggregates served by the indexer"> live</span>
+              ) : (
+                <span className="pred-src" title="Indexer not connected — showing seed figures"> est.</span>
+              )}
+            </span>
+          </div>
+          <div className="pred-meta-q-row">
+            <h2 className="pred-q">{predictionMeta.question}</h2>
+            <ProbabilityPill price={last} size="lg" />
+          </div>
+          <div className="pred-resolution dim">{predictionMeta.resolution}</div>
+        </div>
+      )}
       <div className="panel price-head">
         <div className="ph-main">
           <span
@@ -42,6 +86,7 @@ export function MarketPanel() {
             {last !== null ? fmtPrice(last, 3) : "—"}
           </span>
           <span className="ph-sub">{market.priceUnit}</span>
+          {isPrediction && <ProbabilityPill price={last} size="sm" />}
         </div>
         <div className="ph-stats num">
           <div className="ph-stat">
@@ -105,7 +150,10 @@ export function MarketPanel() {
               )}
               {fills.map((f) => (
                 <div className="fill-row num feed-in grid-trades" key={f.key}>
-                  <span className="dim">{fmtTime(f.time)}</span>
+                  <span className="dim fill-time">
+                    <FinalityDot confs={confs(f.block)} />
+                    {fmtTime(f.time)}
+                  </span>
                   <span className={f.side === "buy" ? "up" : "down"}>
                     {f.side === "buy" ? "BUY" : "SELL"}
                   </span>
@@ -143,7 +191,10 @@ export function MarketPanel() {
               )}
               {makerEvents.map((e) => (
                 <div className="fill-row num feed-in grid-makers" key={e.key} title={e.maker ?? undefined}>
-                  <span className="dim">{fmtTime(e.time)}</span>
+                  <span className="dim fill-time">
+                    <FinalityDot confs={confs(e.block)} />
+                    {fmtTime(e.time)}
+                  </span>
                   <span className={makerActionCls(e)}>{makerActionLabel(e)}</span>
                   <span className="ta-r dim">{e.positionId.toString()}</span>
                   <span>
@@ -600,6 +651,20 @@ function BookChart() {
       </svg>
     </div>
   );
+}
+
+/**
+ * MM (loop 2) — per-event finality dot. Confirmations of the event's block vs.
+ * the chain head: <2 = pending (amber pulse), 2..11 = confirming, 12+ = final.
+ */
+function FinalityDot({ confs }: { confs: number | null }) {
+  if (confs === null) {
+    return <i className="fin-dot fin-unknown" title="confirmations unknown" />;
+  }
+  const cls = confs < 2 ? "fin-pending" : confs < 12 ? "fin-confirming" : "fin-final";
+  const label =
+    confs < 2 ? "just landed" : confs < 12 ? `${confs} confirmations` : "final (12+ confs)";
+  return <i className={`fin-dot ${cls}`} title={label} />;
 }
 
 function makerActionLabel(e: { kind: string; side: "ask" | "bid" | null }): string {

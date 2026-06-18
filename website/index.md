@@ -14,26 +14,53 @@ hero:
     - theme: alt
       text: How it works
       link: /guide/mechanism
-features:
-  - title: Ticks finer than a cent
-    details: Prices step in $0.001 increments — granularity a centralized exchange would envy. The gas bill doesn't care how fine the grid is. That's the breakthrough; the numbers are in the table.
-    link: /guide/gas
-    linkText: See the numbers
-  - title: Ladders, not orders
-    details: Quote a whole price range in one transaction — flat or weighted toward the touch. One click. One position. A market maker's whole curve, placed like a single order.
-  - title: Your fills wait for you
-    details: When the market trades through your prices, the proceeds are yours — onchain, accruing, claimable whenever. Nothing expires. Nothing needs a keeper. Claim a month later if you like.
-  - title: Bots without custody
-    details: Hand a bot the keys to your quotes, never your coins. Grants are per-action and expirable, payouts only ever go to you. Market-make in your sleep.
-  - title: Price it before you send it
-    details: Every operation, benchmarked as a real transaction, priced in dollars on Ethereum, Base, or Gnosis. A market order on an L2 costs less than the dust you'd ignore on the floor.
-    link: /guide/gas
-    linkText: Price it on your chain
-  - title: Books that do things
-    details: v4-style hooks turn any book into its own TWAP oracle, a gated market, a circuit-breaker venue, or a rewards program. Implemented and tested — not a roadmap slide.
-    link: /guide/hooks
-    linkText: See the experiments
 ---
+
+<div class="fr-hero-strip">
+  <span><span class="dot">●</span> <b>$0.001</b> ticks</span>
+  <span><span class="dot">●</span> <b>1,335×</b> cheaper sweeps</span>
+  <span><span class="dot">●</span> <b>no operator</b></span>
+  <span><span class="dot">●</span> fills that <b>wait for you</b></span>
+</div>
+
+## A book is a belief, priced
+
+A prediction market is a Frontier book where the price *is* the probability. List
+a YES outcome token against USDC and the order book does the rest: a YES resting
+at **$0.62** is a 62%-implied bet, a limit order is a conditional wager, and the
+spread is the market's uncertainty made visible. No bonding curve, no LMSR
+operator setting odds — just real bids and asks on a thin-tick grid, settling
+onchain.
+
+<div class="fr-pm">
+  <div class="fr-pm-book">
+    <div class="fr-pm-row ask"><span>NO &nbsp;0.41</span><span class="bar"><i style="width:38%"></i></span><span class="sz">1,200</span></div>
+    <div class="fr-pm-row ask"><span>NO &nbsp;0.40</span><span class="bar"><i style="width:62%"></i></span><span class="sz">3,050</span></div>
+    <div class="fr-pm-frontier"><span>← 62% YES</span><span>the frontier</span></div>
+    <div class="fr-pm-row bid"><span>YES 0.62</span><span class="bar"><i style="width:70%"></i></span><span class="sz">4,400</span></div>
+    <div class="fr-pm-row bid"><span>YES 0.61</span><span class="bar"><i style="width:33%"></i></span><span class="sz">980</span></div>
+  </div>
+  <div class="fr-pm-copy">
+    <p><b>Probability is the y-axis.</b> Every tick is a half-cent of implied odds; the book is the crowd's distribution over the outcome.</p>
+    <p><b>Make the odds, don't take them.</b> Seed a fresh market with one ladder across the range — no curve to babysit, fills accrue and claim whenever.</p>
+    <p><b>Resolution is just the last trade.</b> Winners hold tokens worth $1, losers $0. It's the same settlement that powers every fill.</p>
+    <p class="fr-pm-cta"><a href="https://clob.repo.box">Open a market →</a> · <a href="/guide/mechanism">How the book works →</a></p>
+  </div>
+</div>
+
+## The whole order book, onchain
+
+<FeatureGrid />
+
+## Build on the venue
+
+The book is a contract; everything above it is open and typed. A
+[TypeScript SDK](/guide/build), an [MCP server](/guide/build) that hands the
+venue to any agent, an [indexer](/guide/build) serving markets, trades, and depth
+over REST + WebSocket, and a drop-in [agent skill](/guide/build) — all generated
+from the same canonical ABIs, so they never drift from the contracts.
+
+*[Build with Frontier →](/guide/build)*
 
 ## Live right now
 

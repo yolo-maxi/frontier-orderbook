@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import "../src/FrontierErrors.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
@@ -118,7 +120,7 @@ contract PermissionsTest is Test {
         uint256 id = bareBook.deposit(10, 12, L);
 
         vm.prank(bot);
-        vm.expectRevert(bytes("not owner"));
+        vm.expectRevert(NotOwner.selector);
         bareBook.requote(id, 20, 22, L);
     }
 }

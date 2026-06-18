@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "../src/FrontierErrors.sol";
+
 import {ScenarioSuite} from "./Scenarios.t.sol";
 import {IRangeOrderBook} from "../src/IRangeOrderBook.sol";
 import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
@@ -22,6 +24,27 @@ contract FrontierScenariosTest is ScenarioSuite {
         return UniformFrontierBook(address(book));
     }
 
+    // The frontier book reverts with custom errors (gas pass G1), not strings.
+    function _expectNotLive() internal override {
+        vm.expectRevert(NotLive.selector);
+    }
+
+    function _expectRangeNotAbovePrice() internal override {
+        vm.expectRevert(RangeNotAbovePrice.selector);
+    }
+
+    function _expectEmptyRange() internal override {
+        vm.expectRevert(EmptyRange.selector);
+    }
+
+    function _expectZeroLiquidity() internal override {
+        vm.expectRevert(ZeroLiquidity.selector);
+    }
+
+    function _expectUnaligned() internal override {
+        vm.expectRevert(Unaligned.selector);
+    }
+
     // ------------------------------------------------------------------
     // O(1) witness claim path
     // ------------------------------------------------------------------
@@ -37,12 +60,12 @@ contract FrontierScenariosTest is ScenarioSuite {
 
         // re-claiming the same span is rejected
         vm.prank(bob);
-        vm.expectRevert(bytes("bad target"));
+        vm.expectRevert(BadTarget.selector);
         _frontierBook().claimTo(id, 3);
 
         // claiming past the frontier is rejected
         vm.prank(bob);
-        vm.expectRevert(bytes("not filled"));
+        vm.expectRevert(NotFilled.selector);
         _frontierBook().claimTo(id, 4);
     }
 
@@ -65,7 +88,7 @@ contract FrontierScenariosTest is ScenarioSuite {
 
         // boundary 2's stamp predates carol's deposit: she cannot claim it
         vm.prank(carol);
-        vm.expectRevert(bytes("not filled"));
+        vm.expectRevert(NotFilled.selector);
         _frontierBook().claimTo(carolId, 2);
 
         book.moveTickTo(2); // second fill, fresh stamp
@@ -83,12 +106,12 @@ contract FrontierScenariosTest is ScenarioSuite {
 
         // non-maximal witness rejected (there are fills above 2)
         vm.prank(bob);
-        vm.expectRevert(bytes("frontier not maximal"));
+        vm.expectRevert(FrontierNotMaximal.selector);
         _frontierBook().cancelWithWitness(id, 2);
 
         // overstated witness rejected
         vm.prank(bob);
-        vm.expectRevert(bytes("frontier not filled"));
+        vm.expectRevert(FrontierNotFilled.selector);
         _frontierBook().cancelWithWitness(id, 4);
 
         uint256 t0Before = t0.balanceOf(bob);

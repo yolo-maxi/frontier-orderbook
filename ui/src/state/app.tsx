@@ -24,7 +24,22 @@ import { bookAbi } from "../abi/book";
 import { lensAbi } from "../abi/lens";
 import { erc20Abi } from "../abi/erc20";
 import { tickToPrice } from "../lib/format";
-import { DEFAULT_MARKET_MODE, MARKET_PROFILES, type MarketMode, type MarketProfile } from "../lib/markets";
+import {
+  DEFAULT_MARKET_MODE,
+  LIVE_PREDICTION_MARKET,
+  MARKET_PROFILES,
+  PREDICTION_CATALOG,
+  type MarketMode,
+  type MarketProfile,
+  type PredictionMeta,
+} from "../lib/markets";
+import {
+  fetchIndexerStatus,
+  fetchMarketStats,
+  indexerEnabled,
+  type IndexerStatus,
+  type MarketStats,
+} from "../lib/indexer";
 
 // ---------------------------------------------------------------- types
 
@@ -95,6 +110,29 @@ export interface Balances {
   usdc: bigint;
 }
 
+/**
+ * MM (loop 2) — venue health: RPC round-trip latency and block cadence. A
+ * maker wants to know, at a glance, how fresh the book is and how fast the
+ * chain is producing blocks (i.e. how quickly a quote finalises). `blockTimeMs`
+ * is an EWMA of inter-block intervals observed by the poller. `confirmations`
+ * helper converts an event's block into a confirmation count vs. the head.
+ */
+export interface ChainStatus {
+  latencyMs: number | null; // eth_blockNumber round-trip
+  head: bigint | null; // latest block height
+  blockTimeMs: number | null; // smoothed inter-block interval
+  lastBlockAt: number | null; // wall-clock ms when head last advanced
+}
+
+/** Pooled shadow-liquidity inventory (mirrors real fills at book price). */
+export interface ShadowInfo {
+  reserve0: bigint; // token0 available to mirror ask fills
+  reserve1: bigint; // token1 available to mirror bid fills
+  totalShares: bigint;
+  myShares: bigint; // shares held by the demo wallet
+  feeBps: number; // SHADOW_FEE_BPS routed to the protocol
+}
+
 /** What the chart should preview on top of live data. */
 export interface ChartPreview {
   kind: "make" | "trade";
@@ -113,6 +151,22 @@ export interface TxToast {
   detail?: string;
 }
 
+/**
+ * U2 — commands routed through the global bus. Hotkeys and the command palette
+ * dispatch these; the relevant panel (Side panel for tab/side switches, Make
+ * panel for quote actions, Positions panel for bulk cancels) handles them.
+ */
+export type AppCommand =
+  | { type: "focus-tab"; tab: "trade" | "make" | "shadow" | "positions" }
+  | { type: "set-side"; side: "buy" | "sell" }
+  | { type: "toggle-side" }
+  | { type: "submit" }
+  | { type: "cancel-all" }
+  | { type: "cancel-bids" }
+  | { type: "cancel-asks" }
+  | { type: "claim-all" }
+  | { type: "quote-at-price"; side: "ask" | "bid"; price: number };
+
 interface AppData {
   cfg: DeploymentConfig;
   configured: boolean;
@@ -125,10 +179,25 @@ interface AppData {
   makerEvents: MakerEvent[];
   priceHistory: PricePoint[];
   balances: Balances;
+  shadow: ShadowInfo;
   positions: PositionRow[];
   marketMode: MarketMode;
   market: MarketProfile;
   setMarketMode: (mode: MarketMode) => void;
+  /** P1/P2 — prediction metadata for the active market (prediction mode). */
+  predictionMeta: PredictionMeta;
+  /** P2 — which prediction-catalog card the UI is focused on. */
+  selectedMarketId: string;
+  setSelectedMarketId: (id: string) => void;
+  /** U2 — global command bus: panels subscribe, hotkeys/palette dispatch. */
+  dispatchCommand: (cmd: AppCommand) => void;
+  onCommand: (handler: (cmd: AppCommand) => void) => () => void;
+  /** MM — venue health (latency + block cadence). */
+  chainStatus: ChainStatus;
+  /** Indexer health, or null when no indexer is configured. */
+  indexerStatus: IndexerStatus | null;
+  /** Indexer-served aggregates for the active prediction market, or null. */
+  marketStats: MarketStats | null;
   rpcError: string | null;
   toasts: TxToast[];
   busy: string | null;
@@ -238,18 +307,50 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [makerEvents, setMakerEvents] = useState<MakerEvent[]>([]);
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n });
+  const [shadow, setShadow] = useState<ShadowInfo>({
+    reserve0: 0n,
+    reserve1: 0n,
+    totalShares: 0n,
+    myShares: 0n,
+    feeBps: 30,
+  });
   const [positions, setPositions] = useState<PositionRow[]>([]);
   const [marketMode, setMarketModeState] = useState<MarketMode>(() => {
     const stored = window.localStorage.getItem(MARKET_STORAGE_KEY);
     return stored === "spot" || stored === "prediction" ? stored : DEFAULT_MARKET_MODE;
   });
+  const [chainStatus, setChainStatus] = useState<ChainStatus>({
+    latencyMs: null,
+    head: null,
+    blockTimeMs: null,
+    lastBlockAt: null,
+  });
+  const [indexerStatus, setIndexerStatus] = useState<IndexerStatus | null>(null);
+  const [marketStats, setMarketStats] = useState<MarketStats | null>(null);
   const [rpcError, setRpcError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<TxToast[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [preview, setPreview] = useState<ChartPreview | null>(null);
   const [makeFocus, setMakeFocus] = useState(false);
   const [nonce, setNonce] = useState(0); // manual refresh trigger
+  const [selectedMarketId, setSelectedMarketId] = useState<string>(LIVE_PREDICTION_MARKET.id);
   const market = MARKET_PROFILES[marketMode];
+  const predictionMeta = useMemo(
+    () => PREDICTION_CATALOG.find((m) => m.id === selectedMarketId) ?? LIVE_PREDICTION_MARKET,
+    [selectedMarketId],
+  );
+
+  // U2 — command bus. Panels register handlers; hotkeys/palette dispatch.
+  const commandHandlers = useRef<Set<(cmd: AppCommand) => void>>(new Set());
+  const dispatchCommand = useCallback((cmd: AppCommand) => {
+    for (const h of commandHandlers.current) h(cmd);
+  }, []);
+  const onCommand = useCallback((handler: (cmd: AppCommand) => void) => {
+    commandHandlers.current.add(handler);
+    return () => {
+      commandHandlers.current.delete(handler);
+    };
+  }, []);
 
   const summaryRef = useRef<BookSummary | null>(null);
   summaryRef.current = summary;
@@ -520,7 +621,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     let stop = false;
     const tick = async () => {
       try {
-        const [eth, weth, usdc] = await Promise.all([
+        const [eth, weth, usdc, reserves, myShares, feeBps] = await Promise.all([
           client.getBalance({ address: account.address }),
           client.readContract({
             address: cfg.contracts.weth,
@@ -534,8 +635,33 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             functionName: "balanceOf",
             args: [account.address],
           }),
+          client.readContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "shadowReserves",
+          }),
+          client.readContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "shadowSharesOf",
+            args: [account.address],
+          }),
+          client.readContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "SHADOW_FEE_BPS",
+          }),
         ]);
-        if (!stop) setBalances({ eth, weth, usdc });
+        if (!stop) {
+          setBalances({ eth, weth, usdc });
+          setShadow({
+            reserve0: reserves[0],
+            reserve1: reserves[1],
+            totalShares: reserves[2],
+            myShares,
+            feeBps: Number(feeBps),
+          });
+        }
       } catch {
         /* covered by main poll's error banner */
       }
@@ -547,6 +673,97 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       clearInterval(id);
     };
   }, [configured, client, cfg, account, nonce]);
+
+  // -------- MM: venue health — RPC latency + block cadence (2s)
+  const blockTimeRef = useRef<number | null>(null);
+  const lastHeadRef = useRef<{ block: bigint; at: number } | null>(null);
+  useEffect(() => {
+    if (!configured) return;
+    let stop = false;
+    let inflight = false;
+    const tick = async () => {
+      if (inflight || stop) return;
+      inflight = true;
+      try {
+        const t0 = performance.now();
+        const head = await client.getBlockNumber();
+        const latencyMs = Math.round(performance.now() - t0);
+        const now = Date.now();
+        const prev = lastHeadRef.current;
+        if (prev && head > prev.block) {
+          const dt = now - prev.at;
+          // EWMA over inter-block intervals; ignore absurd gaps (tab sleep)
+          if (dt > 0 && dt < 120_000) {
+            const blocks = Number(head - prev.block);
+            const perBlock = dt / Math.max(1, blocks);
+            blockTimeRef.current =
+              blockTimeRef.current === null
+                ? perBlock
+                : blockTimeRef.current * 0.7 + perBlock * 0.3;
+          }
+          lastHeadRef.current = { block: head, at: now };
+        } else if (!prev) {
+          lastHeadRef.current = { block: head, at: now };
+        }
+        if (!stop) {
+          setChainStatus({
+            latencyMs,
+            head,
+            blockTimeMs: blockTimeRef.current,
+            lastBlockAt: lastHeadRef.current?.at ?? null,
+          });
+        }
+      } catch {
+        if (!stop) setChainStatus((s) => ({ ...s, latencyMs: null }));
+      } finally {
+        inflight = false;
+      }
+    };
+    tick();
+    const id = setInterval(tick, 2000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [configured, client]);
+
+  // -------- indexer health probe (10s) — optional; null when unconfigured
+  useEffect(() => {
+    if (!configured || !indexerEnabled(cfg)) {
+      setIndexerStatus(null);
+      return;
+    }
+    let stop = false;
+    const tick = async () => {
+      const st = await fetchIndexerStatus(cfg);
+      if (!stop) setIndexerStatus(st);
+    };
+    tick();
+    const id = setInterval(tick, 10_000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [configured, cfg]);
+
+  // -------- indexer market aggregates for the active market (15s)
+  useEffect(() => {
+    if (!configured || !indexerEnabled(cfg)) {
+      setMarketStats(null);
+      return;
+    }
+    let stop = false;
+    const tick = async () => {
+      const stats = await fetchMarketStats(cfg, selectedMarketId);
+      if (!stop) setMarketStats(stats);
+    };
+    tick();
+    const id = setInterval(tick, 15_000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [configured, cfg, selectedMarketId]);
 
   // -------- positions: Deposit logs (owner-filtered) + per-id state (3s)
   const knownIds = useRef<Set<bigint>>(new Set());
@@ -719,6 +936,11 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     marketMode,
     market,
     setMarketMode,
+    predictionMeta,
+    selectedMarketId,
+    setSelectedMarketId,
+    dispatchCommand,
+    onCommand,
     preview,
     setPreview,
     makeFocus,
@@ -732,7 +954,11 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     makerEvents,
     priceHistory,
     balances,
+    shadow,
     positions,
+    chainStatus,
+    indexerStatus,
+    marketStats,
     rpcError,
     toasts,
     busy,

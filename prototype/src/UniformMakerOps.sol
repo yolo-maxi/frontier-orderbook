@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {FrontierBookBase} from "./FrontierBookBase.sol";
 import {FrontierHookFlags, IFrontierHooks} from "./hooks/IFrontierHooks.sol";
+import "./FrontierErrors.sol";
 
 /// @title UniformMakerOps — cold maker-management companion
 ///
@@ -35,24 +36,82 @@ contract UniformMakerOps is FrontierBookBase {
     /// owner).
     function transferPosition(uint256 positionId, address to) external {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
+        if (!p.live) revert NotLive();
         _authOwner(p.owner);
-        require(to != address(0), "zero owner");
+        if (to == address(0)) revert ZeroOwner();
         p.owner = to;
         emit PositionTransferred(positionId, msg.sender, to);
+    }
+
+    /// @notice Add funds to the pooled shadow inventory at the pool's
+    /// current reserve ratio. The first depositor sets the ratio; later
+    /// deposits are pro-rata and oracle-free.
+    function depositShadow(uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
+        external
+        returns (uint256 shares, uint256 amount0, uint256 amount1)
+    {
+        if (amount0Max == 0 && amount1Max == 0) revert ZeroAmounts();
+        uint256 total = shadowTotalShares;
+        if (total == 0) {
+            if (amount0Max == 0 || amount1Max == 0) revert ImbalancedFirstDeposit();
+            amount0 = amount0Max;
+            amount1 = amount1Max;
+            shares = amount0 + amount1;
+        } else {
+            uint256 r0 = shadowReserve0;
+            uint256 r1 = shadowReserve1;
+            if (r0 == 0 && r1 == 0) revert EmptyPool();
+            uint256 s0 = r0 == 0 ? type(uint256).max : (amount0Max * total) / r0;
+            uint256 s1 = r1 == 0 ? type(uint256).max : (amount1Max * total) / r1;
+            shares = s0 < s1 ? s0 : s1;
+            amount0 = r0 == 0 ? 0 : (shares * r0) / total;
+            amount1 = r1 == 0 ? 0 : (shares * r1) / total;
+        }
+        if (shares < minSharesOut || shares == 0) revert InsufficientShares();
+
+        shadowTotalShares = total + shares;
+        shadowShares[msg.sender] += shares;
+        shadowReserve0 += amount0;
+        shadowReserve1 += amount1;
+
+        _transferInExact(token0, msg.sender, amount0);
+        _transferInExact(token1, msg.sender, amount1);
+        emit ShadowDeposit(msg.sender, amount0, amount1, shares);
+    }
+
+    /// @notice Burn shadow shares for a pro-rata slice of both reserves.
+    function withdrawShadow(uint256 shares, uint256 minAmount0Out, uint256 minAmount1Out)
+        external
+        returns (uint256 amount0, uint256 amount1)
+    {
+        if (shares == 0) revert ZeroShares();
+        uint256 total = shadowTotalShares;
+        if (total == 0 || shadowShares[msg.sender] < shares) revert InsufficientShares();
+        amount0 = (shares * shadowReserve0) / total;
+        amount1 = (shares * shadowReserve1) / total;
+        if (amount0 < minAmount0Out || amount1 < minAmount1Out) revert InsufficientAmounts();
+
+        shadowShares[msg.sender] -= shares;
+        shadowTotalShares = total - shares;
+        shadowReserve0 -= amount0;
+        shadowReserve1 -= amount1;
+
+        if (amount0 > 0 && !token0.transfer(msg.sender, amount0)) revert TransferOutFailed();
+        if (amount1 > 0 && !token1.transfer(msg.sender, amount1)) revert TransferOutFailed();
+        emit ShadowWithdraw(msg.sender, amount0, amount1, shares);
     }
 
     /// @notice O(1) re-price (and optionally re-size) of a completely UNFILLED
     /// uniform order; tokens settle difference-only, clock refreshes.
     function requote(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(!p.isBid, "use bid methods");
+        if (!p.live) revert NotLive();
+        if (p.isBid) revert UseBidMethods();
         _authOwner(p.owner);
-        require(newLiquidity > 0, "zero liquidity");
+        if (newLiquidity == 0) revert ZeroLiquidity();
         // completely unfilled <=> first interval not filled since deposit
         // (prefix-contiguity: nothing above it can have filled either)
-        require(_highSince(p.depositClock) < p.lower + tickSpacing, "partially filled");
+        if (_highSince(p.depositClock) >= p.lower + tickSpacing) revert PartiallyFilled();
         _checkRange(newLower, newUpper);
 
         // remove old endpoint entries (order unfilled: frontier == lower),
@@ -72,7 +131,7 @@ contract UniformMakerOps is FrontierBookBase {
         if (newAmount0 > oldAmount0) {
             _pull0(msg.sender, newAmount0 - oldAmount0);
         } else if (oldAmount0 > newAmount0) {
-            require(token0.transfer(msg.sender, oldAmount0 - newAmount0), "transfer out failed");
+            if (!token0.transfer(msg.sender, oldAmount0 - newAmount0)) revert TransferOutFailed();
         }
         emit Requote(positionId, newLower, newUpper, newLiquidity);
     }
@@ -81,15 +140,15 @@ contract UniformMakerOps is FrontierBookBase {
     /// difference-only.
     function requoteBid(uint256 positionId, int24 newLower, int24 newUpper, uint128 newLiquidity) external {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(p.isBid, "not a bid");
+        if (!p.live) revert NotLive();
+        if (!p.isBid) revert NotABid();
         _authOwner(p.owner);
-        require(newLiquidity > 0, "zero liquidity");
+        if (newLiquidity == 0) revert ZeroLiquidity();
         // completely unfilled <=> topmost level not filled since deposit
-        require(_lowSince(p.depositClock) > p.upper - tickSpacing, "partially filled");
-        require(newLower < newUpper, "empty range");
-        require(newLower % tickSpacing == 0 && newUpper % tickSpacing == 0, "unaligned");
-        require(newUpper <= _currentTick, "range not below price");
+        if (_lowSince(p.depositClock) <= p.upper - tickSpacing) revert PartiallyFilled();
+        if (newLower >= newUpper) revert EmptyRange();
+        if (newLower % tickSpacing != 0 || newUpper % tickSpacing != 0) revert Unaligned();
+        if (newUpper > _currentTick) revert RangeNotBelowPrice();
 
         _writeBidDelta(p.upper - tickSpacing, bidDelta[p.upper - tickSpacing] - int256(uint256(p.liquidity)));
         _writeBidDelta(p.lower - tickSpacing, bidDelta[p.lower - tickSpacing] + int256(uint256(p.liquidity)));
@@ -107,7 +166,7 @@ contract UniformMakerOps is FrontierBookBase {
         if (newAmount1 > oldAmount1) {
             _pull1(msg.sender, newAmount1 - oldAmount1);
         } else if (oldAmount1 > newAmount1) {
-            require(token1.transfer(msg.sender, oldAmount1 - newAmount1), "transfer out failed");
+            if (!token1.transfer(msg.sender, oldAmount1 - newAmount1)) revert TransferOutFailed();
         }
         emit Requote(positionId, newLower, newUpper, newLiquidity);
     }
@@ -120,17 +179,17 @@ contract UniformMakerOps is FrontierBookBase {
         returns (uint256 proceeds1, uint256 principal0)
     {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(!p.isBid, "use bid methods");
+        if (!p.live) revert NotLive();
+        if (p.isBid) revert UseBidMethods();
         _authOwner(p.owner);
-        require(frontier >= p.lower && frontier <= p.upper, "frontier out of range");
-        require((frontier - p.lower) % tickSpacing == 0, "unaligned frontier");
+        if (frontier < p.lower || frontier > p.upper) revert FrontierOutOfRange();
+        if ((frontier - p.lower) % tickSpacing != 0) revert UnalignedFrontier();
         // proves frontier is filled-up-to...
         int24 hw = _highSince(p.depositClock);
-        if (frontier > p.lower) require(hw >= frontier, "frontier not filled");
+        if (frontier > p.lower && hw < frontier) revert FrontierNotFilled();
         // ...and maximal (next interval NOT filled since deposit)
         if (frontier < p.upper) {
-            require(hw < frontier + tickSpacing, "frontier not maximal");
+            if (hw >= frontier + tickSpacing) revert FrontierNotMaximal();
         }
 
         if (frontier > p.claimedUpper) {
@@ -145,8 +204,8 @@ contract UniformMakerOps is FrontierBookBase {
         // into upper and self-cancelled against its -L; nothing to remove.
         p.live = false;
 
-        if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
-        if (principal0 > 0) require(token0.transfer(p.owner, principal0), "transfer out failed");
+        if (proceeds1 > 0 && !token1.transfer(p.owner, proceeds1)) revert TransferOutFailed();
+        if (principal0 > 0 && !token0.transfer(p.owner, principal0)) revert TransferOutFailed();
         emit Cancel(positionId, proceeds1, principal0);
         _callHook(
             FrontierHookFlags.AFTER_CANCEL_FLAG,
@@ -158,8 +217,8 @@ contract UniformMakerOps is FrontierBookBase {
     /// @notice Convenience variant: finds the frontier itself in O(log width).
     function cancel(uint256 positionId) external returns (uint256 proceeds1, uint256 principal0) {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(!p.isBid, "use bid methods");
+        if (!p.live) revert NotLive();
+        if (p.isBid) revert UseBidMethods();
         _authOwner(p.owner);
         return cancelWithWitness(positionId, _frontier(p));
     }
@@ -170,15 +229,15 @@ contract UniformMakerOps is FrontierBookBase {
         returns (uint256 proceeds0, uint256 refund1)
     {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(p.isBid, "not a bid");
+        if (!p.live) revert NotLive();
+        if (!p.isBid) revert NotABid();
         _authOwner(p.owner);
-        require(frontier >= p.lower && frontier <= p.upper, "frontier out of range");
-        require((frontier - p.lower) % tickSpacing == 0, "unaligned frontier");
+        if (frontier < p.lower || frontier > p.upper) revert FrontierOutOfRange();
+        if ((frontier - p.lower) % tickSpacing != 0) revert UnalignedFrontier();
         int24 lw = _lowSince(p.depositClock);
-        if (frontier < p.upper) require(lw <= frontier, "frontier not filled");
+        if (frontier < p.upper && lw > frontier) revert FrontierNotFilled();
         if (frontier > p.lower) {
-            require(lw > frontier - tickSpacing, "frontier not maximal");
+            if (lw <= frontier - tickSpacing) revert FrontierNotMaximal();
         }
 
         if (frontier < p.claimedUpper) {
@@ -196,8 +255,8 @@ contract UniformMakerOps is FrontierBookBase {
         }
         p.live = false;
 
-        if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
-        if (refund1 > 0) require(token1.transfer(p.owner, refund1), "transfer out failed");
+        if (proceeds0 > 0 && !token0.transfer(p.owner, proceeds0)) revert TransferOutFailed();
+        if (refund1 > 0 && !token1.transfer(p.owner, refund1)) revert TransferOutFailed();
         emit Cancel(positionId, proceeds0, refund1);
         _callHook(
             FrontierHookFlags.AFTER_CANCEL_FLAG,
@@ -209,8 +268,8 @@ contract UniformMakerOps is FrontierBookBase {
     /// @notice Convenience variant: finds the bid frontier in O(log width).
     function cancelBid(uint256 positionId) external returns (uint256 proceeds0, uint256 refund1) {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(p.isBid, "not a bid");
+        if (!p.live) revert NotLive();
+        if (!p.isBid) revert NotABid();
         _authOwner(p.owner);
         return cancelBidWithWitness(positionId, _bidFrontier(p));
     }

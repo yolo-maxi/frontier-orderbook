@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clob.repo.box/schemas/deployment-schema.json",
+  "title": "Frontier Deployment",
+  "description": "Canonical record of a deployed Frontier venue, as written by prototype/script/DeployFrontier.s.sol and consumed by @frontier/sdk, the MCP server, and indexer. All token amounts are decimal strings of the underlying uint256 so no precision is lost over JSON.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "chainId",
+    "registry",
+    "factory",
+    "lens",
+    "router",
+    "book",
+    "token0",
+    "token1",
+    "tickSpacing",
+    "startTick",
+    "makerFeeBps",
+    "takerFeeBps"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Human label for the deployment (DEPLOY_NAME, default 'Frontier').",
+      "examples": ["Frontier", "frontier-base-sepolia"]
+    },
+    "chainId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "EVM chain id the venue is deployed on."
+    },
+    "deployer": {
+      "$ref": "#/$defs/address",
+      "description": "Address that broadcast the deploy script."
+    },
+    "registry": {
+      "$ref": "#/$defs/address",
+      "description": "PermissionRegistry: selector-scoped delegation."
+    },
+    "factory": {
+      "$ref": "#/$defs/address",
+      "description": "FrontierGeoBookFactory: geometric book factory."
+    },
+    "lens": {
+      "$ref": "#/$defs/address",
+      "description": "FrontierLens: read-only quote/depth helper."
+    },
+    "router": {
+      "$ref": "#/$defs/address",
+      "description": "FrontierRouter: exact-input taker periphery."
+    },
+    "book": {
+      "$ref": "#/$defs/address",
+      "description": "Primary GeometricFrontierBook created at deploy time."
+    },
+    "token0": {
+      "$ref": "#/$defs/address",
+      "description": "Base asset (sold by asks, bought by bids)."
+    },
+    "token1": {
+      "$ref": "#/$defs/address",
+      "description": "Quote asset (paid by ask takers, deposited by bid makers)."
+    },
+    "tickSpacing": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8388607,
+      "description": "Spacing between initializable ticks (int24, must be > 0)."
+    },
+    "startTick": {
+      "type": "integer",
+      "minimum": -8388608,
+      "maximum": 8388607,
+      "description": "Initial currentTick at deploy. Must be aligned to tickSpacing (startTick % tickSpacing == 0)."
+    },
+    "feeRecipient": {
+      "oneOf": [{ "$ref": "#/$defs/address" }, { "type": "null" }],
+      "description": "Receives maker and taker fees. Must be non-zero when either fee is non-zero."
+    },
+    "makerFeeBps": {
+      "$ref": "#/$defs/feeBps",
+      "description": "Maker fee in basis points, charged from claim proceeds."
+    },
+    "takerFeeBps": {
+      "$ref": "#/$defs/feeBps",
+      "description": "Taker fee in basis points, charged on swap input."
+    },
+    "hooks": {
+      "oneOf": [{ "$ref": "#/$defs/address" }, { "type": "null" }],
+      "description": "Optional hooks contract. The deploy-day path uses the hookless (zero-address) book."
+    },
+    "createdBlock": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Block number the primary book was created in."
+    },
+    "smokeTest": {
+      "type": "object",
+      "description": "Post-deploy smoke-test results (see skill.md checklist).",
+      "additionalProperties": false,
+      "properties": {
+        "currentTickConfirmed": { "type": "boolean" },
+        "tickSpacingConfirmed": { "type": "boolean" },
+        "askTx": { "$ref": "#/$defs/txHash" },
+        "bidTx": { "$ref": "#/$defs/txHash" },
+        "takerTx": { "$ref": "#/$defs/txHash" },
+        "claimOrCancelTx": { "$ref": "#/$defs/txHash" },
+        "feeRecipientIncreased": { "type": ["boolean", "null"] }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "Non-zero fees require a non-zero fee recipient (matches FrontierGeoBookFactory).",
+      "if": {
+        "anyOf": [
+          { "properties": { "makerFeeBps": { "type": "integer", "minimum": 1 } }, "required": ["makerFeeBps"] },
+          { "properties": { "takerFeeBps": { "type": "integer", "minimum": 1 } }, "required": ["takerFeeBps"] }
+        ]
+      },
+      "then": {
+        "properties": { "feeRecipient": { "$ref": "#/$defs/address" } },
+        "required": ["feeRecipient"]
+      }
+    }
+  ],
+  "$defs": {
+    "address": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "description": "20-byte EVM address, 0x-prefixed hex."
+    },
+    "txHash": {
+      "type": ["string", "null"],
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "description": "32-byte transaction hash, 0x-prefixed hex."
+    },
+    "feeBps": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "description": "Fee in basis points; MAX_FEE_BPS is 1000 (10%) per side."
+    }
+  },
+  "examples": [
+    {
+      "name": "Frontier",
+      "chainId": 8453,
+      "deployer": "0x1111111111111111111111111111111111111111",
+      "registry": "0x2222222222222222222222222222222222222222",
+      "factory": "0x3333333333333333333333333333333333333333",
+      "lens": "0x4444444444444444444444444444444444444444",
+      "router": "0x5555555555555555555555555555555555555555",
+      "book": "0x6666666666666666666666666666666666666666",
+      "token0": "0x7777777777777777777777777777777777777777",
+      "token1": "0x8888888888888888888888888888888888888888",
+      "tickSpacing": 60,
+      "startTick": 0,
+      "feeRecipient": "0x9999999999999999999999999999999999999999",
+      "makerFeeBps": 0,
+      "takerFeeBps": 30,
+      "hooks": null,
+      "createdBlock": 19000000
+    }
+  ]
+}

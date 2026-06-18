@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import "../src/FrontierErrors.sol";
+
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
@@ -155,14 +157,14 @@ contract HookExperimentsTest is Test {
         book.moveTickTo(50); // |50 - 0| <= 100: fine
 
         vm.prank(taker);
-        vm.expectRevert(bytes("hook rejected"));
+        vm.expectRevert(HookRejected.selector);
         book.moveTickTo(160); // |160 - 0| > 100: blocked, ref is block-start tick
 
         vm.roll(block.number + 1); // new block: reference resets to current tick (50)
         vm.prank(taker);
         book.moveTickTo(140); // |140 - 50| <= 100: fine again
         vm.prank(taker);
-        vm.expectRevert(bytes("hook rejected"));
+        vm.expectRevert(HookRejected.selector);
         book.moveTickTo(260); // |260 - 50| > 100: blocked
     }
 

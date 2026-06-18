@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import "../src/FrontierErrors.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
@@ -46,7 +48,7 @@ contract HooksTest is Test {
 
     function testBeforeDepositGate() public {
         vm.prank(mm);
-        vm.expectRevert(bytes("hook rejected"));
+        vm.expectRevert(HookRejected.selector);
         book.deposit(10, 12, L);
 
         hook.setAllowed(mm, true);

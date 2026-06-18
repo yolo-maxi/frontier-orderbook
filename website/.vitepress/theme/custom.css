@@ -12,9 +12,33 @@
   --fr-green: #2ebd85;
   --fr-green-deep: #1ea06d;
   --fr-red: #f6465d;
+  --fr-red-deep: #c8324a;
   --fr-gold: #f0b90b;
   --fr-bone: #e6e8ea;
   --fr-dim: #8a93a0;
+
+  /* secondary accent — "cyan signal": the venue/system voice (links to
+     code, oracle ticks, infra). Never competes with gold (yours) or
+     green (the market). Cool, electric, used sparingly. */
+  --fr-cyan: #3bd6e0;
+  --fr-cyan-deep: #1f9aa3;
+
+  /* depth-heatmap fade ramps — bid (green) and ask (red) bars fade from
+     near the touch (bright, 0) to deep in the book (dim, 3). Use the two
+     endpoints for a single bar gradient, or the full ramp for a column. */
+  --fr-depth-bid-0: rgba(46, 189, 133, 0.95);
+  --fr-depth-bid-1: rgba(46, 189, 133, 0.55);
+  --fr-depth-bid-2: rgba(46, 189, 133, 0.28);
+  --fr-depth-bid-3: rgba(46, 189, 133, 0.12);
+  --fr-depth-ask-0: rgba(246, 70, 93, 0.95);
+  --fr-depth-ask-1: rgba(246, 70, 93, 0.55);
+  --fr-depth-ask-2: rgba(246, 70, 93, 0.28);
+  --fr-depth-ask-3: rgba(246, 70, 93, 0.12);
+
+  /* fill-flash — the highlight that ripples a level when it trades.
+     Gold-white, brief, additive. The visual signature of a fill. */
+  --fr-fill-flash: rgba(240, 185, 11, 0.45);
+  --fr-fill-flash-strong: rgba(255, 224, 130, 0.85);
 
   /* type */
   --fr-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
@@ -226,4 +250,299 @@ table {
   .fr-dont {
     grid-template-columns: 1fr;
   }
+}
+
+/* ================================================================
+   LANDING HERO — make the front door shine
+   ================================================================ */
+
+/* a faint tick-grid wash + green/gold aura behind the whole home hero */
+.VPHome {
+  position: relative;
+  overflow: hidden;
+}
+.VPHome::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 760px;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(80% 50% at 18% 8%, rgba(46, 189, 133, 0.14), transparent 60%),
+    radial-gradient(60% 40% at 90% 0%, rgba(240, 185, 11, 0.10), transparent 60%),
+    linear-gradient(transparent 0, transparent calc(100% - 1px), rgba(255,255,255,0.025) 100%),
+    repeating-linear-gradient(90deg, transparent 0, transparent 39px, rgba(255,255,255,0.018) 40px);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, transparent 100%);
+}
+.VPHome .VPHero,
+.VPHome .VPFeatures,
+.VPHome .vp-doc { position: relative; z-index: 1; }
+
+/* hero name: oversized mono, subtle green glow */
+.VPHero .name .clip {
+  background: linear-gradient(92deg, var(--fr-bone) 30%, var(--fr-green) 120%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.VPHero .name {
+  font-size: clamp(3rem, 8vw, 5.2rem);
+  line-height: 1.02;
+  text-shadow: 0 0 42px rgba(46, 189, 133, 0.22);
+}
+.VPHero .text {
+  font-weight: 700;
+  font-size: clamp(1.3rem, 3vw, 2rem);
+  color: var(--fr-bone);
+}
+.VPHero .tagline {
+  color: var(--fr-dim);
+  max-width: 58ch;
+}
+
+/* the depth motif rides in the hero image slot */
+.VPHero .image {
+  align-items: stretch;
+}
+.VPHero .image-container { transform: none; }
+.VPHero .image-bg {
+  background-image: radial-gradient(closest-side, rgba(46,189,133,0.30), transparent);
+  filter: blur(48px);
+}
+
+/* hero CTA buttons: brand button gets a fill-flash sheen on hover */
+.VPHero .VPButton.brand {
+  position: relative;
+  overflow: hidden;
+  font-family: var(--fr-mono);
+  letter-spacing: 0.02em;
+  box-shadow: 0 8px 30px -12px rgba(46, 189, 133, 0.6);
+}
+.VPHero .VPButton.brand::after {
+  content: "";
+  position: absolute;
+  top: 0; left: -120%;
+  width: 60%; height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.35), transparent);
+  transition: left 0.5s ease;
+}
+.VPHero .VPButton.brand:hover::after { left: 130%; }
+.VPHero .VPButton.alt { font-family: var(--fr-mono); letter-spacing: 0.02em; }
+
+@media (prefers-reduced-motion: reduce) {
+  .VPHero .VPButton.brand::after { transition: none; }
+}
+
+/* the default feature grid is replaced by our <FeatureGrid> in the doc
+   body — hide the built-in one so we don't double up */
+.VPHome .VPFeatures { display: none; }
+
+/* ---- inline depth motif caption on the landing ---- */
+.fr-hero-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  align-items: center;
+  justify-content: center;
+  margin: 0.4rem 0 1.8rem;
+  font-family: var(--fr-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--fr-dim);
+}
+.fr-hero-strip b { color: var(--fr-bone); font-weight: 700; }
+.fr-hero-strip .dot { color: var(--fr-green); }
+
+/* ================================================================
+   LANDING — prediction-market panel
+   A mini order book where price is probability. Bids (YES) ride the
+   green depth ramp, asks (NO) the red ramp, and a gold frontier line
+   marks the implied odds — the touch, "you are here."
+   ================================================================ */
+.fr-pm {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) 1.1fr;
+  gap: 22px;
+  align-items: center;
+  margin: 1.4rem 0 0.6rem;
+}
+.fr-pm-book {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 14px;
+  background: var(--fr-ink-2);
+  padding: 14px;
+  font-family: var(--fr-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
+.fr-pm-row {
+  display: grid;
+  grid-template-columns: 5.2em 1fr 4em;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px;
+  border-radius: 6px;
+}
+.fr-pm-row .bar {
+  position: relative;
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+}
+.fr-pm-row .bar i {
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  border-radius: 3px;
+  display: block;
+}
+.fr-pm-row .sz { color: var(--fr-dim); text-align: right; font-size: 0.74rem; }
+.fr-pm-row.ask { color: var(--fr-red); }
+.fr-pm-row.ask .bar i {
+  right: 0; left: auto;
+  background: linear-gradient(90deg, var(--fr-depth-ask-2), var(--fr-depth-ask-0));
+}
+.fr-pm-row.bid { color: var(--fr-green); }
+.fr-pm-row.bid .bar i {
+  background: linear-gradient(90deg, var(--fr-depth-bid-0), var(--fr-depth-bid-2));
+}
+.fr-pm-frontier {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 7px 2px;
+  padding: 3px 6px;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--fr-gold);
+  border-top: 1px solid var(--fr-gold);
+  border-bottom: 1px solid rgba(240, 185, 11, 0.25);
+  background: linear-gradient(90deg, rgba(240, 185, 11, 0.10), transparent);
+}
+.fr-pm-frontier span:last-child { color: var(--fr-dim); text-transform: uppercase; }
+.fr-pm-copy p { margin: 0 0 0.7rem; font-size: 0.92rem; line-height: 1.55; color: var(--fr-dim); }
+.fr-pm-copy p b { color: var(--fr-bone); }
+.fr-pm-cta { font-family: var(--fr-mono); font-size: 0.8rem; }
+@media (max-width: 720px) {
+  .fr-pm { grid-template-columns: 1fr; }
+}
+
+/* ================================================================
+   BRAND component variants (B3) — reusable showcases for /brand
+   ================================================================ */
+
+/* badge / pill: status + label, mono, accent-tinted */
+.fr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--fr-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--vp-c-divider);
+  background: var(--fr-ink-3);
+  color: var(--fr-dim);
+}
+.fr-badge::before {
+  content: "";
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--fr-green);
+}
+.fr-badge.live::before { box-shadow: 0 0 0 0 rgba(46,189,133,0.6); animation: fr-pulse 2s infinite; }
+.fr-badge.gold { color: var(--fr-gold); }
+.fr-badge.gold::before { background: var(--fr-gold); }
+.fr-badge.cyan { color: var(--fr-cyan); }
+.fr-badge.cyan::before { background: var(--fr-cyan); }
+@keyframes fr-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(46,189,133,0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(46,189,133,0); }
+  100% { box-shadow: 0 0 0 0 rgba(46,189,133,0); }
+}
+
+/* button variants */
+.fr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--fr-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  padding: 8px 16px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+}
+.fr-btn.primary { background: var(--fr-green); color: var(--fr-ink); font-weight: 700; }
+.fr-btn.primary:hover { background: var(--fr-green-deep); }
+.fr-btn.ghost { border-color: var(--vp-c-divider); color: var(--fr-bone); background: transparent; }
+.fr-btn.ghost:hover { border-color: var(--fr-green); color: var(--fr-green); }
+.fr-btn.intent { background: var(--fr-gold); color: var(--fr-ink); font-weight: 700; }
+.fr-btn.intent:hover { filter: brightness(1.08); }
+
+/* component-variant showcase grid */
+.fr-variants {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 1.2rem 0;
+}
+.fr-variant-cell {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  background: var(--fr-ink-2);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 96px;
+}
+.fr-variant-cell .cap {
+  font-family: var(--fr-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fr-dim);
+}
+
+/* depth-ramp swatch strip for the brand doc */
+.fr-ramp {
+  display: flex;
+  height: 38px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--vp-c-divider);
+  margin: 6px 0;
+}
+.fr-ramp > span { flex: 1; }
+
+/* icon grid showcase */
+.fr-icongrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 1.2rem 0;
+}
+.fr-icongrid .cell {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  background: var(--fr-ink-2);
+  padding: 16px 10px 10px;
+  text-align: center;
+  color: var(--fr-green);
+}
+.fr-icongrid .cell .lbl {
+  display: block;
+  margin-top: 10px;
+  font-family: var(--fr-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fr-dim);
 }
