@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {IRangeOrderBook} from "./IRangeOrderBook.sol";
 import {FrontierBookBase} from "./FrontierBookBase.sol";
 import {IFrontierHooks, FrontierHookFlags} from "./hooks/IFrontierHooks.sol";
+import "./FrontierErrors.sol";
 
 /// @title UniformFrontierBook — the core two-sided width-O(1) book
 ///
@@ -65,7 +66,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// @notice O(1): two endpoint writes regardless of range width. `liquidity`
     /// rests at every covered level (uniform ladder).
     function deposit(int24 lower, int24 upper, uint128 liquidity) external returns (uint256 positionId) {
-        require(liquidity > 0, "zero liquidity");
+        if (liquidity == 0) revert ZeroLiquidity();
         _checkRange(lower, upper);
         if (address(hooks) != address(0)) _callBeforeDepositHook(msg.sender, lower, upper, liquidity, false);
 
@@ -86,17 +87,17 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// and prefix-contiguity covers everything below it.
     function claimTo(uint256 positionId, int24 target) public returns (uint256 proceeds1) {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(!p.isBid, "use bid methods");
+        if (!p.live) revert NotLive();
+        if (p.isBid) revert UseBidMethods();
         _authOwner(p.owner);
-        require(target > p.claimedUpper && target <= p.upper, "bad target");
-        require((target - p.lower) % tickSpacing == 0, "unaligned target");
-        require(_highSince(p.depositClock) >= target, "not filled");
+        if (target <= p.claimedUpper || target > p.upper) revert BadTarget();
+        if ((target - p.lower) % tickSpacing != 0) revert UnalignedTarget();
+        if (_highSince(p.depositClock) < target) revert NotFilled();
 
         (proceeds1,) = _chargeMakerFee(token1, positionId, _askSpan(p, p.claimedUpper, target));
         p.claimedUpper = target;
 
-        if (proceeds1 > 0) require(token1.transfer(p.owner, proceeds1), "transfer out failed");
+        if (proceeds1 > 0 && !token1.transfer(p.owner, proceeds1)) revert TransferOutFailed();
         emit Claim(positionId, proceeds1);
         _callHook(
             FrontierHookFlags.AFTER_CLAIM_FLAG,
@@ -108,8 +109,8 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// @notice Convenience variant: finds the frontier itself in O(log width).
     function claim(uint256 positionId) external returns (uint256 proceeds1) {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(!p.isBid, "use bid methods");
+        if (!p.live) revert NotLive();
+        if (p.isBid) revert UseBidMethods();
         _authOwner(p.owner);
         int24 frontier = _frontier(p);
         if (frontier <= p.claimedUpper) {
@@ -128,12 +129,12 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// permission registry (claimTo is the authorized selector reached below).
     function claimAuto(uint256 positionId, uint256 minProceeds) external returns (uint256 proceeds1) {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(!p.isBid, "use bid methods");
+        if (!p.live) revert NotLive();
+        if (p.isBid) revert UseBidMethods();
         int24 frontier = _frontier(p);
-        require(frontier > p.claimedUpper, "nothing to claim");
+        if (frontier <= p.claimedUpper) revert NothingToClaim();
         proceeds1 = claimTo(positionId, frontier);
-        require(proceeds1 >= minProceeds, "below min proceeds");
+        if (proceeds1 < minProceeds) revert BelowMinProceeds();
     }
 
     // ------------------------------------------------------------------
@@ -149,10 +150,10 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     function _depositBid(int24 lower, int24 upper, uint128 liquidity) internal returns (uint256 positionId) {
-        require(liquidity > 0, "zero liquidity");
-        require(lower < upper, "empty range");
-        require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
-        require(upper <= _currentTick, "range not below price");
+        if (liquidity == 0) revert ZeroLiquidity();
+        if (lower >= upper) revert EmptyRange();
+        if (lower % tickSpacing != 0 || upper % tickSpacing != 0) revert Unaligned();
+        if (upper > _currentTick) revert RangeNotBelowPrice();
         if (address(hooks) != address(0)) _callBeforeDepositHook(msg.sender, lower, upper, liquidity, true);
 
         _addBid(lower, upper, liquidity);
@@ -161,7 +162,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         _storePosition(positionId, msg.sender, lower, upper, liquidity, fillClock, upper, true);
 
         uint256 amount1 = _uniformSpanValue(lower, upper, liquidity, true);
-        _transferInExact(token1, msg.sender, amount1, "non-exact token1 transfer");
+        _transferInExact(token1, msg.sender, amount1);
         emit Deposit(positionId, msg.sender, lower, upper, liquidity);
         if (address(hooks) != address(0)) _callAfterDepositHook(msg.sender, positionId, true);
     }
@@ -170,12 +171,12 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// filled levels [target, cursor). Mirror of claimTo.
     function claimBidTo(uint256 positionId, int24 target) public returns (uint256 proceeds0) {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(p.isBid, "not a bid");
+        if (!p.live) revert NotLive();
+        if (!p.isBid) revert NotABid();
         _authOwner(p.owner);
-        require(target < p.claimedUpper && target >= p.lower, "bad target");
-        require((target - p.lower) % tickSpacing == 0, "unaligned target");
-        require(_lowSince(p.depositClock) <= target, "not filled");
+        if (target >= p.claimedUpper || target < p.lower) revert BadTarget();
+        if ((target - p.lower) % tickSpacing != 0) revert UnalignedTarget();
+        if (_lowSince(p.depositClock) > target) revert NotFilled();
 
         (proceeds0,) = _chargeMakerFee(
             token0,
@@ -184,7 +185,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         );
         p.claimedUpper = target;
 
-        if (proceeds0 > 0) require(token0.transfer(p.owner, proceeds0), "transfer out failed");
+        if (proceeds0 > 0 && !token0.transfer(p.owner, proceeds0)) revert TransferOutFailed();
         emit Claim(positionId, proceeds0);
         _callHook(
             FrontierHookFlags.AFTER_CLAIM_FLAG,
@@ -196,8 +197,8 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// @notice Convenience variant: finds the bid frontier in O(log width).
     function claimBid(uint256 positionId) external returns (uint256 proceeds0) {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(p.isBid, "not a bid");
+        if (!p.live) revert NotLive();
+        if (!p.isBid) revert NotABid();
         _authOwner(p.owner);
         int24 frontier = _bidFrontier(p);
         if (frontier >= p.claimedUpper) {
@@ -212,12 +213,12 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// `minProceeds`. Proceeds go to the owner.
     function claimBidAuto(uint256 positionId, uint256 minProceeds) external returns (uint256 proceeds0) {
         Position storage p = _positions[positionId];
-        require(p.live, "not live");
-        require(p.isBid, "not a bid");
+        if (!p.live) revert NotLive();
+        if (!p.isBid) revert NotABid();
         int24 frontier = _bidFrontier(p);
-        require(frontier < p.claimedUpper, "nothing to claim");
+        if (frontier >= p.claimedUpper) revert NothingToClaim();
         proceeds0 = claimBidTo(positionId, frontier);
-        require(proceeds0 >= minProceeds, "below min proceeds");
+        if (proceeds0 < minProceeds) revert BelowMinProceeds();
     }
 
     // ------------------------------------------------------------------
@@ -297,7 +298,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         public
         returns (int24 reached, uint256 paid, uint256 received)
     {
-        require(block.timestamp <= deadline, "expired");
+        if (block.timestamp > deadline) revert Expired();
         int24 oldTick = _currentTick;
         if (target == oldTick) return (oldTick, 0, 0);
         _callHook(
@@ -324,11 +325,11 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             uint256 fee;
             (paid, fee) = _takerTotal(paid);
             _currentTick = reached;
-            require(received >= minOut, "insufficient output");
-            if (paid > 0) _transferInExact(token1, msg.sender, paid, "non-exact token1 transfer");
+            if (received < minOut) revert InsufficientOutput();
+            if (paid > 0) _transferInExact(token1, msg.sender, paid);
             _payTakerFee(token1, msg.sender, paid - fee, fee, paid);
             if (shadowFee > 0) _payShadowFee(shadowFee);
-            if (received > 0) require(token0.transfer(msg.sender, received), "fill payout failed");
+            if (received > 0 && !token0.transfer(msg.sender, received)) revert FillPayoutFailed();
         } else {
             uint256 grossBudget = _maxGrossForTotal(maxPay, takerFeeBps);
             (reached, paid, received) =
@@ -344,11 +345,11 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             uint256 fee;
             (paid, fee) = _takerTotal(paid);
             _currentTick = reached;
-            require(received >= minOut, "insufficient output");
-            if (paid > 0) _transferInExact(token0, msg.sender, paid, "non-exact token0 transfer");
+            if (received < minOut) revert InsufficientOutput();
+            if (paid > 0) _transferInExact(token0, msg.sender, paid);
             _payTakerFee(token0, msg.sender, paid - fee, fee, paid);
             if (shadowFee > 0) _payShadowFee(shadowFee);
-            if (received > 0) require(token1.transfer(msg.sender, received), "fill payout failed");
+            if (received > 0 && !token1.transfer(msg.sender, received)) revert FillPayoutFailed();
         }
         _callHook(
             FrontierHookFlags.AFTER_SWEEP_FLAG,
@@ -409,7 +410,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// @dev The shadow fee always settles in token1 (the quote leg) for both
     /// sweep directions, so it routes straight to the fee recipient here.
     function _payShadowFee(uint256 fee) private {
-        require(token1.transfer(feeRecipient, fee), "shadow fee transfer failed");
+        if (!token1.transfer(feeRecipient, fee)) revert ShadowFeeTransferFailed();
         emit ShadowFee(address(token1), fee, feeRecipient);
     }
 
@@ -448,7 +449,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
 
             // absorb endpoint e (locally; storage zeroed only if we proceed)
             int256 a0 = S.B + frontierDelta[e]; // uniform: size constant across the run
-            require(a0 >= 0, "negative run");
+            if (a0 < 0) revert NegativeRun();
             uint256 n = uint256(uint24(runEnd - e)) / uint256(uint24(tickSpacing));
 
             (uint256 out0, uint256 cost1) = _askRun(e, a0, n);
@@ -555,7 +556,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             int256 a0 = S.B + bidDelta[e];
             // crossings happen right-to-left, so every covering bid has
             // rolled into e before e is crossed; negative is unreachable
-            require(a0 >= 0, "negative bid run");
+            if (a0 < 0) revert NegativeRun();
             uint256 n = uint256(uint24(e - runEnd)) / uint256(uint24(tickSpacing));
 
             (uint256 in0, uint256 out1) = _bidRunAmounts(e, a0, n);
@@ -679,7 +680,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         for (int24 u = maxBoundary; u >= lowerTick; u -= tickSpacing) {
             sum += bidDelta[u];
         }
-        require(sum >= 0, "negative active");
+        if (sum < 0) revert NegativeActive();
         return uint128(uint256(sum));
     }
 
@@ -711,7 +712,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         for (int24 u = _minBoundary; u <= lowerTick; u += tickSpacing) {
             sum += frontierDelta[u];
         }
-        require(sum >= 0, "negative active");
+        if (sum < 0) revert NegativeActive();
         return uint128(uint256(sum));
     }
 }

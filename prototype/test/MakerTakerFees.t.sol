@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "../src/FrontierErrors.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
@@ -234,16 +236,16 @@ contract MakerTakerFeesTest is Test {
         shortToken1.mint(taker, 10e18);
         vm.startPrank(taker);
         shortToken1.approve(address(book), type(uint256).max);
-        vm.expectRevert(bytes("non-exact token1 transfer"));
+        vm.expectRevert(NonExactTransfer.selector);
         book.sweepWithLimits(102, type(uint256).max, type(uint256).max, 0, block.timestamp);
         vm.stopPrank();
     }
 
     function testFeeConstructorCapsAndRecipient() public {
-        vm.expectRevert(bytes("fee too high"));
+        vm.expectRevert(FeeTooHigh.selector);
         new UniformMakerOps(address(1), address(2), 1, address(0), address(0), feeRecipient, 1_001, 0);
 
-        vm.expectRevert(bytes("fee recipient required"));
+        vm.expectRevert(FeeRecipientRequired.selector);
         new UniformMakerOps(address(1), address(2), 1, address(0), address(0), address(0), 1, 0);
     }
 }

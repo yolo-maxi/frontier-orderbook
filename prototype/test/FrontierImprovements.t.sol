@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import "../src/FrontierErrors.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {GeometricFrontierBook} from "../src/GeometricFrontierBook.sol";
@@ -83,9 +85,9 @@ contract FrontierImprovementsTest is Test {
         vm.prank(mm);
         uint256 bid = book.depositBid(30, 40, L);
 
-        vm.expectRevert(bytes("not a live ask"));
+        vm.expectRevert(NotALiveAsk.selector);
         book.frontierOf(bid);
-        vm.expectRevert(bytes("not a live bid"));
+        vm.expectRevert(NotALiveBid.selector);
         book.bidFrontierOf(ask);
     }
 
@@ -118,7 +120,7 @@ contract FrontierImprovementsTest is Test {
 
         uint256 expected = book.claimable(id);
         vm.prank(mm);
-        vm.expectRevert(bytes("below min proceeds"));
+        vm.expectRevert(BelowMinProceeds.selector);
         book.claimAuto(id, expected + 1);
     }
 
@@ -126,7 +128,7 @@ contract FrontierImprovementsTest is Test {
         vm.prank(mm);
         uint256 id = book.deposit(60, 70, L);
         vm.prank(mm);
-        vm.expectRevert(bytes("nothing to claim"));
+        vm.expectRevert(NothingToClaim.selector);
         book.claimAuto(id, 0);
     }
 

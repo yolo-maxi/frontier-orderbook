@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "../src/FrontierErrors.sol";
+
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
@@ -174,7 +176,7 @@ contract FrontierQuoterTest is Test {
         book.moveTickTo(11); // first level filled
 
         vm.prank(mm);
-        vm.expectRevert(bytes("partially filled"));
+        vm.expectRevert(PartiallyFilled.selector);
         book.requote(id, 20, 23, L);
 
         // the fallback path: settle and re-place
@@ -198,7 +200,7 @@ contract FrontierQuoterTest is Test {
         book.moveTickTo(5); // price below the quote, nothing filled
 
         vm.prank(mm);
-        vm.expectRevert(bytes("range not above price"));
+        vm.expectRevert(RangeNotAbovePrice.selector);
         book.requote(id, 3, 6, L); // would straddle/sit below price
     }
 

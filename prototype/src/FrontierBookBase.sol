@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {IERC20Minimal} from "./RangeTakeProfitBook.sol";
 import {IFrontierHooks, FrontierHookFlags} from "./hooks/IFrontierHooks.sol";
 import {IPermissionRegistry} from "./permissions/interfaces/IPermissionRegistry.sol";
+import "./FrontierErrors.sol";
 
 /// @title FrontierBookBase — storage layout + shared machinery of the book
 ///
@@ -53,7 +54,7 @@ abstract contract FrontierBookBase {
     /// position; reverts for non-ask positions.
     function frontierOf(uint256 positionId) public view returns (int24) {
         Position storage p = _positions[positionId];
-        require(p.live && !p.isBid, "not a live ask");
+        if (!p.live || p.isBid) revert NotALiveAsk();
         return _frontier(p);
     }
 
@@ -62,7 +63,7 @@ abstract contract FrontierBookBase {
     /// `frontierOf` for the bid side; reverts for non-bid positions.
     function bidFrontierOf(uint256 positionId) public view returns (int24) {
         Position storage p = _positions[positionId];
-        require(p.live && p.isBid, "not a live bid");
+        if (!p.live || !p.isBid) revert NotALiveBid();
         return _bidFrontier(p);
     }
 
@@ -230,9 +231,9 @@ abstract contract FrontierBookBase {
         uint16 _makerFeeBps,
         uint16 _takerFeeBps
     ) {
-        require(_tickSpacing > 0, "bad spacing");
-        require(_makerFeeBps <= MAX_FEE_BPS && _takerFeeBps <= MAX_FEE_BPS, "fee too high");
-        require(_feeRecipient != address(0) || (_makerFeeBps == 0 && _takerFeeBps == 0), "fee recipient required");
+        if (_tickSpacing <= 0) revert BadSpacing();
+        if (_makerFeeBps > MAX_FEE_BPS || _takerFeeBps > MAX_FEE_BPS) revert FeeTooHigh();
+        if (_feeRecipient == address(0) && (_makerFeeBps != 0 || _takerFeeBps != 0)) revert FeeRecipientRequired();
         token0 = IERC20Minimal(_token0);
         token1 = IERC20Minimal(_token1);
         tickSpacing = _tickSpacing;
@@ -253,7 +254,7 @@ abstract contract FrontierBookBase {
 
     function _authOwner(address owner) internal view {
         if (msg.sender != owner) {
-            require(address(permissions) != address(0), "not owner");
+            if (address(permissions) == address(0)) revert NotOwner();
             permissions.requireAuthorizedCall(owner, msg.sender, address(this), msg.sig);
         }
     }
@@ -266,7 +267,7 @@ abstract contract FrontierBookBase {
         address h = address(hooks);
         if (h == address(0) || !h.hasFlag(flag) || msg.sender == h) return;
         (bool ok, bytes memory ret) = h.call(data);
-        require(ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == expected, "hook rejected");
+        if (!ok || ret.length < 32 || abi.decode(ret, (bytes4)) != expected) revert HookRejected();
     }
 
     function _callBeforeDepositHook(
@@ -280,19 +281,18 @@ abstract contract FrontierBookBase {
         if (h == address(0) || !h.hasFlag(FrontierHookFlags.BEFORE_DEPOSIT_FLAG) || msg.sender == h) return;
         (bool ok, bytes memory ret) =
             h.call(abi.encodeCall(IFrontierHooks.beforeDeposit, (owner, lower, upper, liquidity, isBid)));
-        require(
-            ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == IFrontierHooks.beforeDeposit.selector,
-            "hook rejected"
-        );
+        if (!ok || ret.length < 32 || abi.decode(ret, (bytes4)) != IFrontierHooks.beforeDeposit.selector) {
+            revert HookRejected();
+        }
     }
 
     function _callAfterDepositHook(address owner, uint256 positionId, bool isBid) internal {
         address h = address(hooks);
         if (h == address(0) || !h.hasFlag(FrontierHookFlags.AFTER_DEPOSIT_FLAG) || msg.sender == h) return;
         (bool ok, bytes memory ret) = h.call(abi.encodeCall(IFrontierHooks.afterDeposit, (owner, positionId, isBid)));
-        require(
-            ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == IFrontierHooks.afterDeposit.selector, "hook rejected"
-        );
+        if (!ok || ret.length < 32 || abi.decode(ret, (bytes4)) != IFrontierHooks.afterDeposit.selector) {
+            revert HookRejected();
+        }
     }
 
     // ------------------------------------------------------------------
@@ -300,9 +300,9 @@ abstract contract FrontierBookBase {
     // ------------------------------------------------------------------
 
     function _checkRange(int24 lower, int24 upper) internal view {
-        require(lower < upper, "empty range");
-        require(lower % tickSpacing == 0 && upper % tickSpacing == 0, "unaligned");
-        require(lower > _currentTick, "range not above price");
+        if (lower >= upper) revert EmptyRange();
+        if (lower % tickSpacing != 0 || upper % tickSpacing != 0) revert Unaligned();
+        if (lower <= _currentTick) revert RangeNotAbovePrice();
     }
 
     function _levels(int24 lower, int24 upper) internal view returns (uint24) {
@@ -356,13 +356,13 @@ abstract contract FrontierBookBase {
     /// (ceil, contract-favorable) for `n` levels of constant size `a0`.
     /// Virtual so the curve mixin swaps in its closed form.
     function _askRun(int24 e, int256 a0, uint256 n) internal view virtual returns (uint256 out0, uint256 cost1) {
-        require(a0 >= 0, "negative run");
+        if (a0 < 0) revert NegativeRun();
         int256 ni = int256(n);
         int256 sumK = (ni * (ni - 1)) / 2;
         int256 c0 = int256(PRICE_SCALE) + int256(e) * 1e15;
         int256 c1 = int256(tickSpacing) * 1e15;
         int256 val = a0 * c0 * ni + a0 * c1 * sumK;
-        require(val >= 0, "negative run");
+        if (val < 0) revert NegativeRun();
         out0 = uint256(a0 * ni);
         cost1 = (uint256(val) + PRICE_SCALE - 1) / PRICE_SCALE;
     }
@@ -380,7 +380,7 @@ abstract contract FrontierBookBase {
         int256 c0 = int256(PRICE_SCALE) + int256(p.lower) * 1e15;
         int256 c1 = sp * 1e15;
         int256 total = l0 * c0 * n + l0 * c1 * sj;
-        require(total >= 0, "rate underflow");
+        if (total < 0) revert RateUnderflow();
         return uint256(total) / PRICE_SCALE;
     }
 
@@ -540,7 +540,7 @@ abstract contract FrontierBookBase {
             int256 n = (int256(b) - int256(a)) / sp;
             int256 tickSum = n * int256(a) + (sp * n * (n - 1)) / 2;
             int256 rateSum = n * int256(PRICE_SCALE) + tickSum * 1e15;
-            require(rateSum > 0, "rate underflow");
+            if (rateSum <= 0) revert RateUnderflow();
             uint256 v = uint256(size) * uint256(rateSum);
             return roundUp ? (v + PRICE_SCALE - 1) / PRICE_SCALE : v / PRICE_SCALE;
         }
@@ -548,7 +548,7 @@ abstract contract FrontierBookBase {
 
     function _rate(int24 t) internal pure virtual returns (uint256) {
         int256 r = int256(PRICE_SCALE) + int256(t) * 1e15;
-        require(r > 0, "rate underflow");
+        if (r <= 0) revert RateUnderflow();
         return uint256(r);
     }
 
@@ -562,24 +562,24 @@ abstract contract FrontierBookBase {
         int256 c0 = int256(PRICE_SCALE) + int256(e) * 1e15;
         int256 c1 = int256(tickSpacing) * 1e15;
         int256 val = a0 * c0 * ni - a0 * c1 * sumK; // levels descend from e
-        require(tot0 >= 0 && val >= 0, "negative run");
+        if (tot0 < 0 || val < 0) revert NegativeRun();
         in0 = uint256(tot0);
         out1 = uint256(val) / PRICE_SCALE;
     }
 
     function _pull0(address payer, uint256 amount) internal {
-        _transferInExact(token0, payer, amount, "non-exact token0 transfer");
+        _transferInExact(token0, payer, amount);
     }
 
     function _pull1(address payer, uint256 amount) internal {
-        _transferInExact(token1, payer, amount, "non-exact token1 transfer");
+        _transferInExact(token1, payer, amount);
     }
 
-    function _transferInExact(IERC20Minimal token, address payer, uint256 amount, string memory err) internal {
+    function _transferInExact(IERC20Minimal token, address payer, uint256 amount) internal {
         if (amount == 0) return;
         uint256 beforeBal = token.balanceOf(address(this));
-        require(token.transferFrom(payer, address(this), amount), "transfer in failed");
-        require(token.balanceOf(address(this)) - beforeBal == amount, err);
+        if (!token.transferFrom(payer, address(this), amount)) revert TransferInFailed();
+        if (token.balanceOf(address(this)) - beforeBal != amount) revert NonExactTransfer();
     }
 
     function _feeAmount(uint256 amount, uint16 feeBps) internal pure returns (uint256) {
@@ -603,7 +603,7 @@ abstract contract FrontierBookBase {
         if (makerFeeBps == 0) return (grossProceeds, 0);
         fee = _feeAmount(grossProceeds, makerFeeBps);
         netProceeds = grossProceeds - fee;
-        if (fee > 0) require(token.transfer(feeRecipient, fee), "fee transfer failed");
+        if (fee > 0 && !token.transfer(feeRecipient, fee)) revert FeeTransferFailed();
         emit MakerFee(positionId, address(token), grossProceeds, fee, netProceeds, feeRecipient);
     }
 
@@ -617,7 +617,7 @@ abstract contract FrontierBookBase {
     function _payTakerFee(IERC20Minimal token, address payer, uint256 grossInput, uint256 fee, uint256 totalPaid)
         internal
     {
-        if (fee > 0) require(token.transfer(feeRecipient, fee), "fee transfer failed");
+        if (fee > 0 && !token.transfer(feeRecipient, fee)) revert FeeTransferFailed();
         if (takerFeeBps > 0) emit TakerFee(payer, address(token), grossInput, fee, totalPaid, feeRecipient);
     }
 

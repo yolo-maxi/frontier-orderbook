@@ -58,18 +58,86 @@ win on every claim/cancel/sweep of a fee-free book.
   view functions add bytecode that each test's `setUp` deploys; this is
   deploy-time, not per-call runtime, and does not affect the hot paths.
 
+---
+
+## Loop 2 — gas pass (G1 landed in full)
+
+### G1 — string `require` → custom errors (core book pair), tests in lockstep
+
+The deferral note below is now resolved. Every string `require` in the three
+**core** book contracts (`FrontierBookBase`, `UniformFrontierBook`,
+`UniformMakerOps`, ~95 sites) was converted to a `revert CustomError()`. The
+selectors live in one free-floating file, `src/FrontierErrors.sol`, so the
+delegatecall pair (book + maker-ops) and the periphery/tests all reference the
+**same** `Error.selector` — a divergent selector per half would be a latent bug.
+
+Scope discipline (why this is fully correct, not partial):
+
+- Only contracts that revert with strings AND are reached by the frontier book
+  were converted. Untouched, deliberately: `ReferenceBook`,
+  `RangeTakeProfitBook`/`RangeTakeProfitHook`, `FrontierRouter`, `RangeLP`,
+  `FrontierPositionNFT`, the TWAP/observation hooks, `PermissionRegistry`. Their
+  string reverts and the tests asserting them are unchanged.
+- All ~30 affected test assertions were migrated to
+  `vm.expectRevert(Error.selector)` in lockstep
+  (`FrontierImprovements`, `FrontierTwoSided`, `FrontierScenarios`,
+  `MakerTakerFees`, `FrontierQuoter`, `FrontierVenue`, `Periphery`,
+  `HookExperiments`, `Hooks`, `Permissions`).
+- The shared `ScenarioSuite` (run against the string books **and** the
+  custom-error frontier book) now expects reverts through small `virtual`
+  hooks (`_expectNotLive`, `_expectRangeNotAbovePrice`, `_expectEmptyRange`,
+  `_expectZeroLiquidity`, `_expectUnaligned`) that default to the string form
+  and are overridden to selectors only in `FrontierScenariosTest`. This keeps
+  one suite precise against three books with different revert vocabularies.
+
+Measured impact (`forge snapshot` before/after, default profile — the figure
+each test reports includes its `setUp` book-pair deployment, so the dominant
+win is **deploy-time** bytecode shrink; the revert path also gets cheaper):
+
+| Bench (deploys a fresh book pair in setUp)        | before     | after      | delta     |
+|---------------------------------------------------|-----------:|-----------:|----------:|
+| `FrontierGasTest:testDepositGasFlatVsWidth`       | 39,677,987 | 39,041,432 |  -636,555 |
+| `FrontierGasTest:testCancelGasFlatVsWidth`        | 29,870,529 | 29,397,653 |  -472,876 |
+| `FrontierGasTest:testClaimGasFlatVsWidth`         | 30,133,594 | 29,661,231 |  -472,363 |
+| `FrontierGasTest:testSwapGasFlatVsLevelsOfOneOrder`| 29,907,782| 29,435,828 |  -471,954 |
+| `FrontierOzempicTest:testSweepGasIndependentOfTickFineness` | 29,829,410 | 29,357,458 | -471,952 |
+| `GasMatrixTest:testBidOperationCosts`             | 30,088,213 | 29,612,120 |  -476,093 |
+| `FrontierVenueTest:testFactoryGeometricBooks`     | 27,615,531 | 27,190,669 |  -424,862 |
+| `FrontierVenueTest:testFactoryParallelMarkets`    | 48,732,000 | 48,025,770 |  -706,230 |
+| `PeripheryTest:testLensDepthAndSummary` (many books) | 6,158,888 | 4,085,426 | -2,073,462 |
+| `FrontierImprovementsTest:testBestPricesEmptySides`  | 5,118,812 | 2,982,940 | -2,135,872 |
+
+Whole-suite: **152 benches changed, net −18.14M gas** (sum of decreases
+−18.66M, increases +0.52M). The handful of small increases are fee-bearing
+fuzz paths where the `if (...) revert` codegen reorders a few SLOADs on the
+non-reverting branch (e.g. `testTakerUpSweepFee` +370k on a 122M baseline =
++0.3%); happy-path semantics are unchanged. Deployed runtime sizes
+(`FOUNDRY_PROFILE=deploy forge build --sizes`): `GeometricFrontierBook`
+22,045 B / `GeometricMakerOps` 11,596 B / `UniformFrontierBook` 21,474 B /
+`UniformMakerOps` 11,007 B — all comfortably under the 24,576 B EIP-170 limit.
+
+### G2 (powX18 sweep memoization) — attempted, measured, reverted
+
+Threading the shared run-endpoint pow through the sweep loop (a run's
+`P(runEnd)` equals the next contiguous run's `P(e)`) was implemented and
+benchmarked. It is a **net loss** here: the production sweep benches drive one
+order spanning many levels = a single run with only two pows total, so there is
+nothing to memoize, yet every sweep pays the added virtual-dispatch + extra
+return-value overhead. Measured `testGeometricSweepGasIndependentOfTickFineness`
+went 18.06M → 19.56M and the multi-endpoint
+`testSwapGasScalesWithEndpointsNotLevels` 25.93M → 27.38M. Reverted in full;
+`GeoTickMath.powX18` and the sweep loop are unchanged from loop 1. A transient-
+storage (`tload`/`tstore`) memo is blocked by the `view` mutability of the run
+helpers (`tstore` is rejected in `view`; the run chain feeds `view` getters like
+`claimable`/`rateAt`, so it cannot be relaxed without a larger refactor).
+
 ## Deferred (documented, intentionally not attempted)
 
 - **Sub-interval partial-fill (cohort) rework** — explicitly high risk; a half
   implementation would destabilize the fill-clock / high-water invariants. Not
   attempted. All composites added here are whole-interval only.
-- **Broad G1 (string requires → custom errors)** — ~25 test assertions match
-  on exact revert strings (`vm.expectRevert(bytes("..."))`). A blanket
-  conversion would force rewriting those assertions for a benefit that is
-  realized only on the revert path (custom errors mainly help deploy size and
-  reverting-call cost, not the happy path). Per the "land fewer fully-correct
-  changes; default to not degrading" guidance, this was left for a dedicated
-  pass that updates tests in lockstep.
+- **G2 powX18 memoization** — attempted and reverted (net negative on the real
+  benches; see above).
 - **Multi-curve dispatch registry (C3)** — would touch the storage/immutable
   layout shared across the EIP-170 book/maker-ops split; not low-risk enough
   to land alongside the above without a dedicated migration story.

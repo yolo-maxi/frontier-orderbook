@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import "../src/FrontierErrors.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {GeometricFrontierBook} from "../src/GeometricFrontierBook.sol";
@@ -95,7 +97,7 @@ contract PeripheryTest is Test {
         path[0] = address(t1);
         path[1] = address(t0);
         vm.prank(trader);
-        vm.expectRevert(bytes("insufficient output"));
+        vm.expectRevert(InsufficientOutput.selector);
         router.swapExactTokensForTokens(uint256(L), 100 * uint256(L), path, trader, block.timestamp);
     }
 
@@ -171,7 +173,7 @@ contract MakerKitTest is Test {
         t0.approve(address(book), type(uint256).max);
         uint256 id = book.deposit(101, 103, 1e18);
         book.transferPosition(id, alice);
-        vm.expectRevert(bytes("not owner"));
+        vm.expectRevert(NotOwner.selector);
         book.cancel(id); // old owner locked out
         vm.stopPrank();
         vm.prank(alice);
