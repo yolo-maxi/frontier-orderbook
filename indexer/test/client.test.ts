@@ -19,7 +19,7 @@ describe("FrontierClient (against a live server)", () => {
     db = openDb(":memory:");
     applyBatch(db, sampleEvents);
     bus = new Bus();
-    app = buildApi({ db, bus });
+    app = await buildApi({ db, bus, rateLimit: { enabled: false } });
     await app.listen({ port: 0, host: "127.0.0.1" });
     const addr = app.server.address();
     const port = typeof addr === "object" && addr ? addr.port : 0;
@@ -64,8 +64,12 @@ describe("FrontierClient (against a live server)", () => {
   });
 
   it("fetches stats and candles", async () => {
+    // An out-of-bounds window is clamped server-side to one year (365d). The
+    // fixture's trades are older than that relative to wall-clock now, so the
+    // windowed tradeCount may be 0; assert the clamp and the window-independent
+    // candles aggregation instead.
     const stats = await client.stats(BOOK, 999_999_999_999);
-    expect(stats.tradeCount).toBe(1);
+    expect(stats.windowSecs).toBe(365 * 86_400);
     const { candles } = await client.candles(BOOK, 60);
     expect(candles).toHaveLength(1);
   });

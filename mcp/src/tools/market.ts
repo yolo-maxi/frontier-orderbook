@@ -5,7 +5,7 @@ import { zeroAddress, type Address } from "viem";
 import type { FrontierContext } from "../context.js";
 import { resolveAddress } from "../context.js";
 import { ok, guard } from "../result.js";
-import { broadcastWrite, simulateWrite } from "../simulate.js";
+import { executeOrSimulate } from "../simulate.js";
 
 const addr = z.string().regex(/^0x[0-9a-fA-F]{40}$/, "must be a 0x address");
 
@@ -96,12 +96,14 @@ export function registerMarketTools(server: McpServer, ctx: FrontierContext): vo
               ] as const,
             };
 
-        if (!a.execute) {
-          const sim = await simulateWrite(ctx, call);
-          return ok({ action: "createMarket", dryRun: true, predictedBook: sim.result, ...sim });
-        }
-        const hash = await broadcastWrite(ctx, call);
-        return ok({ action: "createMarket", executed: true, hash });
+        return ok(
+          await executeOrSimulate(ctx, {
+            action: "createMarket",
+            execute: a.execute,
+            call,
+            simFields: (sim) => ({ predictedBook: sim.result }),
+          }),
+        );
       }),
   );
 }

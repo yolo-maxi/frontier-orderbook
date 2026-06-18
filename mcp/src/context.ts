@@ -49,11 +49,31 @@ function optAddr(name: string): Address | undefined {
   return v as Address;
 }
 
-export function buildContext(): FrontierContext {
-  const rpcUrl = process.env.FRONTIER_RPC_URL;
-  if (!rpcUrl) {
-    throw new Error("FRONTIER_RPC_URL is required to start the Frontier MCP server");
+/**
+ * Validate an RPC URL: it must parse and use the http(s) protocol. Errors never
+ * include the raw URL because RPC endpoints commonly embed API keys / basic-auth
+ * credentials that must not be logged.
+ */
+export function validateRpcUrl(raw: string | undefined, varName: string): string {
+  if (!raw) {
+    throw new Error(`${varName} is required to start the Frontier MCP server`);
   }
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${varName} is not a valid URL (must be an absolute http(s) URL)`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(
+      `${varName} must use http(s) (got protocol "${parsed.protocol.replace(/:$/, "")}")`,
+    );
+  }
+  return raw;
+}
+
+export function buildContext(): FrontierContext {
+  const rpcUrl = validateRpcUrl(process.env.FRONTIER_RPC_URL, "FRONTIER_RPC_URL");
 
   const chainId = process.env.FRONTIER_CHAIN_ID ? Number(process.env.FRONTIER_CHAIN_ID) : undefined;
   const chain: Chain | undefined = chainId

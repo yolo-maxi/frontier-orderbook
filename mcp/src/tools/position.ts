@@ -5,7 +5,7 @@ import type { Address, Hex } from "viem";
 import type { FrontierContext } from "../context.js";
 import { resolveAddress } from "../context.js";
 import { ok, guard } from "../result.js";
-import { broadcastWrite, simulateWrite } from "../simulate.js";
+import { executeOrSimulate } from "../simulate.js";
 
 const addr = z.string().regex(/^0x[0-9a-fA-F]{40}$/, "must be a 0x address");
 
@@ -54,8 +54,9 @@ export function registerPositionTools(server: McpServer, ctx: FrontierContext): 
           functionName: "transferPosition",
           args: [BigInt(a.positionId), a.to as Address] as const,
         };
-        if (!a.execute) return ok({ action: "transferPosition", dryRun: true, ...(await simulateWrite(ctx, call)) });
-        return ok({ action: "transferPosition", executed: true, hash: await broadcastWrite(ctx, call) });
+        return ok(
+          await executeOrSimulate(ctx, { action: "transferPosition", execute: a.execute, call }),
+        );
       }),
   );
 
@@ -92,15 +93,14 @@ export function registerPositionTools(server: McpServer, ctx: FrontierContext): 
           functionName: "grantSelectorBundle",
           args: [a.operator as Address, a.target as Address, resolved, expiry] as const,
         };
-        if (!a.execute) {
-          return ok({ action: "grantSelectorBundle", selectors: resolved, dryRun: true, ...(await simulateWrite(ctx, call)) });
-        }
-        return ok({
-          action: "grantSelectorBundle",
-          selectors: resolved,
-          executed: true,
-          hash: await broadcastWrite(ctx, call),
-        });
+        return ok(
+          await executeOrSimulate(ctx, {
+            action: "grantSelectorBundle",
+            execute: a.execute,
+            call,
+            extra: { selectors: resolved },
+          }),
+        );
       }),
   );
 

@@ -24,6 +24,26 @@ export interface IndexerConfig {
 }
 
 /**
+ * Validate an RPC URL: it must parse and use the http(s) protocol. The raw URL
+ * is never echoed in the error because RPC endpoints frequently embed API keys
+ * or basic-auth credentials that must not leak into logs.
+ */
+export function validateRpcUrl(raw: string, varName = "RPC_URL"): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${varName} is not a valid URL (must be an absolute http(s) URL)`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(
+      `${varName} must use http(s) (got protocol "${parsed.protocol.replace(/:$/, "")}")`,
+    );
+  }
+  return raw;
+}
+
+/**
  * Build config from env vars, falling back to prototype/deployments/latest.json
  * for the devnet so the service runs with zero flags against the demo stack.
  */
@@ -46,9 +66,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): IndexerConfig 
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
+  const rpcUrl = validateRpcUrl(
+    (env.RPC_URL || deployment.rpcUrl || "http://127.0.0.1:8545") as string,
+  );
+
   return {
     chainId: Number(env.CHAIN_ID ?? deployment.chainId ?? 0),
-    rpcUrl: (env.RPC_URL || deployment.rpcUrl || "http://127.0.0.1:8545") as string,
+    rpcUrl,
     books,
     factory: (env.FACTORY ?? c.factory ?? "").toLowerCase() || undefined,
     nftWrappers,

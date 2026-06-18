@@ -3,6 +3,7 @@ import { openDb, type DB } from "../src/db/index.js";
 import { applyBatch } from "../src/ingest.js";
 import { Bus } from "../src/bus.js";
 import { buildApi } from "../src/api.js";
+import { marketStats } from "../src/queries.js";
 import { sampleEvents, BOOK, ALICE, TAKER } from "./fixtures/sampleEvents.js";
 import type { FastifyInstance } from "fastify";
 
@@ -13,7 +14,9 @@ describe("REST API", () => {
   beforeAll(async () => {
     db = openDb(":memory:");
     applyBatch(db, sampleEvents);
-    app = buildApi({ db, bus: new Bus() });
+    // Disable rate limiting in the functional API tests so repeated injects
+    // don't trip limits; rate limiting has its own dedicated test.
+    app = await buildApi({ db, bus: new Bus(), rateLimit: { enabled: false } });
     await app.ready();
   });
 
@@ -74,19 +77,29 @@ describe("REST API", () => {
     expect(Array.isArray(body.trades)).toBe(true);
   });
 
-  it("GET /stats/:market returns volume, trade count, and open interest", async () => {
+  it("GET /stats/:market clamps an out-of-bounds window and still returns point-in-time fields", async () => {
     const res = await app.inject({
       method: "GET",
-      // huge window so the fixture's old timestamps are always included
+      // pathological window; must be clamped to WINDOW_MAX_SECS (365d)
       url: `/stats/${BOOK}?window=999999999999`,
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.market).toBe(BOOK);
-    expect(body.tradeCount).toBe(1);
-    expect(body.volume1).toBe("3300000");
+    // Window is clamped to one year (365d), not the requested value.
+    expect(body.windowSecs).toBe(365 * 86_400);
+    // Open interest / live positions are point-in-time and window-independent.
     expect(body.livePositions).toBe(1);
     expect(BigInt(body.openInterest)).toBeGreaterThan(0n);
+  });
+
+  it("marketStats over a wide window aggregates the fixture trades/volume", () => {
+    // Window-dependent aggregates are exercised directly so the assertion is
+    // independent of wall-clock vs the fixture's (old) timestamps.
+    const stats = marketStats(db, BOOK, 10_000, 1_700_001_000);
+    expect(stats.tradeCount).toBe(1);
+    expect(stats.volume1).toBe("3300000");
+    expect(stats.livePositions).toBe(1);
   });
 
   it("GET /stats/:market 404s for an unknown market", async () => {

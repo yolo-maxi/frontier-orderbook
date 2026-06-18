@@ -5,7 +5,7 @@ import type { Address } from "viem";
 import type { FrontierContext } from "../context.js";
 import { resolveAddress } from "../context.js";
 import { ok, guard } from "../result.js";
-import { broadcastWrite, simulateWrite } from "../simulate.js";
+import { executeOrSimulate } from "../simulate.js";
 
 const addr = z.string().regex(/^0x[0-9a-fA-F]{40}$/, "must be a 0x address");
 const routerAbi = abi.frontierRouterAbi as never;
@@ -58,11 +58,14 @@ export function registerTakerTools(server: McpServer, ctx: FrontierContext): voi
           functionName: fn,
           args: [bookAddr, amountIn, minOut, to, deadline] as const,
         };
-        if (!a.execute) {
-          const sim = await simulateWrite(ctx, call);
-          return ok({ action: fn, quote, minOut, dryRun: true, ...sim });
-        }
-        return ok({ action: fn, quote, minOut, executed: true, hash: await broadcastWrite(ctx, call) });
+        return ok(
+          await executeOrSimulate(ctx, {
+            action: fn,
+            execute: a.execute,
+            call,
+            extra: { quote, minOut },
+          }),
+        );
       }),
   );
 
@@ -94,16 +97,14 @@ export function registerTakerTools(server: McpServer, ctx: FrontierContext): voi
           functionName: "sweepWithLimits",
           args: [a.target, BigInt(a.maxFills), BigInt(a.maxPay), BigInt(a.minOut), deadline] as const,
         };
-        if (!a.execute) {
-          const sim = await simulateWrite(ctx, call);
-          return ok({ action: "sweepWithLimits", currentTick: current, dryRun: true, ...sim });
-        }
-        return ok({
-          action: "sweepWithLimits",
-          currentTick: current,
-          executed: true,
-          hash: await broadcastWrite(ctx, call),
-        });
+        return ok(
+          await executeOrSimulate(ctx, {
+            action: "sweepWithLimits",
+            execute: a.execute,
+            call,
+            extra: { currentTick: current },
+          }),
+        );
       }),
   );
 }

@@ -5,7 +5,7 @@ import type { Address } from "viem";
 import type { FrontierContext } from "../context.js";
 import { resolveAddress } from "../context.js";
 import { ok, guard, fail } from "../result.js";
-import { broadcastWrite, simulateWrite } from "../simulate.js";
+import { executeOrSimulate } from "../simulate.js";
 
 const addr = z.string().regex(/^0x[0-9a-fA-F]{40}$/, "must be a 0x address");
 const bookAbi = abi.geometricFrontierBookAbi as never;
@@ -50,11 +50,14 @@ export function registerMakerTools(server: McpServer, ctx: FrontierContext): voi
           functionName: fn,
           args: [a.lower, a.upper, BigInt(a.liquidity)] as const,
         };
-        if (!a.execute) {
-          const sim = await simulateWrite(ctx, call);
-          return ok({ action: fn, dryRun: true, predictedPositionId: sim.result, ...sim });
-        }
-        return ok({ action: fn, executed: true, hash: await broadcastWrite(ctx, call) });
+        return ok(
+          await executeOrSimulate(ctx, {
+            action: fn,
+            execute: a.execute,
+            call,
+            simFields: (sim) => ({ predictedPositionId: sim.result }),
+          }),
+        );
       }),
   );
 
@@ -79,11 +82,14 @@ export function registerMakerTools(server: McpServer, ctx: FrontierContext): voi
         const claimable = a.side === "ask" ? await client.claimable(id) : await client.bidClaimable(id);
         const fn = a.side === "ask" ? "claim" : "claimBid";
         const call = { address: bookAddr, abi: bookAbi, functionName: fn, args: [id] as const };
-        if (!a.execute) {
-          const sim = await simulateWrite(ctx, call);
-          return ok({ action: fn, claimableNet: claimable, dryRun: true, ...sim });
-        }
-        return ok({ action: fn, claimableNet: claimable, executed: true, hash: await broadcastWrite(ctx, call) });
+        return ok(
+          await executeOrSimulate(ctx, {
+            action: fn,
+            execute: a.execute,
+            call,
+            extra: { claimableNet: claimable },
+          }),
+        );
       }),
   );
 
@@ -105,11 +111,7 @@ export function registerMakerTools(server: McpServer, ctx: FrontierContext): voi
         const bookAddr = resolveAddress(a.book, ctx.addresses.book, "book");
         const fn = a.side === "ask" ? "cancel" : "cancelBid";
         const call = { address: bookAddr, abi: bookAbi, functionName: fn, args: [BigInt(a.positionId)] as const };
-        if (!a.execute) {
-          const sim = await simulateWrite(ctx, call);
-          return ok({ action: fn, dryRun: true, ...sim });
-        }
-        return ok({ action: fn, executed: true, hash: await broadcastWrite(ctx, call) });
+        return ok(await executeOrSimulate(ctx, { action: fn, execute: a.execute, call }));
       }),
   );
 
@@ -139,11 +141,7 @@ export function registerMakerTools(server: McpServer, ctx: FrontierContext): voi
           functionName: fn,
           args: [BigInt(a.positionId), a.newLower, a.newUpper, BigInt(a.newLiquidity)] as const,
         };
-        if (!a.execute) {
-          const sim = await simulateWrite(ctx, call);
-          return ok({ action: fn, dryRun: true, ...sim });
-        }
-        return ok({ action: fn, executed: true, hash: await broadcastWrite(ctx, call) });
+        return ok(await executeOrSimulate(ctx, { action: fn, execute: a.execute, call }));
       }),
   );
 }

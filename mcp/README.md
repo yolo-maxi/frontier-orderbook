@@ -7,8 +7,10 @@ Desktop, Claude Code, etc.).
 It wraps [`@frontier/sdk`](../sdk) and ships **16 tools** across five categories:
 lens/read, market, maker, taker, and position/delegation. Every write tool
 **dry-runs by default** — it validates inputs, simulates the call via
-`eth_call`, and returns the encoded calldata. Pass `execute: true` (with a
-configured wallet) to broadcast.
+`eth_call`, and returns the encoded calldata. To actually broadcast you must
+both pass `execute: true` **and** opt in at the process level via
+`FRONTIER_MCP_ALLOW_EXECUTE=1` with a configured wallet; otherwise execution is
+refused and the calldata/simulation is returned (see [Safety model](#safety-model)).
 
 ## Tools
 
@@ -44,7 +46,12 @@ The server is configured entirely through environment variables:
 | `FRONTIER_LENS` | optional | Default `FrontierLens` |
 | `FRONTIER_REGISTRY` | optional | Default `PermissionRegistry` |
 | `FRONTIER_BOOK` | optional | Default `GeometricFrontierBook` |
-| `FRONTIER_PRIVATE_KEY` | optional | Enables `execute: true`. Without it, write tools dry-run and return calldata only. |
+| `FRONTIER_PRIVATE_KEY` | optional | Wallet that *can* sign. Required for execution, but not sufficient on its own — see `FRONTIER_MCP_ALLOW_EXECUTE`. Without it, write tools dry-run and return calldata only. |
+| `FRONTIER_MCP_ALLOW_EXECUTE` | optional | **Execution kill-switch (off by default).** Must be `1`/`true` to allow `execute: true` to broadcast. With it unset, `execute: true` is refused and the server returns the simulation/calldata instead. |
+
+`FRONTIER_RPC_URL` is validated at startup: it must be an absolute `http(s)`
+URL. The raw URL is never echoed in error messages, so credentials embedded in
+the endpoint (API keys / basic-auth) are not logged.
 
 Addresses configured here are defaults; every tool also accepts the relevant
 address as an argument so one server can talk to multiple books.
@@ -54,11 +61,33 @@ address as an argument so one server can talk to multiple books.
 - **Dry-run first.** Write tools simulate before sending; the result includes
   the decoded simulation return, the `calldata`, and whether a wallet can
   execute.
+- **Safe-by-default execution.** `execute: true` only broadcasts when **both**
+  `FRONTIER_MCP_ALLOW_EXECUTE=1` is set **and** a wallet
+  (`FRONTIER_PRIVATE_KEY`) is configured. If either is missing, the call is
+  **refused**: the server falls back to the simulation/calldata path and returns
+  a `refused` message explaining how to enable execution (set the flag and/or
+  configure a wallet, or sign the returned calldata elsewhere). This applies
+  consistently to every execute-capable tool (`frontier_market_create`,
+  `frontier_maker_*`, `frontier_taker_*`, `frontier_position_transfer`,
+  `frontier_delegation_grant`).
 - **No key, no broadcast.** With no `FRONTIER_PRIVATE_KEY`, the server is
   read-and-simulate only and emits calldata for you to sign elsewhere.
 - **Client-side validation** mirrors the contracts: token/fee/spacing checks for
   market creation, range/side/alignment checks for maker orders, and
   quote+slippage for taker swaps.
+
+### Enabling execution
+
+```sh
+# Dry-run only (default) — safe even with a key present:
+FRONTIER_RPC_URL=https://... FRONTIER_PRIVATE_KEY=0x... node dist/server.js
+
+# Allow real broadcasts (explicit opt-in + wallet):
+FRONTIER_RPC_URL=https://... \
+FRONTIER_PRIVATE_KEY=0x... \
+FRONTIER_MCP_ALLOW_EXECUTE=1 \
+node dist/server.js
+```
 
 ## Run
 

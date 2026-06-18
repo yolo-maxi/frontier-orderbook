@@ -5,6 +5,7 @@
 // WS:    /fills, /depth  (server pushes ingest notifications to subscribers)
 
 import Fastify, { type FastifyInstance } from "fastify";
+import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
 import type { DB } from "./db/index.js";
 import type { Bus } from "./bus.js";
@@ -21,17 +22,73 @@ import {
 
 const isAddress = (s: string) => /^0x[0-9a-fA-F]{40}$/.test(s);
 
+// Bounds for time-range query params, to stop callers requesting pathological
+// ranges (e.g. window=1 forcing huge scans, or interval=huge producing a single
+// bucket over all history).
+const MINUTE = 60;
+const DAY = 86_400;
+export const WINDOW_MIN_SECS = MINUTE; // 60s
+export const WINDOW_MAX_SECS = 365 * DAY; // 1 year
+export const INTERVAL_MIN_SECS = MINUTE; // 60s
+export const INTERVAL_MAX_SECS = 7 * DAY; // 1 week
+
+/** Clamp a numeric query param into [min, max]; returns undefined if absent/NaN. */
+function clampParam(raw: string | undefined, min: number, max: number): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.min(Math.max(Math.floor(n), min), max);
+}
+
+export interface RateLimitOptions {
+  /** Enable the rate limiter. Default true. Tests can disable it. */
+  enabled?: boolean;
+  /** Global per-IP request budget per window. Default 600. */
+  globalMax?: number;
+  /** Stricter per-IP budget for expensive scan/aggregation endpoints. Default 120. */
+  expensiveMax?: number;
+  /** Window for both budgets, in milliseconds. Default 60_000 (1 min). */
+  windowMs?: number;
+  /** Max concurrent WebSocket connections per IP. Default 10. */
+  wsMaxPerIp?: number;
+}
+
 export interface ApiDeps {
   db: DB;
   bus: Bus;
   logger?: boolean;
+  rateLimit?: RateLimitOptions;
 }
 
-export function buildApi(deps: ApiDeps): FastifyInstance {
+export async function buildApi(deps: ApiDeps): Promise<FastifyInstance> {
   const { db, bus } = deps;
   const app = Fastify({ logger: deps.logger ?? false });
 
-  app.register(websocket);
+  const rl: Required<RateLimitOptions> = {
+    enabled: deps.rateLimit?.enabled ?? true,
+    globalMax: deps.rateLimit?.globalMax ?? 600,
+    expensiveMax: deps.rateLimit?.expensiveMax ?? 120,
+    windowMs: deps.rateLimit?.windowMs ?? 60_000,
+    wsMaxPerIp: deps.rateLimit?.wsMaxPerIp ?? 10,
+  };
+
+  if (rl.enabled) {
+    // Global limiter: a generous per-IP budget guards every route. Expensive
+    // endpoints additionally opt into a stricter limit via their route config.
+    await app.register(rateLimit, {
+      global: true,
+      max: rl.globalMax,
+      timeWindow: rl.windowMs,
+    });
+  }
+
+  // Per-route stricter limit for scan/aggregation-heavy endpoints. Falls back to
+  // an empty config when the limiter is disabled (tests).
+  const expensiveLimit = rl.enabled
+    ? { config: { rateLimit: { max: rl.expensiveMax, timeWindow: rl.windowMs } } }
+    : {};
+
+  await app.register(websocket);
 
   app.get("/health", async () => ({ ok: true, ts: Date.now() }));
 
@@ -40,6 +97,7 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
 
   app.get<{ Params: { market: string }; Querystring: { levels?: string } }>(
     "/book/:market",
+    expensiveLimit,
     async (req, reply) => {
       const { market } = req.params;
       if (!isAddress(market)) return reply.code(400).send({ error: "invalid market address" });
@@ -91,11 +149,12 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   // ---- Stats / charts -------------------------------------------------------
   app.get<{ Params: { market: string }; Querystring: { window?: string } }>(
     "/stats/:market",
+    expensiveLimit,
     async (req, reply) => {
       const { market } = req.params;
       if (!isAddress(market)) return reply.code(400).send({ error: "invalid market address" });
       if (!getMarket(db, market)) return reply.code(404).send({ error: "unknown market" });
-      const windowSecs = req.query.window ? Math.max(1, Number(req.query.window)) : undefined;
+      const windowSecs = clampParam(req.query.window, WINDOW_MIN_SECS, WINDOW_MAX_SECS);
       return marketStats(db, market, windowSecs);
     },
   );
@@ -103,13 +162,16 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   app.get<{
     Params: { market: string };
     Querystring: { interval?: string; from?: string; to?: string; limit?: string };
-  }>("/candles/:market", async (req, reply) => {
+  }>("/candles/:market", expensiveLimit, async (req, reply) => {
     const { market } = req.params;
     if (!isAddress(market)) return reply.code(400).send({ error: "invalid market address" });
     if (!getMarket(db, market)) return reply.code(404).send({ error: "unknown market" });
-    const interval = req.query.interval ? Number(req.query.interval) : 3600;
-    if (!Number.isFinite(interval) || interval <= 0)
+    const rawInterval = req.query.interval !== undefined ? Number(req.query.interval) : 3600;
+    if (!Number.isFinite(rawInterval) || rawInterval <= 0)
       return reply.code(400).send({ error: "interval must be a positive number of seconds" });
+    // Clamp to sane bounds (60s..7d) so a caller can't request a pathological
+    // bucket size that collapses all history into one (or millions of) buckets.
+    const interval = Math.min(Math.max(Math.floor(rawInterval), INTERVAL_MIN_SECS), INTERVAL_MAX_SECS);
     return {
       market: market.toLowerCase(),
       interval,
@@ -132,7 +194,35 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   // ---- WebSocket ------------------------------------------------------------
   // Clean interface: connect to /fills or /depth and receive newline-free JSON
   // frames. Optionally filter by market via ?market=0x...
+  //
+  // Per-IP connection cap: a single client can't exhaust server sockets by
+  // opening unbounded WebSocket subscriptions.
+  const wsConnsByIp = new Map<string, number>();
   const wsHandler = (channel: "fills" | "depth") => (socket: any, req: any) => {
+    const ip =
+      (typeof req.ip === "string" && req.ip) ||
+      req.socket?.remoteAddress ||
+      "unknown";
+    const current = wsConnsByIp.get(ip) ?? 0;
+    if (rl.enabled && current >= rl.wsMaxPerIp) {
+      try {
+        socket.send(JSON.stringify({ type: "error", error: "too many websocket connections" }));
+      } catch {
+        /* ignore */
+      }
+      socket.close(1013, "rate limited");
+      return;
+    }
+    wsConnsByIp.set(ip, current + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      const n = (wsConnsByIp.get(ip) ?? 1) - 1;
+      if (n <= 0) wsConnsByIp.delete(ip);
+      else wsConnsByIp.set(ip, n);
+    };
+
     const url = new URL(req.url ?? "/", "http://localhost");
     const marketFilter = url.searchParams.get("market")?.toLowerCase() ?? null;
 
@@ -145,8 +235,12 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
         /* socket closing */
       }
     });
-    socket.on("close", off);
-    socket.on("error", off);
+    const cleanup = () => {
+      off();
+      release();
+    };
+    socket.on("close", cleanup);
+    socket.on("error", cleanup);
   };
 
   app.register(async (scoped) => {

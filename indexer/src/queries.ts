@@ -64,6 +64,16 @@ export interface DepthLevel {
 }
 
 /**
+ * Hard caps for the depth reconstruction to keep it bounded regardless of how
+ * many live positions exist or how wide any single range is. Without these the
+ * scan is O(all live positions x all ticks they span), which a single
+ * adversarial wide-range deposit could blow up.
+ */
+export const DEPTH_MAX_POSITIONS = 10_000;
+/** Max ticks any single position is expanded over (defensive per-row bound). */
+export const DEPTH_MAX_LEVELS_PER_POSITION = 100_000;
+
+/**
  * Depth snapshot reconstructed from live positions. This is an indexed
  * approximation of FrontierLens.depth: for each live position we add its
  * per-level liquidity to every tick in [lower, upper). Slope-shaped ladders
@@ -78,12 +88,16 @@ export function depthSnapshot(db: DB, market: string, maxLevels = 200): {
 } {
   const m = getMarket(db, market);
   const spacing = m?.tickSpacing && m.tickSpacing > 0 ? m.tickSpacing : 1;
+  // Cap the number of live positions scanned. Ordered newest-first so the most
+  // relevant liquidity is always included if the cap is hit.
   const rows = db
     .prepare(
       `SELECT lower_tick, upper_tick, liquidity, is_bid
-       FROM positions WHERE market = ? AND live = 1`,
+       FROM positions WHERE market = ? AND live = 1
+       ORDER BY deposit_block DESC, position_id DESC
+       LIMIT ?`,
     )
-    .all(lc(market)) as Array<{
+    .all(lc(market), DEPTH_MAX_POSITIONS) as Array<{
     lower_tick: number;
     upper_tick: number;
     liquidity: string;
@@ -95,8 +109,12 @@ export function depthSnapshot(db: DB, market: string, maxLevels = 200): {
   for (const r of rows) {
     const size = BigInt(r.liquidity);
     const target = r.is_bid ? bids : asks;
+    // Defensive per-row cap: never expand a single position over more than
+    // DEPTH_MAX_LEVELS_PER_POSITION ticks even if its range is enormous.
+    let levels = 0;
     for (let t = r.lower_tick; t < r.upper_tick; t += spacing) {
       target.set(t, (target.get(t) ?? 0n) + size);
+      if (++levels >= DEPTH_MAX_LEVELS_PER_POSITION) break;
     }
   }
 

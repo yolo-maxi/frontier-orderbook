@@ -34,7 +34,7 @@ async function main() {
     console.log("[server] no books/factory configured — API only (read-only DB)");
   }
 
-  const app = buildApi({ db, bus, logger: false });
+  const app = await buildApi({ db, bus, logger: false });
   await app.listen({ port: cfg.httpPort, host: "0.0.0.0" });
   console.log(`[server] REST+WS API on http://0.0.0.0:${cfg.httpPort}`);
 
