@@ -1,0 +1,256 @@
+openapi: 3.1.0
+info:
+  title: Frontier Orderbook Indexer API
+  version: 0.1.0
+  description: >
+    REST API over the indexed Frontier on-chain orderbook. The indexer watches
+    book / factory / position-NFT events and serves normalized markets,
+    positions, fills/trades, account rollups, and depth snapshots from SQLite.
+    All token amounts are returned as decimal strings of the underlying uint256
+    so no precision is lost over JSON.
+servers:
+  - url: http://localhost:8787
+    description: Local indexer
+paths:
+  /health:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  ts: { type: integer }
+  /markets:
+    get:
+      summary: List indexed markets
+      responses:
+        "200":
+          description: All known books
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  markets:
+                    type: array
+                    items: { $ref: "#/components/schemas/Market" }
+  /book/{market}:
+    get:
+      summary: Depth snapshot for a market
+      description: >
+        Aggregated live bid/ask depth reconstructed from indexed positions.
+        Approximates FrontierLens.depth for the uniform/geometric book.
+      parameters:
+        - { $ref: "#/components/parameters/Market" }
+        - name: levels
+          in: query
+          required: false
+          schema: { type: integer, default: 200, maximum: 1000 }
+      responses:
+        "200":
+          description: Depth snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Depth" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /positions/{owner}:
+    get:
+      summary: Positions for an owner
+      parameters:
+        - { $ref: "#/components/parameters/Owner" }
+        - name: live
+          in: query
+          required: false
+          description: When "true", return only live positions.
+          schema: { type: string, enum: ["true", "false"] }
+      responses:
+        "200":
+          description: Owner positions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  owner: { type: string }
+                  positions:
+                    type: array
+                    items: { $ref: "#/components/schemas/Position" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /trades:
+    get:
+      summary: Filterable taker trade tape
+      parameters:
+        - name: market
+          in: query
+          schema: { type: string }
+        - name: taker
+          in: query
+          schema: { type: string }
+        - name: side
+          in: query
+          schema: { type: string, enum: [buy, sell] }
+        - name: fromBlock
+          in: query
+          schema: { type: integer }
+        - name: toBlock
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 1000 }
+      responses:
+        "200":
+          description: Matching trades, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trades:
+                    type: array
+                    items: { $ref: "#/components/schemas/Trade" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /account/{owner}:
+    get:
+      summary: Per-account rollup across markets, incl. claim tokens
+      parameters:
+        - { $ref: "#/components/parameters/Owner" }
+      responses:
+        "200":
+          description: Account summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+components:
+  parameters:
+    Market:
+      name: market
+      in: path
+      required: true
+      schema: { type: string, pattern: "^0x[0-9a-fA-F]{40}$" }
+    Owner:
+      name: owner
+      in: path
+      required: true
+      schema: { type: string, pattern: "^0x[0-9a-fA-F]{40}$" }
+  responses:
+    BadRequest:
+      description: Invalid parameters
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    Market:
+      type: object
+      properties:
+        address: { type: string }
+        token0: { type: string }
+        token1: { type: string }
+        tickSpacing: { type: integer }
+        startTick: { type: [integer, "null"] }
+        currentTick: { type: [integer, "null"] }
+        makerFeeBps: { type: integer }
+        takerFeeBps: { type: integer }
+        feeRecipient: { type: [string, "null"] }
+        hooks: { type: [string, "null"] }
+        createdBlock: { type: [integer, "null"] }
+    DepthLevel:
+      type: object
+      properties:
+        tick: { type: integer }
+        askSize: { type: string, description: "token0 resting (decimal string)" }
+        bidSize: { type: string, description: "token0-denominated bid (decimal string)" }
+    Depth:
+      type: object
+      properties:
+        market: { type: string }
+        currentTick: { type: [integer, "null"] }
+        bids:
+          type: array
+          items: { $ref: "#/components/schemas/DepthLevel" }
+        asks:
+          type: array
+          items: { $ref: "#/components/schemas/DepthLevel" }
+    ClaimToken:
+      type: object
+      description: ERC-721 token (FrontierPositionNFT) wrapping a book position.
+      properties:
+        wrapper: { type: string }
+        tokenId: { type: string }
+        owner: { type: string }
+    Position:
+      type: object
+      properties:
+        market: { type: string }
+        positionId: { type: string }
+        owner: { type: string }
+        lowerTick: { type: integer }
+        upperTick: { type: integer }
+        liquidity: { type: string }
+        isBid: { type: boolean }
+        live: { type: boolean }
+        claimed: { type: string, description: "cumulative proceeds1 claimed" }
+        depositBlock: { type: [integer, "null"] }
+        claimToken:
+          oneOf:
+            - { $ref: "#/components/schemas/ClaimToken" }
+            - { type: "null" }
+    Trade:
+      type: object
+      properties:
+        market: { type: string }
+        taker: { type: string }
+        token: { type: string, description: "fee/input token" }
+        grossInput: { type: string }
+        fee: { type: string }
+        totalPaid: { type: string }
+        side: { type: [string, "null"], enum: [buy, sell, null] }
+        blockNumber: { type: integer }
+        logIndex: { type: integer }
+        txHash: { type: string }
+        timestamp: { type: [integer, "null"] }
+    Account:
+      type: object
+      properties:
+        owner: { type: string }
+        markets:
+          type: array
+          items:
+            type: object
+            properties:
+              market: { type: string }
+              livePositions: { type: integer }
+              totalPositions: { type: integer }
+              proceedsClaimed: { type: string }
+              principalReturned: { type: string }
+              feesPaidMaker: { type: string }
+              feesPaidTaker: { type: string }
+              updatedBlock: { type: [integer, "null"] }
+        claimTokens:
+          type: array
+          items:
+            type: object
+            properties:
+              wrapper: { type: string }
+              tokenId: { type: string }
+              market: { type: [string, "null"] }
+              positionId: { type: [string, "null"] }
+  # WebSocket channels (documented here; not part of the OpenAPI HTTP surface):
+  #   ws://localhost:8787/fills?market=0x...   -> {type:"fills", data:{...}}
+  #   ws://localhost:8787/depth?market=0x...   -> {type:"depth", data:{...}}

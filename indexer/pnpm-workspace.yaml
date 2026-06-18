@@ -1,0 +1,8 @@
+# Self-rooted workspace: stops pnpm from walking up into the unrelated
+# parent workspace at /home/xiko/uniswap-tools. This service installs its own
+# isolated node_modules.
+packages:
+  - "."
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
