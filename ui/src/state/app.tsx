@@ -24,7 +24,15 @@ import { bookAbi } from "../abi/book";
 import { lensAbi } from "../abi/lens";
 import { erc20Abi } from "../abi/erc20";
 import { tickToPrice } from "../lib/format";
-import { DEFAULT_MARKET_MODE, MARKET_PROFILES, type MarketMode, type MarketProfile } from "../lib/markets";
+import {
+  DEFAULT_MARKET_MODE,
+  LIVE_PREDICTION_MARKET,
+  MARKET_PROFILES,
+  PREDICTION_CATALOG,
+  type MarketMode,
+  type MarketProfile,
+  type PredictionMeta,
+} from "../lib/markets";
 
 // ---------------------------------------------------------------- types
 
@@ -122,6 +130,22 @@ export interface TxToast {
   detail?: string;
 }
 
+/**
+ * U2 — commands routed through the global bus. Hotkeys and the command palette
+ * dispatch these; the relevant panel (Side panel for tab/side switches, Make
+ * panel for quote actions, Positions panel for bulk cancels) handles them.
+ */
+export type AppCommand =
+  | { type: "focus-tab"; tab: "trade" | "make" | "shadow" | "positions" }
+  | { type: "set-side"; side: "buy" | "sell" }
+  | { type: "toggle-side" }
+  | { type: "submit" }
+  | { type: "cancel-all" }
+  | { type: "cancel-bids" }
+  | { type: "cancel-asks" }
+  | { type: "claim-all" }
+  | { type: "quote-at-price"; side: "ask" | "bid"; price: number };
+
 interface AppData {
   cfg: DeploymentConfig;
   configured: boolean;
@@ -139,6 +163,14 @@ interface AppData {
   marketMode: MarketMode;
   market: MarketProfile;
   setMarketMode: (mode: MarketMode) => void;
+  /** P1/P2 — prediction metadata for the active market (prediction mode). */
+  predictionMeta: PredictionMeta;
+  /** P2 — which prediction-catalog card the UI is focused on. */
+  selectedMarketId: string;
+  setSelectedMarketId: (id: string) => void;
+  /** U2 — global command bus: panels subscribe, hotkeys/palette dispatch. */
+  dispatchCommand: (cmd: AppCommand) => void;
+  onCommand: (handler: (cmd: AppCommand) => void) => () => void;
   rpcError: string | null;
   toasts: TxToast[];
   busy: string | null;
@@ -266,7 +298,24 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [preview, setPreview] = useState<ChartPreview | null>(null);
   const [makeFocus, setMakeFocus] = useState(false);
   const [nonce, setNonce] = useState(0); // manual refresh trigger
+  const [selectedMarketId, setSelectedMarketId] = useState<string>(LIVE_PREDICTION_MARKET.id);
   const market = MARKET_PROFILES[marketMode];
+  const predictionMeta = useMemo(
+    () => PREDICTION_CATALOG.find((m) => m.id === selectedMarketId) ?? LIVE_PREDICTION_MARKET,
+    [selectedMarketId],
+  );
+
+  // U2 — command bus. Panels register handlers; hotkeys/palette dispatch.
+  const commandHandlers = useRef<Set<(cmd: AppCommand) => void>>(new Set());
+  const dispatchCommand = useCallback((cmd: AppCommand) => {
+    for (const h of commandHandlers.current) h(cmd);
+  }, []);
+  const onCommand = useCallback((handler: (cmd: AppCommand) => void) => {
+    commandHandlers.current.add(handler);
+    return () => {
+      commandHandlers.current.delete(handler);
+    };
+  }, []);
 
   const summaryRef = useRef<BookSummary | null>(null);
   summaryRef.current = summary;
@@ -761,6 +810,11 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     marketMode,
     market,
     setMarketMode,
+    predictionMeta,
+    selectedMarketId,
+    setSelectedMarketId,
+    dispatchCommand,
+    onCommand,
     preview,
     setPreview,
     makeFocus,

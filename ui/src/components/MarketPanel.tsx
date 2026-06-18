@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp, type PositionRow } from "../state/app";
-import { fmtAmount, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
+import { fmtAmount, fmtNum, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
 import { baseDecimals, quoteDecimals } from "../lib/config";
+import { ProbabilityPill } from "./ProbabilityPill";
 
 export function MarketPanel() {
-  const { cfg, summary, priceHistory, fills, makerEvents, market } = useApp();
+  const { cfg, summary, priceHistory, fills, makerEvents, market, marketMode, predictionMeta } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
   const [feedTab, setFeedTab] = useState<"trades" | "makers">("trades");
+  const isPrediction = marketMode === "prediction";
 
   const last = summary ? tickToPrice(summary.currentTick) : null;
   const sessionOpen = priceHistory.length > 0 ? priceHistory[0].price : null;
@@ -31,8 +33,33 @@ export function MarketPanel() {
 
   const trendCls = change === null ? "" : change >= 0 ? "up" : "down";
 
+  const resolveDate =
+    isPrediction && predictionMeta
+      ? new Date(predictionMeta.resolutionDate + "T00:00:00Z").toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : null;
+
   return (
     <section className="center-col">
+      {isPrediction && predictionMeta && (
+        <div className="panel pred-meta">
+          <div className="pred-meta-top">
+            <span className="pred-cat">{predictionMeta.category}</span>
+            <span className="pred-meta-stats num dim">
+              Vol {fmtNum(predictionMeta.volume / 1000, 0)}k {market.quoteSymbol} · Liq{" "}
+              {fmtNum(predictionMeta.liquidity / 1000, 0)}k · resolves {resolveDate}
+            </span>
+          </div>
+          <div className="pred-meta-q-row">
+            <h2 className="pred-q">{predictionMeta.question}</h2>
+            <ProbabilityPill price={last} size="lg" />
+          </div>
+          <div className="pred-resolution dim">{predictionMeta.resolution}</div>
+        </div>
+      )}
       <div className="panel price-head">
         <div className="ph-main">
           <span
@@ -42,6 +69,7 @@ export function MarketPanel() {
             {last !== null ? fmtPrice(last, 3) : "—"}
           </span>
           <span className="ph-sub">{market.priceUnit}</span>
+          {isPrediction && <ProbabilityPill price={last} size="sm" />}
         </div>
         <div className="ph-stats num">
           <div className="ph-stat">

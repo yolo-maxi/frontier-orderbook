@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useApp } from "../state/app";
 import { fmtPrice, niceStep, stepDecimals, tickToPrice } from "../lib/format";
 import { baseDecimals, quoteDecimals } from "../lib/config";
@@ -62,9 +62,13 @@ function bucketize(
 }
 
 export function OrderBook() {
-  const { cfg, summary, depth, preview, market, shadow } = useApp();
+  const { cfg, summary, depth, preview, market, shadow, dispatchCommand } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
+  // U4 — hover detail + click-to-quote
+  const [hover, setHover] = useState<{ side: "ask" | "bid"; price: number } | null>(null);
+  const quoteAt = (side: "ask" | "bid", price: number) =>
+    dispatchCommand({ type: "quote-at-price", side, price });
   const shadowR0 = Number(formatUnits(shadow.reserve0, baseDec));
   const shadowR1 = Number(formatUnits(shadow.reserve1, quoteDec));
   const shadowActive = shadow.totalShares > 0n && (shadow.reserve0 > 0n || shadow.reserve1 > 0n);
@@ -252,7 +256,14 @@ export function OrderBook() {
                 <span className="num dim">—</span>
               </div>
             ) : (
-              <div className={`book-row ${inPreview("ask", b.price, step) ? "book-row-hl" : ""}`} key={`a${b.price}`}>
+              <div
+                className={`book-row book-row-live ${inPreview("ask", b.price, step) ? "book-row-hl" : ""} ${hover?.side === "ask" && hover.price === b.price ? "book-row-hover" : ""}`}
+                key={`a${b.price}`}
+                onMouseEnter={() => setHover({ side: "ask", price: b.price })}
+                onMouseLeave={() => setHover((h) => (h?.side === "ask" && h.price === b.price ? null : h))}
+                onClick={() => quoteAt("ask", b.price)}
+                title={`Click to quote an ask ladder from ${fmtPrice(b.price, dp)}`}
+              >
                 {flashOverlay(flashesRef.current.ask.get(b.price))}
                 <div
                   className="book-bar bar-ask"
@@ -302,7 +313,14 @@ export function OrderBook() {
                 <span className="num dim">—</span>
               </div>
             ) : (
-              <div className={`book-row ${inPreview("bid", b.price, step) ? "book-row-hl" : ""}`} key={`b${b.price}`}>
+              <div
+                className={`book-row book-row-live ${inPreview("bid", b.price, step) ? "book-row-hl" : ""} ${hover?.side === "bid" && hover.price === b.price ? "book-row-hover" : ""}`}
+                key={`b${b.price}`}
+                onMouseEnter={() => setHover({ side: "bid", price: b.price })}
+                onMouseLeave={() => setHover((h) => (h?.side === "bid" && h.price === b.price ? null : h))}
+                onClick={() => quoteAt("bid", b.price)}
+                title={`Click to quote a bid ladder to ${fmtPrice(b.price, dp)}`}
+              >
                 {flashOverlay(flashesRef.current.bid.get(b.price))}
                 <div
                   className="book-bar bar-bid"
@@ -328,7 +346,66 @@ export function OrderBook() {
           )}
         </div>
       </div>
+      <BookHoverDetail
+        hover={hover}
+        askBuckets={askBuckets}
+        bidBuckets={bidBuckets}
+        mid={mid}
+        dp={dp}
+        baseSym={market.baseSymbol}
+        quoteSym={market.quoteSymbol}
+      />
     </section>
+  );
+}
+
+function BookHoverDetail({
+  hover,
+  askBuckets,
+  bidBuckets,
+  mid,
+  dp,
+  baseSym,
+  quoteSym,
+}: {
+  hover: { side: "ask" | "bid"; price: number } | null;
+  askBuckets: Bucket[];
+  bidBuckets: Bucket[];
+  mid: number;
+  dp: number;
+  baseSym: string;
+  quoteSym: string;
+}) {
+  if (!hover) {
+    return (
+      <div className="book-detail book-detail-idle dim num">
+        hover a level for detail · click to quote a ladder there
+      </div>
+    );
+  }
+  const list = hover.side === "ask" ? askBuckets : bidBuckets;
+  const b = list.find((x) => x.price === hover.price);
+  if (!b) return <div className="book-detail dim num">—</div>;
+  const distBps = mid > 0 ? Math.abs((b.price - mid) / mid) * 10000 : 0;
+  const notional = b.size * b.price; // approx quote notional at this level
+  const cumNotional = b.cum * b.price;
+  return (
+    <div className={`book-detail num ${hover.side === "ask" ? "detail-ask" : "detail-bid"}`}>
+      <span className="detail-px">{fmtPrice(b.price, dp)}</span>
+      <span className="detail-cell">
+        <span className="dim">size</span> {fmtSize(b.size, 3)} {baseSym}
+      </span>
+      <span className="detail-cell">
+        <span className="dim">notional</span> {fmtSize(notional, 0)} {quoteSym}
+      </span>
+      <span className="detail-cell">
+        <span className="dim">cum</span> {fmtSize(cumNotional, 0)} {quoteSym}
+      </span>
+      <span className="detail-cell">
+        <span className="dim">from mid</span> {distBps.toFixed(1)} bps
+      </span>
+      <span className="detail-cta">click → quote {hover.side}</span>
+    </div>
   );
 }
 

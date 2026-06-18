@@ -3,6 +3,7 @@ import { useApp } from "../state/app";
 import { fmtAmount, shortAddr } from "../lib/format";
 import { baseDecimals, quoteDecimals } from "../lib/config";
 import { Brand } from "./Brand";
+import { MarketBrowser } from "./MarketBrowser";
 import type { MarketMode } from "../lib/markets";
 
 function TokenGlyph({ sym, glyph }: { sym: "base" | "quote" | "eth"; glyph: string }) {
@@ -25,6 +26,7 @@ export function Header() {
   const { cfg, account, balances, faucet, busy, rpcError, configured, market, marketMode, setMarketMode } = useApp();
   const [copied, setCopied] = useState(false);
   const [fauceting, setFauceting] = useState(false);
+  const [browseOpen, setBrowseOpen] = useState(false);
 
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
@@ -94,6 +96,11 @@ export function Header() {
             <TokenGlyph sym="eth" glyph="Ξ" /> {fmtAmount(balances.eth, 3)}
           </span>
         </div>
+        {marketMode === "prediction" && (
+          <button className="btn btn-ghost btn-discover" onClick={() => setBrowseOpen(true)} title="Browse prediction markets">
+            Discover
+          </button>
+        )}
         <button className="wallet-chip" onClick={copy} title={account.address}>
           <span className="ident-dot" style={{ background: identBg }} />
           {copied ? "copied" : shortAddr(account.address)}
@@ -107,6 +114,7 @@ export function Header() {
           {!faucetAvailable ? "Seeded market" : fauceting ? "Minting…" : "Faucet"}
         </button>
       </div>
+      {browseOpen && <MarketBrowser onClose={() => setBrowseOpen(false)} />}
     </header>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { encodeFunctionData } from "viem";
 import { useApp } from "../state/app";
 import { bookAbi } from "../abi/book";
@@ -14,7 +14,7 @@ interface Editor {
 }
 
 export function PositionsPanel() {
-  const { cfg, client, wallet, account, summary, positions, sendTx, busy, refresh, market } = useApp();
+  const { cfg, client, wallet, account, summary, positions, sendTx, busy, refresh, market, onCommand } = useApp();
   const [editor, setEditor] = useState<Editor | null>(null);
 
   const spacing = summary?.tickSpacing ?? 1;
@@ -47,55 +47,106 @@ export function PositionsPanel() {
     refresh();
   };
 
-  // ---- claim everything in one transaction via the book's multicall;
-  // older book deployments without it get sequential claims instead
-  const claimables = positions.filter((p) => p.live && p.claimable > 0n);
-  const onClaimAll = async () => {
-    if (claimables.length === 0) return;
-    const calls = claimables.map((p) =>
-      encodeFunctionData({
-        abi: bookAbi,
-        functionName: p.isBid ? "claimBid" : "claim",
-        args: [p.id],
-      }),
-    );
-    let batched = false;
-    try {
-      await client.simulateContract({
-        address: cfg.contracts.book,
-        abi: bookAbi,
-        functionName: "multicall",
-        args: [calls],
-        account: account.address,
-      });
-      batched = true;
-    } catch {
-      batched = false; // book predates multicall — fall back
-    }
-    if (batched) {
-      await sendTx(`Claim ${claimables.length} positions (1 tx)`, () =>
-        wallet.writeContract({
+  // ---- batch a set of book calls into ONE transaction via multicall;
+  // older book deployments without it fall back to sequential sends.
+  const live = positions.filter((p) => p.live);
+  const claimables = live.filter((p) => p.claimable > 0n);
+
+  const batchSend = useCallback(
+    async (label: string, calls: `0x${string}`[], perId: { id: bigint; fn: () => Promise<`0x${string}`> }[]) => {
+      if (calls.length === 0) return;
+      let batched = false;
+      try {
+        await client.simulateContract({
           address: cfg.contracts.book,
           abi: bookAbi,
           functionName: "multicall",
           args: [calls],
-        }),
-      );
-    } else {
-      for (const p of claimables) {
-        // eslint-disable-next-line no-await-in-loop
-        await sendTx(`Claim #${p.id}`, () =>
+          account: account.address,
+        });
+        batched = true;
+      } catch {
+        batched = false; // book predates multicall — fall back
+      }
+      if (batched) {
+        await sendTx(label, () =>
+          wallet.writeContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "multicall",
+            args: [calls],
+          }),
+        );
+      } else {
+        for (const p of perId) {
+          // eslint-disable-next-line no-await-in-loop
+          await sendTx(`#${p.id}`, p.fn);
+        }
+      }
+      refresh();
+    },
+    [client, cfg, account, sendTx, wallet, refresh],
+  );
+
+  const onClaimAll = useCallback(async () => {
+    await batchSend(
+      `Claim ${claimables.length} positions (1 tx)`,
+      claimables.map((p) =>
+        encodeFunctionData({ abi: bookAbi, functionName: p.isBid ? "claimBid" : "claim", args: [p.id] }),
+      ),
+      claimables.map((p) => ({
+        id: p.id,
+        fn: () =>
           wallet.writeContract({
             address: cfg.contracts.book,
             abi: bookAbi,
             functionName: p.isBid ? "claimBid" : "claim",
             args: [p.id],
           }),
-        );
-      }
-    }
-    refresh();
-  };
+      })),
+    );
+  }, [batchSend, claimables, wallet, cfg]);
+
+  // ---- U2: bulk cancel (all / bids / asks) in one tx
+  const cancelSet = useCallback(
+    async (filter: "all" | "bid" | "ask") => {
+      const target = live.filter((p) => (filter === "all" ? true : filter === "bid" ? p.isBid : !p.isBid));
+      if (target.length === 0) return;
+      const what = filter === "all" ? "all orders" : filter === "bid" ? "all bids" : "all asks";
+      await batchSend(
+        `Cancel ${what} (${target.length})`,
+        target.map((p) =>
+          encodeFunctionData({ abi: bookAbi, functionName: p.isBid ? "cancelBid" : "cancel", args: [p.id] }),
+        ),
+        target.map((p) => ({
+          id: p.id,
+          fn: () =>
+            wallet.writeContract({
+              address: cfg.contracts.book,
+              abi: bookAbi,
+              functionName: p.isBid ? "cancelBid" : "cancel",
+              args: [p.id],
+            }),
+        })),
+      );
+    },
+    [batchSend, live, wallet, cfg],
+  );
+
+  // U2 — wire the maker bulk hotkeys / palette commands.
+  useEffect(
+    () =>
+      onCommand((cmd) => {
+        if (cmd.type === "cancel-all") void cancelSet("all");
+        else if (cmd.type === "cancel-bids") void cancelSet("bid");
+        else if (cmd.type === "cancel-asks") void cancelSet("ask");
+        else if (cmd.type === "claim-all") void onClaimAll();
+      }),
+    [onCommand, cancelSet, onClaimAll],
+  );
+
+  const liveBids = live.filter((p) => p.isBid).length;
+  const liveAsks = live.length - liveBids;
 
   const openMove = (p: { id: bigint; lower: number; upper: number; liquidity: bigint }) =>
     setEditor({
@@ -176,10 +227,43 @@ export function PositionsPanel() {
 
   return (
     <div className="positions">
-      {claimables.length > 1 && (
-        <button className="btn btn-wide btn-buy claim-all" disabled={busy !== null} onClick={onClaimAll}>
-          Claim all ({claimables.length} positions, 1 tx)
-        </button>
+      {live.length > 0 && (
+        <div className="bulk-bar">
+          <div className="bulk-row">
+            <span className="bulk-label dim num">
+              {live.length} live · {liveBids} bid / {liveAsks} ask
+            </span>
+            {claimables.length > 1 && (
+              <button className="btn btn-sm btn-buy" disabled={busy !== null} onClick={onClaimAll}>
+                Claim all ({claimables.length})
+              </button>
+            )}
+          </div>
+          <div className="bulk-row">
+            <button
+              className="btn btn-sm btn-sell"
+              disabled={busy !== null}
+              onClick={() => cancelSet("all")}
+              title="Cancel every open order (hotkey: Shift+C)"
+            >
+              Cancel all
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              disabled={busy !== null || liveBids === 0}
+              onClick={() => cancelSet("bid")}
+            >
+              Cancel bids
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              disabled={busy !== null || liveAsks === 0}
+              onClick={() => cancelSet("ask")}
+            >
+              Cancel asks
+            </button>
+          </div>
+        </div>
       )}
       {positions.map((p) => {
         const lo = tickToPrice(p.lower);
