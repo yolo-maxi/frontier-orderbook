@@ -39,7 +39,7 @@ export function CommandPalette() {
       { id: "cancel-all", label: "Cancel ALL open orders", hint: "every live position", keys: "⇧C", group: "Maker", run: d({ type: "cancel-all" }) },
       { id: "cancel-bids", label: "Cancel all BIDS", group: "Maker", run: d({ type: "cancel-bids" }) },
       { id: "cancel-asks", label: "Cancel all ASKS", group: "Maker", run: d({ type: "cancel-asks" }) },
-      { id: "claim-all", label: "Claim all proceeds", group: "Maker", run: d({ type: "claim-all" }) },
+      { id: "claim-all", label: "Claim all proceeds", keys: "⇧L", group: "Maker", run: d({ type: "claim-all" }) },
       {
         id: "mkt-toggle",
         label: marketMode === "prediction" ? "Switch to ETH/USDC" : "Switch to Prediction",
@@ -107,6 +107,12 @@ export function CommandPalette() {
           if (e.shiftKey) {
             e.preventDefault();
             dispatchCommand({ type: "cancel-all" });
+          }
+          break;
+        case "L": // shift+l claims all proceeds in one tx
+          if (e.shiftKey) {
+            e.preventDefault();
+            dispatchCommand({ type: "claim-all" });
           }
           break;
         case "Enter":

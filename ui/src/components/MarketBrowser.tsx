@@ -7,6 +7,7 @@ import {
 } from "../lib/markets";
 import { fmtNum } from "../lib/format";
 import { ProbabilityPill } from "./ProbabilityPill";
+import { Sparkline, seededSeries } from "./Sparkline";
 
 /**
  * P2 — market discovery / browse.
@@ -18,13 +19,23 @@ import { ProbabilityPill } from "./ProbabilityPill";
  * metadata + probability flow into the main panel.
  */
 export function MarketBrowser({ onClose }: { onClose: () => void }) {
-  const { selectedMarketId, setSelectedMarketId, summary } = useApp();
+  const { selectedMarketId, setSelectedMarketId, summary, priceHistory } = useApp();
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState<MarketCategory | "All">("All");
   const [sort, setSort] = useState<"volume" | "liquidity" | "closing">("volume");
 
   const liveProb =
     summary !== null ? Math.max(0, Math.min(1, 1.0001 ** summary.currentTick)) : null;
+  // live market sparkline: in-session implied probability (price clamped 0..1)
+  const liveSeries = useMemo(() => {
+    if (priceHistory.length < 2) return null;
+    const step = Math.max(1, Math.floor(priceHistory.length / 24));
+    const s: number[] = [];
+    for (let i = 0; i < priceHistory.length; i += step) {
+      s.push(Math.max(0, Math.min(1, priceHistory[i].price)));
+    }
+    return s.length >= 2 ? s : null;
+  }, [priceHistory]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -89,6 +100,8 @@ export function MarketBrowser({ onClose }: { onClose: () => void }) {
           {rows.length === 0 && <div className="empty-state browser-empty">no markets match</div>}
           {rows.map((m) => {
             const prob = m.live && liveProb !== null ? liveProb : m.seedProbability;
+            const series =
+              m.live && liveSeries !== null ? liveSeries : seededSeries(m.id, m.seedProbability);
             return (
               <button
                 key={m.id}
@@ -100,6 +113,9 @@ export function MarketBrowser({ onClose }: { onClose: () => void }) {
                   {m.live && <span className="market-card-live">LIVE</span>}
                 </div>
                 <div className="market-card-q">{m.question}</div>
+                <div className="market-card-spark">
+                  <Sparkline points={series} width={232} height={34} />
+                </div>
                 <ProbabilityPill price={prob} size="md" />
                 <div className="market-card-stats num dim">
                   <span>Vol {fmtNum(m.volume / 1000, 0)}k</span>

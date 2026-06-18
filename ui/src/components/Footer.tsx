@@ -1,9 +1,12 @@
+import { VenueStatus } from "./VenueStatus";
+
 export function Footer() {
   return (
     <footer className="ftr">
-      <span>
+      <span className="ftr-meta">
         Frontier — thin-tick on-chain CLOB · endpoint-telescoped settlement · devnet
       </span>
+      <VenueStatus />
       <span className="ftr-links">
         <a href="/docs/">Docs</a>
         <span className="ftr-sep" />

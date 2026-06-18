@@ -26,6 +26,8 @@ export interface DeploymentConfig {
   faucetKey?: string;
   contracts: DeploymentContracts;
   tokens?: DeploymentTokens;
+  /** Optional aggregation indexer. When absent the UI reads only on-chain. */
+  indexer?: { url?: string };
   darkbox?: {
     market?: {
       question?: string;
