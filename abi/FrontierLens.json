@@ -1,6 +1,72 @@
 [
   {
     "type": "function",
+    "name": "bestPrices",
+    "inputs": [
+      {
+        "name": "book",
+        "type": "address",
+        "internalType": "contract FrontierBookBase"
+      },
+      {
+        "name": "scanWindow",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "out",
+        "type": "tuple",
+        "internalType": "struct FrontierLens.TopOfBook",
+        "components": [
+          {
+            "name": "currentTick",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "bestAsk",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "bestAskSize",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "bestAskRate",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "bestBid",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "bestBidSize",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "bestBidRate",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "spreadTicks",
+            "type": "int24",
+            "internalType": "int24"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "curveOf",
     "inputs": [
       {
@@ -75,6 +141,259 @@
             "name": "bidSize",
             "type": "uint128",
             "internalType": "uint128"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "positionView",
+    "inputs": [
+      {
+        "name": "book",
+        "type": "address",
+        "internalType": "contract FrontierBookBase"
+      },
+      {
+        "name": "positionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "v",
+        "type": "tuple",
+        "internalType": "struct FrontierLens.PositionView",
+        "components": [
+          {
+            "name": "positionId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "owner",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "lower",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "upper",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "liquidity",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "claimedUpper",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "live",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "isBid",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "frontier",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "claimable",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "unfilled",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "positionViews",
+    "inputs": [
+      {
+        "name": "book",
+        "type": "address",
+        "internalType": "contract FrontierBookBase"
+      },
+      {
+        "name": "positionIds",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "views",
+        "type": "tuple[]",
+        "internalType": "struct FrontierLens.PositionView[]",
+        "components": [
+          {
+            "name": "positionId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "owner",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "lower",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "upper",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "liquidity",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "claimedUpper",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "live",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "isBid",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "frontier",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "claimable",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "unfilled",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "positionsOf",
+    "inputs": [
+      {
+        "name": "book",
+        "type": "address",
+        "internalType": "contract FrontierBookBase"
+      },
+      {
+        "name": "owner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "fromId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "toId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "views",
+        "type": "tuple[]",
+        "internalType": "struct FrontierLens.PositionView[]",
+        "components": [
+          {
+            "name": "positionId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "owner",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "lower",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "upper",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "liquidity",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "claimedUpper",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "live",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "isBid",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "frontier",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "claimable",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "unfilled",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
