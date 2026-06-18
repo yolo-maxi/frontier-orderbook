@@ -43,7 +43,7 @@ contract UniformMakerOps is FrontierBookBase {
         emit PositionTransferred(positionId, msg.sender, to);
     }
 
-    /// @notice Add funds to the pooled shadow inventory at the pool's
+    /// @notice Add funds to the pooled copy inventory at the pool's
     /// current reserve ratio. The first depositor sets the ratio; later
     /// deposits are pro-rata and oracle-free.
     function depositShadow(uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
@@ -79,7 +79,7 @@ contract UniformMakerOps is FrontierBookBase {
         emit ShadowDeposit(msg.sender, amount0, amount1, shares);
     }
 
-    /// @notice Burn shadow shares for a pro-rata slice of both reserves.
+    /// @notice Burn copy shares for a pro-rata slice of both reserves.
     function withdrawShadow(uint256 shares, uint256 minAmount0Out, uint256 minAmount1Out)
         external
         returns (uint256 amount0, uint256 amount1)

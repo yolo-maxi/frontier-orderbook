@@ -24,8 +24,8 @@ contract FrontierShadowTest is Test {
     function setUp() public {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        // Fee recipient set, maker/taker bps = 0: isolates the shadow fee so the
-        // economic assertions read cleanly. The shadow fee routes to the
+        // Fee recipient set, maker/taker bps = 0: isolates the copy fee so the
+        // economic assertions read cleanly. The copy fee routes to the
         // protocol (feeRecipient), never back into the pool.
         book = newBookWithFees(address(t0), address(t1), 1, 100, address(0), address(0), feeRecipient, 0, 0);
 
@@ -110,7 +110,7 @@ contract FrontierShadowTest is Test {
         assertEq(paid, 2 * realPaid, "real plus shadow input, no premium");
         assertEq(received, 4 * uint256(L), "real output doubled by shadow");
         assertEq(book.claimable(id), _floorSpan1(101, 103, L), "maker claim is real-only");
-        assertEq(t1.balanceOf(feeRecipient), shadowFee, "shadow fee routed to protocol");
+        assertEq(t1.balanceOf(feeRecipient), shadowFee, "copy fee routed to protocol");
 
         (uint256 r0, uint256 r1,) = book.shadowReserves();
         assertEq(r0, 8 * uint256(L), "shadow sold token0");
@@ -132,7 +132,7 @@ contract FrontierShadowTest is Test {
         assertEq(paid, 6 * uint256(L), "real input doubled by shadow");
         assertEq(received, 2 * realOut - shadowFee, "shadow output net of fee");
         assertEq(book.bidClaimable(id), 3 * uint256(L), "maker claim is real-only");
-        assertEq(t1.balanceOf(feeRecipient), shadowFee, "shadow fee routed to protocol");
+        assertEq(t1.balanceOf(feeRecipient), shadowFee, "copy fee routed to protocol");
 
         // Pool pays the full token1 leg; the fee is carved out of the taker's
         // output and sent to the protocol, not retained by the pool.
@@ -147,7 +147,7 @@ contract FrontierShadowTest is Test {
         book.deposit(101, 103, L);
 
         // No premium on the taker: budget splits evenly between the real level
-        // and its shadow mirror. The shadow fee is paid by the pool, not added
+        // and its shadow mirror. The copy fee is paid by the pool, not added
         // to the taker's spend.
         uint256 oneLevel = _ceilSpan1(101, 102, L);
         uint256 maxPay = 2 * oneLevel;
@@ -158,10 +158,10 @@ contract FrontierShadowTest is Test {
         assertEq(reached, 102, "real fill parks after one level");
         assertEq(paid, maxPay, "budget spent on one real and one shadow level");
         assertEq(received, 2 * uint256(L), "one real level plus one shadow level");
-        assertEq(t1.balanceOf(feeRecipient), _shadowFee(oneLevel), "shadow fee routed to protocol");
+        assertEq(t1.balanceOf(feeRecipient), _shadowFee(oneLevel), "copy fee routed to protocol");
     }
 
-    /// @notice With no fee recipient the shadow fee is zero: the pool mirrors at
+    /// @notice With no fee recipient the copy fee is zero: the pool mirrors at
     /// pure book price and never attempts a transfer to address(0).
     function testShadowFeelessWhenNoRecipient() public {
         UniformFrontierBook freeBook =

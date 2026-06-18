@@ -11,7 +11,7 @@ type Tab = "trade" | "make" | "shadow" | "positions";
 export function SidePanel() {
   const [tab, setTab] = useState<Tab>("trade");
   const { positions, setMakeFocus, onCommand } = useApp();
-  // Make + Shadow modes expand the book portion of the screen
+  // Make + Copy modes expand the book portion of the screen
   useEffect(() => {
     setMakeFocus(tab === "make" || tab === "shadow");
     return () => setMakeFocus(false);
@@ -45,7 +45,7 @@ export function SidePanel() {
           Make
         </button>
         <button className={`tab ${tab === "shadow" ? "tab-on" : ""}`} onClick={() => setTab("shadow")}>
-          Shadow
+          Copy
         </button>
         <button
           className={`tab ${tab === "positions" ? "tab-on" : ""}`}

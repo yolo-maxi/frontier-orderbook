@@ -708,7 +708,7 @@ body {
   box-shadow: inset 2px 0 0 rgba(46, 189, 133, 0.35);
 }
 
-/* shadow-mirrored depth: a hatched segment to the left of the real depth bar,
+/* copy-mirrored depth: a hatched segment to the left of the real depth bar,
    deliberately desaturated so it never reads as a real resting order */
 .bar-shadow {
   border-radius: 0;

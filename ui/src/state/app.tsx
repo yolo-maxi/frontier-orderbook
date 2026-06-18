@@ -124,7 +124,7 @@ export interface ChainStatus {
   lastBlockAt: number | null; // wall-clock ms when head last advanced
 }
 
-/** Pooled shadow-liquidity inventory (mirrors real fills at book price). */
+/** Pooled copy-liquidity inventory (mirrors real fills at book price). */
 export interface ShadowInfo {
   reserve0: bigint; // token0 available to mirror ask fills
   reserve1: bigint; // token1 available to mirror bid fills

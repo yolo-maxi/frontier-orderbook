@@ -31,7 +31,7 @@ export function CommandPalette() {
       { id: "tab-trade", label: "Go to Trade", keys: "T", group: "Navigate", run: d({ type: "focus-tab", tab: "trade" }) },
       { id: "tab-make", label: "Go to Make", keys: "M", group: "Navigate", run: d({ type: "focus-tab", tab: "make" }) },
       { id: "tab-positions", label: "Go to Positions", keys: "P", group: "Navigate", run: d({ type: "focus-tab", tab: "positions" }) },
-      { id: "tab-shadow", label: "Go to Shadow", group: "Navigate", run: d({ type: "focus-tab", tab: "shadow" }) },
+      { id: "tab-shadow", label: "Go to Copy", group: "Navigate", run: d({ type: "focus-tab", tab: "shadow" }) },
       { id: "side-buy", label: "Set side: Buy / Bid", keys: "B", group: "Order", run: d({ type: "set-side", side: "buy" }) },
       { id: "side-sell", label: "Set side: Sell / Ask", keys: "S", group: "Order", run: d({ type: "set-side", side: "sell" }) },
       { id: "toggle-side", label: "Toggle side", keys: "X", group: "Order", run: d({ type: "toggle-side" }) },

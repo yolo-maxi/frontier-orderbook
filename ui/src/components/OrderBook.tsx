@@ -8,11 +8,11 @@ interface Bucket {
   price: number; // bucket lower edge price
   size: number; // token0 units (float, display only)
   cum: number;
-  shadow: number; // token0 units mirrored by shadow inventory at this level
-  shadowCum: number; // cumulative shadow depth through this level
+  shadow: number; // token0 units mirrored by copy inventory at this level
+  shadowCum: number; // cumulative copy depth through this level
 }
 
-/** Walk buckets from best price outward, assigning each the shadow size the
+/** Walk buckets from best price outward, assigning each the copy size the
  * pooled inventory can mirror, capped by the running reserve budget. Asks
  * spend a token0 budget directly; bids spend a token1 budget converted at the
  * bucket price (approximate, for display). */
@@ -230,8 +230,8 @@ export function OrderBook() {
       <div className="panel-title">
         Order Book <span className="dim title-note">bucket ${fmtPrice(step, 3)}</span>
         {shadowActive && (
-          <span className="shadow-legend num" title={`Shadow liquidity mirrors real fills at the book price, capped by pooled inventory. Shadow fills pay ${shadow.feeBps} bps to the protocol.`}>
-            <i className="shadow-swatch" /> shadow {fmtSize(shadowR0, 2)} {market.baseSymbol} · {fmtSize(shadowR1, 0)} {market.quoteSymbol}
+          <span className="shadow-legend num" title={`Copy liquidity mirrors real fills at the book price, capped by pooled inventory. Copy fills pay ${shadow.feeBps} bps to the protocol.`}>
+            <i className="shadow-swatch" /> copy {fmtSize(shadowR0, 2)} {market.baseSymbol} · {fmtSize(shadowR1, 0)} {market.quoteSymbol}
           </span>
         )}
         {previewRange && (
@@ -281,7 +281,7 @@ export function OrderBook() {
                 <span className="px ask num">{fmtPrice(b.price, dp)}</span>
                 <span className="num">
                   {fmtSize(b.size, sizeDp)}
-                  {b.shadow > 0.0005 && <em className="shadow-tag" title="shadow-mirrored depth">+{fmtSize(b.shadow, sizeDp)}</em>}
+                  {b.shadow > 0.0005 && <em className="shadow-tag" title="copy-mirrored depth">+{fmtSize(b.shadow, sizeDp)}</em>}
                 </span>
                 <span className="num dim">{fmtSize(b.cum, sizeDp)}</span>
               </div>
@@ -338,7 +338,7 @@ export function OrderBook() {
                 <span className="px bid num">{fmtPrice(b.price, dp)}</span>
                 <span className="num">
                   {fmtSize(b.size, sizeDp)}
-                  {b.shadow > 0.0005 && <em className="shadow-tag" title="shadow-mirrored depth">+{fmtSize(b.shadow, sizeDp)}</em>}
+                  {b.shadow > 0.0005 && <em className="shadow-tag" title="copy-mirrored depth">+{fmtSize(b.shadow, sizeDp)}</em>}
                 </span>
                 <span className="num dim">{fmtSize(b.cum, sizeDp)}</span>
               </div>

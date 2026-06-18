@@ -43,7 +43,7 @@ error UnalignedFrontier();
 error FrontierNotFilled();
 error FrontierNotMaximal();
 
-// ----- shadow LP -----
+// ----- copy LP -----
 error ZeroAmounts();
 error ImbalancedFirstDeposit();
 error EmptyPool();

@@ -8,7 +8,7 @@ import { baseDecimals, quoteDecimals } from "../lib/config";
 const MAX_UINT = 2n ** 256n - 1n;
 
 /**
- * Shadow liquidity = a single pooled inventory that mirrors real fills at the
+ * Copy liquidity = a single pooled inventory that mirrors real fills at the
  * book price. LPs add token0 + token1, earn the book spread on mirrored size,
  * and pay a protocol fee on every mirror (no maker treatment). It is the third
  * way to provide liquidity here, alongside Bid and Ask ladders — but instead of
@@ -77,7 +77,7 @@ export function ShadowPanel() {
   const needs1 = ready && allow1 !== null && allow1 < (amt1 ?? 0n);
 
   const approve = (token: `0x${string}`, sym: string) =>
-    sendTx(`Approve ${sym} for shadow pool`, () =>
+    sendTx(`Approve ${sym} for copy pool`, () =>
       wallet.writeContract({
         address: token,
         abi: erc20Abi,
@@ -88,7 +88,7 @@ export function ShadowPanel() {
 
   const onDeposit = async () => {
     if (!ready || amt0 === null || amt1 === null) return;
-    const ok = await sendTx("Add shadow liquidity", () =>
+    const ok = await sendTx("Add copy liquidity", () =>
       wallet.writeContract({
         address: cfg.contracts.book,
         abi: bookAbi,
@@ -110,7 +110,7 @@ export function ShadowPanel() {
 
   const onWithdraw = async () => {
     if (withdrawShares === 0n) return;
-    const ok = await sendTx("Withdraw shadow liquidity", () =>
+    const ok = await sendTx("Withdraw copy liquidity", () =>
       wallet.writeContract({
         address: cfg.contracts.book,
         abi: bookAbi,
@@ -125,7 +125,7 @@ export function ShadowPanel() {
     <div className="trade-panel">
       <div className="shadow-explainer">
         <div className="shadow-explainer-head">
-          <i className="shadow-swatch" /> Shadow liquidity
+          <i className="shadow-swatch" /> Copy liquidity
         </div>
         <p className="dim">
           Pooled inventory that <b>mirrors real fills</b> at the book price — depth without a
@@ -244,7 +244,7 @@ export function ShadowPanel() {
               disabled={busy !== null || !ready || insufficient}
               onClick={onDeposit}
             >
-              {insufficient ? "Insufficient balance" : "Add shadow liquidity"}
+              {insufficient ? "Insufficient balance" : "Add copy liquidity"}
             </button>
           )}
         </>
@@ -274,7 +274,7 @@ export function ShadowPanel() {
             disabled={busy !== null || shadow.myShares === 0n || withdrawPct === 0}
             onClick={onWithdraw}
           >
-            {shadow.myShares === 0n ? "No shadow shares" : "Withdraw"}
+            {shadow.myShares === 0n ? "No copy shares" : "Withdraw"}
           </button>
         </>
       )}

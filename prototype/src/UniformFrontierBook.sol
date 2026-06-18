@@ -24,8 +24,8 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// delegatecall (same storage layout + immutables; see FrontierBookBase).
     address public immutable makerOps;
 
-    /// @notice Fee (bps) charged on the token1 leg of every shadow-mirrored
-    /// fill and routed to the protocol fee recipient. Shadow depth mirrors real
+    /// @notice Fee (bps) charged on the token1 leg of every copy-mirrored
+    /// fill and routed to the protocol fee recipient. Copy depth mirrors real
     /// price discovery without contributing any, so it pays the full rate and
     /// earns no maker treatment — the extra protocol revenue is what lets real
     /// makers be charged less. EXPERIMENT: a constant here; production would
@@ -323,7 +323,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
             // Reserve half the gross budget for the shadow mirror when shadow
             // inventory is live; the mirror costs ~the real input, so this caps
             // total spend at the budget without a second pass. SHORTCUT: this
-            // halves real fill even when shadow inventory is tiny (documented).
+            // halves real fill even when copy inventory is tiny (documented).
             uint256 grossBudget = _maxGrossForTotal(maxPay, takerFeeBps);
             (reached, paid, received) =
                 _sweepUp(oldTick, target, maxFills, shadowReserve0 == 0 ? grossBudget : grossBudget / 2);
@@ -377,10 +377,10 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         );
     }
 
-    /// @dev ASK mirror: shadow inventory matches the real token0 fill 1:1 at the
+    /// @dev ASK mirror: copy inventory matches the real token0 fill 1:1 at the
     /// BOOK price (no premium), capped by its token0 reserve. The taker pays the
-    /// mirrored token1; the shadow fee is taken from that token1 and routed to
-    /// the protocol (see `_payShadowFee`), so shadow depth never captures the
+    /// mirrored token1; the copy fee is taken from that token1 and routed to
+    /// the protocol (see `_payShadowFee`), so copy depth never captures the
     /// maker spread fee-free. Because the real input is capped at grossBudget/2
     /// when shadow is live and the mirror costs `realPaid * shadowOut/realOut`
     /// <= realPaid, total spend can never exceed the budget — no guard needed.
@@ -417,7 +417,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         shadowReserve1 -= grossOut;
     }
 
-    /// @dev Shadow fee on a token1 leg. Zero unless the book has a fee
+    /// @dev Copy fee on a token1 leg. Zero unless the book has a fee
     /// recipient, so fee-less books mirror at pure book price and never try to
     /// transfer to address(0). EXPERIMENT: the rate is a constant; production
     /// would make it an immutable fee-config field alongside maker/taker bps.
@@ -426,7 +426,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         return _feeAmount(grossToken1, SHADOW_FEE_BPS);
     }
 
-    /// @dev The shadow fee always settles in token1 (the quote leg) for both
+    /// @dev The copy fee always settles in token1 (the quote leg) for both
     /// sweep directions, so it routes straight to the fee recipient here.
     function _payShadowFee(uint256 fee) private {
         if (!token1.transfer(feeRecipient, fee)) revert ShadowFeeTransferFailed();

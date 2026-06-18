@@ -181,7 +181,7 @@ abstract contract FrontierBookBase {
     mapping(address => uint256) internal internalBalance0;
     mapping(address => uint256) internal internalBalance1;
 
-    // Shadow liquidity: pooled inventory that can mirror real fills up to
+    // Copy liquidity: pooled inventory that can mirror real fills up to
     // the real amount a taker crosses, without adding independent price
     // discovery to the book.
     uint256 internal shadowReserve0;
