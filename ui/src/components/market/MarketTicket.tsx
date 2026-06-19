@@ -15,9 +15,11 @@ import {
 } from "../../lib/config";
 import { alignTick, fmtAmount, fmtUsd, parseAmount, priceToTick, tickToPrice } from "../../lib/format";
 import { fmtCents, type Outcome, type OrderPreview, type PredictionBook } from "../../lib/prediction";
+import { CopyLiquidityPane } from "./CopyLiquidityPane";
 
 type Side = "buy" | "sell";
 type Mode = "market" | "limit" | "range";
+type RangeMode = "manual" | "copy";
 
 const MAX_UINT = 2n ** 256n - 1n;
 const QUOTE_MAX_LEVELS = 500n;
@@ -51,7 +53,12 @@ export function MarketTicket({
   const quoteSym = quoteSymbol(cfg);
 
   const [side, setSide] = useState<Side>("buy");
-  const [mode, setMode] = useState<Mode>("market");
+  const [mode, setMode] = useState<Mode>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("range") === "copy" ? "range" : "market",
+  );
+  const [rangeMode, setRangeMode] = useState<RangeMode>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("range") === "copy" ? "copy" : "manual",
+  );
   const [amountStr, setAmountStr] = useState("");
   const [limitCentsStr, setLimitCentsStr] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -267,7 +274,7 @@ export function MarketTicket({
         shares: Number(amountShares) / 10 ** baseDec,
         cost: limitPlan.escrow,
       });
-    } else if (mode === "range" && rangePlan && !rangePlan.error && amountShares !== null) {
+    } else if (mode === "range" && rangeMode === "manual" && rangePlan && !rangePlan.error && amountShares !== null) {
       onPreview({
         outcome,
         mode: "range",
@@ -281,7 +288,7 @@ export function MarketTicket({
     } else {
       onPreview(null);
     }
-  }, [onPreview, mode, side, outcome, derived, limitProb, limitPlan, rangePlan, amountShares, selected, baseDec]);
+  }, [onPreview, mode, rangeMode, side, outcome, derived, limitProb, limitPlan, rangePlan, amountShares, selected, baseDec]);
   useEffect(() => () => onPreview?.(null), [onPreview]);
 
   const needsApproval =
@@ -382,13 +389,40 @@ export function MarketTicket({
         </div>
         <div className="dbx-mode-seg" title="Order type">
           {(["market", "limit", "range"] as Mode[]).map((m) => (
-            <button key={m} className={mode === m ? "on" : ""} onClick={() => setMode(m)}>
+            <button
+              key={m}
+              className={mode === m ? "on" : ""}
+              onClick={() => {
+                setMode(m);
+                if (m !== "range") setRangeMode("manual");
+              }}
+            >
               {m === "market" ? "Market" : m === "limit" ? "Limit" : "Range"}
             </button>
           ))}
         </div>
       </div>
 
+      {mode === "range" && (
+        <div className="dbx-range-mode" aria-label="Range mode">
+          <button className={rangeMode === "manual" ? "on" : ""} onClick={() => setRangeMode("manual")}>
+            Manual
+          </button>
+          <button className={rangeMode === "copy" ? "on" : ""} onClick={() => setRangeMode("copy")}>
+            Copy liquidity
+          </button>
+        </div>
+      )}
+
+      {mode === "range" && rangeMode === "copy" ? (
+        <>
+          <CopyLiquidityPane embedded />
+          <div className="dbx-terms">
+            Copy liquidity mirrors resting depth for this outcome book. <span className="dim">No real funds.</span>
+          </div>
+        </>
+      ) : (
+        <>
       {/* YES / NO selector */}
       <div className="dbx-outcome-pick">
         <button
@@ -578,6 +612,8 @@ export function MarketTicket({
       <div className="dbx-terms">
         By trading you accept this is ARC testnet demo software. <span className="dim">No real funds.</span>
       </div>
+        </>
+      )}
     </div>
   );
 

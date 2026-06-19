@@ -10,7 +10,6 @@ import { OrderBookCard } from "./market/OrderBookCard";
 import { ActivityFeed } from "./market/ActivityFeed";
 import { MarketInfoCards } from "./market/MarketInfoCards";
 import { MarketTicket } from "./market/MarketTicket";
-import { CopyLiquidityPane } from "./market/CopyLiquidityPane";
 
 export function PredictionWorkspace() {
   const { summary, depth, noSummary, noDepth, positions, balances, cfg } = useApp();
@@ -19,9 +18,6 @@ export function PredictionWorkspace() {
   const quoteSym = quoteSymbol(cfg);
   const question = marketQuestion(cfg);
   const [outcome, setOutcome] = useState<Outcome>("YES");
-  const [ticketMode, setTicketMode] = useState<"trade" | "copy">(() =>
-    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("ticket") === "copy" ? "copy" : "trade",
-  );
   const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
   // range-order band (cents), shared so both the ticket inputs and dragging the
   // box on the depth ladder edit the same order
@@ -59,27 +55,15 @@ export function PredictionWorkspace() {
             <span className="dbx-ticket-q">{question}</span>
             <span className="dbx-ticket-price num">{fmtCents(selected.prob)}</span>
           </div>
-          <div className="dbx-ticket-tabs" aria-label="Ticket mode">
-            <button className={ticketMode === "trade" ? "on" : ""} onClick={() => setTicketMode("trade")}>
-              Trade
-            </button>
-            <button className={ticketMode === "copy" ? "on" : ""} onClick={() => setTicketMode("copy")}>
-              Copy
-            </button>
-          </div>
-          {ticketMode === "trade" ? (
-            <MarketTicket
-              outcome={outcome}
-              onOutcome={setOutcome}
-              yes={yes}
-              no={no}
-              onPreview={setOrderPreview}
-              band={band}
-              setBand={setBand}
-            />
-          ) : (
-            <CopyLiquidityPane embedded />
-          )}
+          <MarketTicket
+            outcome={outcome}
+            onOutcome={setOutcome}
+            yes={yes}
+            no={no}
+            onPreview={setOrderPreview}
+            band={band}
+            setBand={setBand}
+          />
         </div>
         <section className="dbx-portfolio panel">
           <div className="dbx-panel-title">Your position</div>

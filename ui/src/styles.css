@@ -2221,33 +2221,6 @@ body {
   font-size: 15px;
   font-weight: 700;
 }
-.dbx-ticket-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  margin: 12px 15px 0;
-  padding: 3px;
-  border-radius: 9px;
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid var(--border-soft);
-}
-.dbx-ticket-tabs button {
-  min-height: 32px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-.dbx-ticket-tabs button:hover {
-  color: var(--text);
-}
-.dbx-ticket-tabs button.on {
-  color: #041b18;
-  background: linear-gradient(180deg, var(--db-accent), var(--db-accent-2));
-}
 .dbx-ticket-inner {
   padding: 13px 15px 15px;
   display: flex;
@@ -2928,6 +2901,32 @@ body {
   align-items: center;
   gap: 8px;
 }
+.dbx-range-mode {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border-soft);
+}
+.dbx-range-mode button {
+  min-height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.dbx-range-mode button:hover {
+  color: var(--text);
+}
+.dbx-range-mode button.on {
+  color: #1d1603;
+  background: linear-gradient(180deg, #ffd34d, var(--accent));
+}
 .dbx-stepper.sm {
   flex: 1;
 }
@@ -3050,7 +3049,7 @@ body {
 }
 .dbx-copy-pane.in-ticket {
   margin: 0;
-  padding: 13px 15px 15px;
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
