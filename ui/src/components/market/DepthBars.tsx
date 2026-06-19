@@ -3,7 +3,6 @@ import { formatUnits } from "viem";
 import { baseDecimals, quoteDecimals } from "../../lib/config";
 import { fmtCents, fmtPct, type Outcome, type OrderPreview, type PredictionBook, type PredictionLevel } from "../../lib/prediction";
 import { useApp } from "../../state/app";
-import { CopyLiquidityPane } from "./CopyLiquidityPane";
 
 /**
  * Liquidity depth view — bars on an explicit price axis (mid centred, bids green
@@ -233,7 +232,6 @@ export function DepthBars({
         <div className="dbx-depth-hint dim">resting liquidity · type an order to see where it lands</div>
       )}
 
-      <CopyLiquidityPane />
     </section>
   );
 }

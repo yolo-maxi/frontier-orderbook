@@ -10,6 +10,7 @@ import { OrderBookCard } from "./market/OrderBookCard";
 import { ActivityFeed } from "./market/ActivityFeed";
 import { MarketInfoCards } from "./market/MarketInfoCards";
 import { MarketTicket } from "./market/MarketTicket";
+import { CopyLiquidityPane } from "./market/CopyLiquidityPane";
 
 export function PredictionWorkspace() {
   const { summary, depth, noSummary, noDepth, positions, balances, cfg } = useApp();
@@ -65,6 +66,7 @@ export function PredictionWorkspace() {
             setBand={setBand}
           />
         </div>
+        <CopyLiquidityPane />
         <section className="dbx-portfolio panel">
           <div className="dbx-panel-title">Your position</div>
           <div className="dbx-pf-grid num">
