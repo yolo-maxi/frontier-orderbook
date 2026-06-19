@@ -307,7 +307,7 @@ function positionBands(positions: PositionRow[], baseDec: number): Band[] {
  *  - the execution range of a live Trade quote, as a bracket to its end price
  */
 function BookChart() {
-  const { cfg, priceHistory, depth, summary, positions, preview, makeFocus, shadow } = useApp();
+  const { cfg, priceHistory, depth, summary, positions, preview, makeFocus, copyFocus, shadow } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
   const shadowR0 = Number(formatUnits(shadow.reserve0, baseDec));
@@ -458,12 +458,7 @@ function BookChart() {
         prevB[bi] += (L0 + slope * k) * step;
       }
     }
-    const maxBucket = Math.max(
-      ...askB.map((v, i) => v + askCopy.buckets[i]),
-      ...bidB.map((v, i) => v + bidCopy.buckets[i]),
-      ...prevB,
-      1e-12,
-    );
+    const maxBucket = Math.max(...askB, ...bidB, ...prevB, 1e-12);
     const gw = gutX1 - gutX0;
     const barW = (v: number) => Math.min(gw, (v / maxBucket) * gw);
 
@@ -647,29 +642,29 @@ function BookChart() {
         <line x1={m.gutX0 - 1} x2={m.gutX0 - 1} y1={PAD.t} y2={H - PAD.b} className="chart-gutter-divider" />
         {m.askB.map((v, i) => {
           const activeW = m.barW(v);
-          const copyW = m.barW(m.askCopyB[i]);
+          const copyW = Math.min(activeW, m.barW(m.askCopyB[i]));
           const y = PAD.t + i * m.bh + 0.5;
           const h = Math.max(1, m.bh - 1);
-          return v > 0 || copyW > 0 ? (
+          return v > 0 ? (
             <g key={`a${i}`}>
-              {copyW > 0 && <rect x={m.gutX1 - activeW - copyW} y={y} width={copyW} height={h} fill="#f0b90b" fillOpacity="0.42" />}
               {v > 0 && <rect x={m.gutX1 - activeW} y={y} width={activeW} height={h} fill="#f6465d" fillOpacity="0.34" />}
+              {copyFocus && copyW > 0 && <rect x={m.gutX1 - activeW} y={y} width={copyW} height={h} className="chart-copy-sheen" />}
             </g>
           ) : null;
         })}
         {m.bidB.map((v, i) => {
           const activeW = m.barW(v);
-          const copyW = m.barW(m.bidCopyB[i]);
+          const copyW = Math.min(activeW, m.barW(m.bidCopyB[i]));
           const y = PAD.t + i * m.bh + 0.5;
           const h = Math.max(1, m.bh - 1);
-          return v > 0 || copyW > 0 ? (
+          return v > 0 ? (
             <g key={`b${i}`}>
-              {copyW > 0 && <rect x={m.gutX1 - activeW - copyW} y={y} width={copyW} height={h} fill="#f0b90b" fillOpacity="0.42" />}
               {v > 0 && <rect x={m.gutX1 - activeW} y={y} width={activeW} height={h} fill="#2ebd85" fillOpacity="0.34" />}
+              {copyFocus && copyW > 0 && <rect x={m.gutX1 - activeW} y={y} width={copyW} height={h} className="chart-copy-sheen" />}
             </g>
           ) : null;
         })}
-        {(m.askCopyOffBook > 0.0005 || m.bidCopyOffBook > 0.5) && (
+        {copyFocus && (m.askCopyOffBook > 0.0005 || m.bidCopyOffBook > 0.5) && (
           <g>
             <rect x={m.gutX0 + 4} y={PAD.t + 4} width={m.gutX1 - m.gutX0 - 8} height={16} rx={4} className="chart-offchip" />
             <text x={m.gutX0 + 10} y={PAD.t + 16} className="chart-band-label" fill="#f0b90b">

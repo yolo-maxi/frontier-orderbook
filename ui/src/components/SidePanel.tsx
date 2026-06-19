@@ -10,12 +10,16 @@ type Tab = "trade" | "make" | "shadow" | "positions";
 
 export function SidePanel() {
   const [tab, setTab] = useState<Tab>("trade");
-  const { positions, setMakeFocus, onCommand } = useApp();
+  const { positions, setMakeFocus, setCopyFocus, onCommand } = useApp();
   // Make + Copy modes expand the book portion of the screen
   useEffect(() => {
     setMakeFocus(tab === "make" || tab === "shadow");
-    return () => setMakeFocus(false);
-  }, [tab, setMakeFocus]);
+    setCopyFocus(tab === "shadow");
+    return () => {
+      setMakeFocus(false);
+      setCopyFocus(false);
+    };
+  }, [tab, setMakeFocus, setCopyFocus]);
 
   // U2 — hotkeys / palette can jump to any tab. A quote-at-price command
   // (click-to-quote from the order book) also focuses the Make tab so the

@@ -203,9 +203,12 @@ interface AppData {
   busy: string | null;
   preview: ChartPreview | null;
   setPreview: (p: ChartPreview | null) => void;
-  /** Make tab is active: the book portion of the screen expands. */
+  /** Make or Copy tab is active: the book portion of the screen expands. */
   makeFocus: boolean;
   setMakeFocus: (b: boolean) => void;
+  /** Copy tab is active: show copy-liquidity sheen on the book/chart. */
+  copyFocus: boolean;
+  setCopyFocus: (b: boolean) => void;
   sendTx: (label: string, fn: () => Promise<`0x${string}`>) => Promise<boolean>;
   faucet: () => Promise<void>;
   refresh: () => void;
@@ -332,6 +335,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [busy, setBusy] = useState<string | null>(null);
   const [preview, setPreview] = useState<ChartPreview | null>(null);
   const [makeFocus, setMakeFocus] = useState(false);
+  const [copyFocus, setCopyFocus] = useState(false);
   const [nonce, setNonce] = useState(0); // manual refresh trigger
   const [selectedMarketId, setSelectedMarketId] = useState<string>(LIVE_PREDICTION_MARKET.id);
   const market = MARKET_PROFILES[marketMode];
@@ -945,6 +949,8 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     setPreview,
     makeFocus,
     setMakeFocus,
+    copyFocus,
+    setCopyFocus,
     client,
     wallet,
     account,
