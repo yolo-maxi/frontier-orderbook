@@ -416,9 +416,35 @@ export function MarketTicket({
 
       {mode === "range" && rangeMode === "copy" ? (
         <>
-          <CopyLiquidityPane embedded />
+          <div className="dbx-outcome-pick">
+            <button
+              className={`dbx-pick yes ${isYes ? "on" : ""}`}
+              onClick={() => onOutcome("YES")}
+            >
+              <span>Yes</span>
+              <strong className="num">{fmtCents(yesPx)}</strong>
+            </button>
+            <button
+              className={`dbx-pick no ${!isYes ? "on" : ""}`}
+              onClick={() => onOutcome("NO")}
+            >
+              <span>No</span>
+              <strong className="num">{fmtCents(noPx)}</strong>
+            </button>
+          </div>
+          {book && outcomeToken ? (
+            <CopyLiquidityPane
+              embedded
+              bookAddress={book}
+              outcomeSymbol={outcome}
+              outcomeToken={outcomeToken}
+              outcomeBalance={shareBalance}
+            />
+          ) : (
+            <div className="dbx-note warn">Copy liquidity is unavailable for this outcome because its book is not deployed.</div>
+          )}
           <div className="dbx-terms">
-            Copy liquidity mirrors resting depth for this outcome book. <span className="dim">No real funds.</span>
+            Copy liquidity mirrors resting depth for this outcome book. <span className="dim">Uses real on-chain funds.</span>
           </div>
         </>
       ) : (
@@ -610,7 +636,7 @@ export function MarketTicket({
       {renderCta()}
 
       <div className="dbx-terms">
-        By trading you accept this is ARC testnet demo software. <span className="dim">No real funds.</span>
+        By trading you accept this is experimental ARC market software. <span className="dim">Funds move on-chain.</span>
       </div>
         </>
       )}

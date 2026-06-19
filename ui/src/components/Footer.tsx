@@ -8,7 +8,7 @@ export function Footer() {
       <span className="ftr-links">
         <a href="/docs/">Docs</a>
         <span className="ftr-sep" />
-        <span className="dim">No real funds — testnet only</span>
+        <span className="dim">On-chain funds — use care</span>
       </span>
     </footer>
   );
