@@ -9,6 +9,7 @@ import { SidePanel } from "./components/SidePanel";
 import { Toasts } from "./components/Toasts";
 import { Brand } from "./components/Brand";
 import { CommandPalette } from "./components/CommandPalette";
+import { PredictionSurface } from "./components/PredictionSurface";
 
 type ConfigState =
   | { phase: "loading" }
@@ -72,7 +73,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { cfg, configured, rpcError } = useApp();
+  const { cfg, configured, rpcError, marketMode } = useApp();
 
   return (
     <div className="app">
@@ -99,11 +100,15 @@ function Shell() {
           </div>
         </main>
       ) : (
-        <main className="grid">
-          <OrderBook />
-          <MarketPanel />
-          <SidePanel />
-        </main>
+        marketMode === "prediction" ? (
+          <PredictionSurface />
+        ) : (
+          <main className="grid">
+            <OrderBook />
+            <MarketPanel />
+            <SidePanel />
+          </main>
+        )
       )}
       <Footer />
       <Toasts />
