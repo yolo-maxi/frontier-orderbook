@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseUnits } from "viem";
 import { bookAbi } from "../../abi/book";
 import { erc20Abi } from "../../abi/erc20";
+import { routerAbi } from "../../abi/router";
 import { baseDecimals, quoteDecimals, quoteSymbol } from "../../lib/config";
 import { fmtAmount, parseAmount } from "../../lib/format";
 import { useApp } from "../../state/app";
@@ -16,6 +17,19 @@ interface CopyPool {
   totalShares: bigint;
   myShares: bigint;
   feeBps: number;
+}
+
+interface ZapPreview {
+  amount0In: bigint;
+  amount1In: bigint;
+  swapped0For1: boolean;
+  swapIn: bigint;
+  swapOut: bigint;
+  amount0Deposited: bigint;
+  amount1Deposited: bigint;
+  shares: bigint;
+  refund0: bigint;
+  refund1: bigint;
 }
 
 export function CopyLiquidityPane({
@@ -56,13 +70,19 @@ export function CopyLiquidityPane({
   const [withdrawPct, setWithdrawPct] = useState(100);
   const [allowYes, setAllowYes] = useState<bigint | null>(null);
   const [allowQuote, setAllowQuote] = useState<bigint | null>(null);
+  const [zapPreview, setZapPreview] = useState<ZapPreview | null>(null);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
+  const [slippageBps, setSlippageBps] = useState(100);
 
   const yesAmount = parseAmount(yesStr, baseDec);
   const quoteAmount = parseAmount(quoteStr, quoteDec);
-  const ready = mode === "add" && (yesAmount ?? 0n) > 0n && (quoteAmount ?? 0n) > 0n;
+  const ready = mode === "add" && ((yesAmount ?? 0n) > 0n || (quoteAmount ?? 0n) > 0n);
   const insufficient = ready && ((yesAmount ?? 0n) > tokenBalance || (quoteAmount ?? 0n) > balances.usdc);
-  const needsYes = ready && allowYes !== null && allowYes < (yesAmount ?? 0n);
-  const needsQuote = ready && allowQuote !== null && allowQuote < (quoteAmount ?? 0n);
+  const needsYes = ready && (yesAmount ?? 0n) > 0n && allowYes !== null && allowYes < (yesAmount ?? 0n);
+  const needsQuote = ready && (quoteAmount ?? 0n) > 0n && allowQuote !== null && allowQuote < (quoteAmount ?? 0n);
+  const guarded = useCallback((amount: bigint) => (amount * BigInt(10_000 - slippageBps)) / 10_000n, [slippageBps]);
+  const minSharesOut = zapPreview ? guarded(zapPreview.shares) : 0n;
+  const minSwapOut = zapPreview && zapPreview.swapOut > 0n ? guarded(zapPreview.swapOut) : 0n;
 
   const myYes = displayTotalShares > 0n ? (displayMyShares * displayReserve0) / displayTotalShares : 0n;
   const myQuote = displayTotalShares > 0n ? (displayMyShares * displayReserve1) / displayTotalShares : 0n;
@@ -105,13 +125,13 @@ export function CopyLiquidityPane({
           address: token,
           abi: erc20Abi,
           functionName: "allowance",
-          args: [addr, book],
+          args: [addr, cfg.contracts.router],
         }),
         client.readContract({
           address: cfg.contracts.usdc,
           abi: erc20Abi,
           functionName: "allowance",
-          args: [addr, book],
+          args: [addr, cfg.contracts.router],
         }),
       ]);
       setAllowYes(yes);
@@ -120,31 +140,64 @@ export function CopyLiquidityPane({
       setAllowYes(null);
       setAllowQuote(null);
     }
-  }, [addr, book, cfg.contracts.usdc, client, token]);
+  }, [addr, cfg.contracts.router, cfg.contracts.usdc, client, token]);
 
   useEffect(() => {
     loadPool();
     loadAllowances();
   }, [loadAllowances, loadPool, busy]);
 
+  useEffect(() => {
+    if (!ready || yesAmount === null || quoteAmount === null) {
+      setZapPreview(null);
+      setPreviewErr(null);
+      return;
+    }
+    let stop = false;
+    client
+      .readContract({
+        address: cfg.contracts.router,
+        abi: routerAbi,
+        functionName: "previewZapDepositShadow",
+        args: [book, yesAmount, quoteAmount],
+      })
+      .then((result) => {
+        if (!stop) {
+          setZapPreview(normalizeZapPreview(result));
+          setPreviewErr(null);
+        }
+      })
+      .catch((e) => {
+        if (!stop) {
+          setZapPreview(null);
+          setPreviewErr(e instanceof Error ? e.message.split("\n")[0] : "Preview unavailable");
+        }
+      });
+    return () => {
+      stop = true;
+    };
+  }, [book, cfg.contracts.router, client, quoteAmount, ready, yesAmount, busy]);
+
   const approve = (token: `0x${string}`, symbol: string) =>
-    sendTx(`Approve ${symbol} for copy pool`, () =>
+    sendTx(`Approve ${symbol} for auto-balance`, () =>
       wallet.writeContract({
         address: token,
         abi: erc20Abi,
         functionName: "approve",
-        args: [book, MAX_UINT],
+        args: [cfg.contracts.router, MAX_UINT],
       }),
     ).then(() => loadAllowances());
 
   const add = async () => {
-    if (!ready || yesAmount === null || quoteAmount === null) return;
-    const ok = await sendTx("Add copy liquidity", () =>
+    if (!ready || yesAmount === null || quoteAmount === null || !zapPreview || zapPreview.shares === 0n) return;
+    const { timestamp } = await client.getBlock({ blockTag: "latest" });
+    const deadline = timestamp + 600n;
+    const ok = await sendTx("Auto-balance copy liquidity", () =>
       wallet.writeContract({
-        address: book,
-        abi: bookAbi,
-        functionName: "depositShadow",
-        args: [yesAmount, quoteAmount, 0n],
+        address: cfg.contracts.router,
+        abi: routerAbi,
+        functionName: "zapDepositShadow",
+        args: [book, yesAmount, quoteAmount, minSwapOut, minSharesOut, addr, deadline],
       }),
     );
     if (ok) {
@@ -170,6 +223,20 @@ export function CopyLiquidityPane({
       refresh();
     }
   };
+
+  const swapFromSymbol = zapPreview?.swapped0For1 ? outcomeSymbol : quoteSym;
+  const swapToSymbol = zapPreview?.swapped0For1 ? quoteSym : outcomeSymbol;
+  const swapFromDec = zapPreview?.swapped0For1 ? baseDec : quoteDec;
+  const swapToDec = zapPreview?.swapped0For1 ? quoteDec : baseDec;
+  const hasRefund = !!zapPreview && (zapPreview.refund0 > 0n || zapPreview.refund1 > 0n);
+  const addDisabled = busy !== null || !ready || insufficient || !zapPreview || zapPreview.shares === 0n;
+  const addLabel = insufficient
+    ? "Insufficient balance"
+    : previewErr
+      ? "Preview unavailable"
+      : zapPreview?.shares === 0n
+        ? "No depositable amount"
+        : "Auto-balance into pool";
 
   return (
     <div className={`dbx-copy-pane ${embedded ? "in-ticket" : ""}`}>
@@ -218,6 +285,76 @@ export function CopyLiquidityPane({
               </div>
             </label>
           </div>
+          <div className="dbx-copy-preview">
+            <div className="dbx-copy-preview-head">
+              <span>Auto-balance into pool ratio</span>
+              <label className="dbx-slip num">
+                <span>Slippage</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  step={0.1}
+                  value={slippageBps / 100}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) setSlippageBps(Math.max(0, Math.min(5000, Math.round(n * 100))));
+                  }}
+                />
+                <span>%</span>
+              </label>
+            </div>
+            {previewErr ? (
+              <div className="dbx-copy-line warn">Preview unavailable on this deployment.</div>
+            ) : !ready ? (
+              <div className="dbx-copy-line dim">Enter either side to preview the deposit.</div>
+            ) : zapPreview ? (
+              <>
+                {pool.totalShares === 0n ? (
+                  <div className="dbx-copy-line dim">First deposit sets the copy-pool ratio. No rebalance swap is used.</div>
+                ) : zapPreview.swapOut > 0n ? (
+                  <div className="dbx-copy-line">
+                    <span>Rebalance</span>
+                    <strong className="num">
+                      {fmtAmount(zapPreview.swapIn, 4, swapFromDec)} {swapFromSymbol} →{" "}
+                      {fmtAmount(zapPreview.swapOut, 4, swapToDec)} {swapToSymbol}
+                    </strong>
+                  </div>
+                ) : (
+                  <div className="dbx-copy-line dim">No rebalance swap expected.</div>
+                )}
+                <div className="dbx-copy-line">
+                  <span>Deposit</span>
+                  <strong className="num">
+                    {fmtAmount(zapPreview.amount0Deposited, 4, baseDec)} {outcomeSymbol} ·{" "}
+                    {fmtAmount(zapPreview.amount1Deposited, 2, quoteDec)} {quoteSym}
+                  </strong>
+                </div>
+                <div className="dbx-copy-line">
+                  <span>Estimated shares</span>
+                  <strong className="num">{fmtAmount(zapPreview.shares, 4, baseDec)}</strong>
+                </div>
+                {hasRefund && (
+                  <div className="dbx-copy-line dim">
+                    <span>Unused</span>
+                    <strong className="num">
+                      {fmtAmount(zapPreview.refund0, 4, baseDec)} {outcomeSymbol} ·{" "}
+                      {fmtAmount(zapPreview.refund1, 2, quoteDec)} {quoteSym}
+                    </strong>
+                  </div>
+                )}
+                <div className="dbx-copy-line dim">
+                  <span>Guard</span>
+                  <strong className="num">
+                    min {fmtAmount(minSharesOut, 4, baseDec)} shares
+                    {minSwapOut > 0n ? ` · min swap ${fmtAmount(minSwapOut, 4, swapToDec)} ${swapToSymbol}` : ""}
+                  </strong>
+                </div>
+              </>
+            ) : (
+              <div className="dbx-copy-line dim">Loading preview...</div>
+            )}
+          </div>
           {needsYes && !insufficient ? (
             <button className="dbx-copy-cta" disabled={busy !== null} onClick={() => approve(token, outcomeSymbol)}>
               Approve {outcomeSymbol}
@@ -227,8 +364,8 @@ export function CopyLiquidityPane({
               Approve {quoteSym}
             </button>
           ) : (
-            <button className="dbx-copy-cta" disabled={busy !== null || !ready || insufficient} onClick={add}>
-              {insufficient ? "Insufficient balance" : "Add copy liquidity"}
+            <button className="dbx-copy-cta" disabled={addDisabled} onClick={add}>
+              {addLabel}
             </button>
           )}
         </>
@@ -258,4 +395,21 @@ function CopyStat({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function normalizeZapPreview(result: unknown): ZapPreview {
+  const r = result as Record<string, unknown> & readonly unknown[];
+  const bi = (key: keyof ZapPreview, index: number) => (r[key] ?? r[index] ?? 0n) as bigint;
+  return {
+    amount0In: bi("amount0In", 0),
+    amount1In: bi("amount1In", 1),
+    swapped0For1: (r.swapped0For1 ?? r[2] ?? false) as boolean,
+    swapIn: bi("swapIn", 3),
+    swapOut: bi("swapOut", 4),
+    amount0Deposited: bi("amount0Deposited", 5),
+    amount1Deposited: bi("amount1Deposited", 6),
+    shares: bi("shares", 7),
+    refund0: bi("refund0", 8),
+    refund1: bi("refund1", 9),
+  };
 }

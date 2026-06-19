@@ -3142,6 +3142,64 @@ body {
 .dbx-copy-fields .dbx-field {
   margin: 0;
 }
+.dbx-copy-preview {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.dbx-copy-preview-head,
+.dbx-copy-line,
+.dbx-slip {
+  display: flex;
+  align-items: center;
+}
+.dbx-copy-preview-head,
+.dbx-copy-line {
+  justify-content: space-between;
+  gap: 10px;
+}
+.dbx-copy-preview-head {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+}
+.dbx-copy-line {
+  min-width: 0;
+  color: var(--text-mid);
+  font-size: 11px;
+}
+.dbx-copy-line.warn {
+  color: var(--warn);
+}
+.dbx-copy-line strong {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 750;
+}
+.dbx-slip {
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.dbx-slip input {
+  width: 52px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.2);
+  text-align: right;
+}
 .dbx-copy-cta {
   width: 100%;
   min-height: 36px;

@@ -1,2 +1,4 @@
 # standalone — do not hoist into the parent uniswap-tools workspace
 packages: []
+allowBuilds:
+  esbuild: true

@@ -13,6 +13,16 @@ import {GeometricFrontierBook, GeometricMakerOps} from "./GeometricFrontierBook.
 /// Both are permissionless and stateless — deploying contracts for someone
 /// else grants no power over them.
 contract RollingBookDeployer {
+    address public immutable chunk0;
+    address public immutable chunk1;
+
+    constructor() {
+        bytes memory code = type(RollingFrontierBook).creationCode;
+        uint256 half = code.length / 2;
+        chunk0 = _store(code, 0, half);
+        chunk1 = _store(code, half, code.length - half);
+    }
+
     function deploy(
         address token0,
         address token1,
@@ -21,8 +31,39 @@ contract RollingBookDeployer {
         address hooks,
         address permissions,
         address makerOps
-    ) external returns (address) {
-        return address(new RollingFrontierBook(token0, token1, tickSpacing, startTick, hooks, permissions, makerOps));
+    ) external returns (address book) {
+        bytes memory init = bytes.concat(
+            _read(chunk0),
+            _read(chunk1),
+            abi.encode(token0, token1, tickSpacing, startTick, hooks, permissions, makerOps)
+        );
+        assembly ("memory-safe") {
+            book := create(0, add(init, 0x20), mload(init))
+        }
+        require(book != address(0), "book deploy failed");
+    }
+
+    function _store(bytes memory code, uint256 offset, uint256 size) private returns (address ptr) {
+        bytes memory data = new bytes(size);
+        assembly ("memory-safe") {
+            mcopy(add(data, 0x20), add(add(code, 0x20), offset), size)
+        }
+        bytes memory init = abi.encodePacked(hex"63", uint32(size + 1), hex"80600e6000396000f3", hex"00", data);
+        assembly ("memory-safe") {
+            ptr := create(0, add(init, 0x20), mload(init))
+        }
+        require(ptr != address(0), "chunk store failed");
+    }
+
+    function _read(address ptr) private view returns (bytes memory data) {
+        uint256 size;
+        assembly ("memory-safe") {
+            size := extcodesize(ptr)
+        }
+        data = new bytes(size - 1);
+        assembly ("memory-safe") {
+            extcodecopy(ptr, add(data, 0x20), 1, sub(size, 1))
+        }
     }
 }
 

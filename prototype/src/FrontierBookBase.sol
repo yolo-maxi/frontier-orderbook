@@ -120,6 +120,13 @@ abstract contract FrontierBookBase {
     mapping(address => uint256) public internalBalance0;
     mapping(address => uint256) public internalBalance1;
 
+    // Shadow liquidity: a pooled, pro-rata inventory layer that can mirror
+    // real fills but never creates price levels on its own.
+    uint256 internal shadowReserve0;
+    uint256 internal shadowReserve1;
+    uint256 internal shadowTotalShares;
+    mapping(address => uint256) internal shadowShares;
+
     event Deposit(uint256 indexed positionId, address indexed owner, int24 lower, int24 upper, uint128 liquidity);
     event IntervalFilled(int24 indexed lowerTick, uint128 liquidity, uint256 proceeds1, uint64 clock);
     event RunFilled(int24 indexed fromLevel, int24 toBoundary, uint256 startSize, int256 slopePerLevel, uint64 clock);
@@ -129,6 +136,8 @@ abstract contract FrontierBookBase {
     event PositionTransferred(uint256 indexed positionId, address indexed from, address indexed to);
     event InternalCredit(address indexed user, uint256 amount0, uint256 amount1);
     event InternalWithdraw(address indexed user, uint256 amount0, uint256 amount1);
+    event ShadowDeposit(address indexed user, uint256 amount0, uint256 amount1, uint256 shares);
+    event ShadowWithdraw(address indexed user, uint256 amount0, uint256 amount1, uint256 shares);
 
     uint256 internal constant PRICE_SCALE = 1e18;
 

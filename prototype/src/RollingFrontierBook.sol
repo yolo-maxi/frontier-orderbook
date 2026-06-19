@@ -63,6 +63,9 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// delegatecall (same storage layout + immutables; see FrontierBookBase).
     address public immutable makerOps;
 
+    uint256 internal constant SHADOW_FEE_BPS = 30;
+    uint256 internal constant BPS = 10_000;
+
     constructor(
         address _token0,
         address _token1,
@@ -362,6 +365,24 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
         _makerOpsCall();
     }
 
+    function depositShadow(uint256, uint256, uint256)
+        external
+        returns (uint256 shares, uint256 amount0, uint256 amount1)
+    {
+        _makerOpsCall();
+    }
+
+    function depositShadowFor(address, uint256, uint256, uint256)
+        external
+        returns (uint256 shares, uint256 amount0, uint256 amount1)
+    {
+        _makerOpsCall();
+    }
+
+    function withdrawShadow(uint256, uint256, uint256) external returns (uint256 amount0, uint256 amount1) {
+        _makerOpsCall();
+    }
+
     function _makerOpsCall() private {
         address m = makerOps;
         assembly {
@@ -413,14 +434,35 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
             IFrontierHooks.beforeSweep.selector
         );
         if (target > oldTick) {
-            (reached, paid, received) = _sweepUp(oldTick, target, maxFills, maxPay);
+            bool useShadow = shadowReserve0 != 0;
+            uint256 realMaxPay = useShadow ? (maxPay * BPS) / (2 * BPS + SHADOW_FEE_BPS) : maxPay;
+            (reached, paid, received) = _sweepUp(oldTick, target, maxFills, realMaxPay);
             _currentTick = reached;
+            if (useShadow && paid > 0 && received > 0 && shadowReserve0 >= received) {
+                uint256 fee = (paid * SHADOW_FEE_BPS + BPS - 1) / BPS;
+                shadowReserve0 -= received;
+                shadowReserve1 += paid + fee;
+                paid += paid + fee;
+                received += received;
+            }
             require(received >= minOut, "insufficient output");
             if (paid > 0) require(token1.transferFrom(msg.sender, address(this), paid), "fill payment failed");
             if (received > 0) require(token0.transfer(msg.sender, received), "fill payout failed");
         } else {
-            (reached, paid, received) = _sweepDown(oldTick, target, maxFills, maxPay);
+            bool useShadow = shadowReserve1 != 0;
+            uint256 realMaxPay = useShadow ? maxPay / 2 : maxPay;
+            (reached, paid, received) = _sweepDown(oldTick, target, maxFills, realMaxPay);
             _currentTick = reached;
+            if (useShadow && paid > 0 && received > 0) {
+                uint256 fee = (received * SHADOW_FEE_BPS) / BPS;
+                uint256 shadowOut = received - fee;
+                if (shadowReserve1 >= shadowOut) {
+                    shadowReserve0 += paid;
+                    shadowReserve1 -= shadowOut;
+                    paid += paid;
+                    received += shadowOut;
+                }
+            }
             require(received >= minOut, "insufficient output");
             if (paid > 0) require(token0.transferFrom(msg.sender, address(this), paid), "fill payment failed");
             if (received > 0) require(token1.transfer(msg.sender, received), "fill payout failed");
@@ -712,6 +754,14 @@ contract RollingFrontierBook is IRangeOrderBook, FrontierBookBase {
     /// @notice The book's price curve at a tick (X18 token1 per token0).
     function rateAt(int24 t) external view returns (uint256) {
         return _rate(t);
+    }
+
+    function shadowReserves() external view returns (uint256 reserve0, uint256 reserve1, uint256 totalShares) {
+        return (shadowReserve0, shadowReserve1, shadowTotalShares);
+    }
+
+    function shadowSharesOf(address user) external view returns (uint256) {
+        return shadowShares[user];
     }
 
     function isConsumedFor(uint256 positionId, int24 lowerTick) external view returns (bool) {
