@@ -772,12 +772,6 @@ body {
   white-space: nowrap;
 }
 
-.chart-copy-sheen {
-  fill: rgba(240, 185, 11, 0.28);
-  stroke: rgba(240, 185, 11, 0.48);
-  stroke-width: 0.5;
-}
-
 .shadow-legend {
   display: inline-flex;
   align-items: center;

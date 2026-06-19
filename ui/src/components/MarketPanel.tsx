@@ -3,7 +3,6 @@ import { useApp, type PositionRow } from "../state/app";
 import { fmtAmount, fmtNum, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
 import { baseDecimals, quoteDecimals } from "../lib/config";
 import { ProbabilityPill } from "./ProbabilityPill";
-import { formatUnits } from "viem";
 
 export function MarketPanel() {
   const { cfg, summary, priceHistory, fills, makerEvents, market, marketMode, predictionMeta, marketStats, chainStatus } =
@@ -307,11 +306,8 @@ function positionBands(positions: PositionRow[], baseDec: number): Band[] {
  *  - the execution range of a live Trade quote, as a bracket to its end price
  */
 function BookChart() {
-  const { cfg, priceHistory, depth, summary, positions, preview, makeFocus, copyFocus, shadow } = useApp();
+  const { cfg, priceHistory, depth, summary, positions, preview, makeFocus } = useApp();
   const baseDec = baseDecimals(cfg);
-  const quoteDec = quoteDecimals(cfg);
-  const shadowR0 = Number(formatUnits(shadow.reserve0, baseDec));
-  const shadowR1 = Number(formatUnits(shadow.reserve1, quoteDec));
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(760);
   // Make mode: the BOOK's share of the chart expands — the price line
@@ -407,7 +403,6 @@ function BookChart() {
     const bh = (H - PAD.t - PAD.b) / BUCKETS;
     const askB = new Array<number>(BUCKETS).fill(0);
     const bidB = new Array<number>(BUCKETS).fill(0);
-    const bucketPx = new Array<number>(BUCKETS).fill(0).map((_, i) => max - ((i + 0.5) / BUCKETS) * (max - min));
     for (const lv of depth) {
       const price = tickToPrice(lv.tick);
       if (price < min || price >= max) continue;
@@ -415,30 +410,6 @@ function BookChart() {
       askB[bi] += toF(lv.askSize, baseDec);
       bidB[bi] += toF(lv.bidSize, baseDec);
     }
-    const copyBuckets = (active: number[], side: "ask" | "bid", reserve0: number, reserve1: number) => {
-      const out = new Array<number>(BUCKETS).fill(0);
-      let budget = side === "ask" ? reserve0 : reserve1;
-      const indices = [...active.keys()].sort((a, b) => (side === "ask" ? b - a : a - b));
-      for (const i of indices) {
-        const v = active[i];
-        if (v <= 0 || budget <= 0) continue;
-        if (side === "ask") {
-          const copy = Math.min(v, budget);
-          out[i] = copy;
-          budget -= copy;
-        } else {
-          const px = Math.max(bucketPx[i], 1e-12);
-          const cost = v * px;
-          const copy = budget >= cost ? v : v * (budget / cost);
-          out[i] = copy;
-          budget -= Math.min(cost, budget);
-        }
-      }
-      return { buckets: out, offBook: Math.max(0, budget) };
-    };
-    const askCopy = copyBuckets(askB, "ask", shadowR0, shadowR1);
-    const bidCopy = copyBuckets(bidB, "bid", shadowR0, shadowR1);
-
     // ----- make-preview ladder → same buckets (comparable scale)
     const prevB = new Array<number>(BUCKETS).fill(0);
     if (
@@ -505,13 +476,12 @@ function BookChart() {
       W, plotX1, gutX0, gutX1, min, max, sy,
       d, area, up,
       lastX: xs[xs.length - 1], lastY: sy(lastPt.price), lastPrice: lastPt.price,
-      askB, bidB, askCopyB: askCopy.buckets, bidCopyB: bidCopy.buckets,
-      askCopyOffBook: askCopy.offBook, bidCopyOffBook: bidCopy.offBook,
+      askB, bidB,
       prevB, prevLevels, bh, barW,
       bands, offAbove, offBelow, grid, mid,
       midY: sy(mid),
     };
-  }, [priceHistory, depth, summary, positions, preview, width, GUT, H, baseDec, quoteDec, shadowR0, shadowR1]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [priceHistory, depth, summary, positions, preview, width, GUT, H, baseDec]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!model) {
     return (
@@ -642,36 +612,24 @@ function BookChart() {
         <line x1={m.gutX0 - 1} x2={m.gutX0 - 1} y1={PAD.t} y2={H - PAD.b} className="chart-gutter-divider" />
         {m.askB.map((v, i) => {
           const activeW = m.barW(v);
-          const copyW = Math.min(activeW, m.barW(m.askCopyB[i]));
           const y = PAD.t + i * m.bh + 0.5;
           const h = Math.max(1, m.bh - 1);
           return v > 0 ? (
             <g key={`a${i}`}>
               {v > 0 && <rect x={m.gutX1 - activeW} y={y} width={activeW} height={h} fill="#f6465d" fillOpacity="0.34" />}
-              {copyFocus && copyW > 0 && <rect x={m.gutX1 - activeW} y={y} width={copyW} height={h} className="chart-copy-sheen" />}
             </g>
           ) : null;
         })}
         {m.bidB.map((v, i) => {
           const activeW = m.barW(v);
-          const copyW = Math.min(activeW, m.barW(m.bidCopyB[i]));
           const y = PAD.t + i * m.bh + 0.5;
           const h = Math.max(1, m.bh - 1);
           return v > 0 ? (
             <g key={`b${i}`}>
               {v > 0 && <rect x={m.gutX1 - activeW} y={y} width={activeW} height={h} fill="#2ebd85" fillOpacity="0.34" />}
-              {copyFocus && copyW > 0 && <rect x={m.gutX1 - activeW} y={y} width={copyW} height={h} className="chart-copy-sheen" />}
             </g>
           ) : null;
         })}
-        {copyFocus && (m.askCopyOffBook > 0.0005 || m.bidCopyOffBook > 0.5) && (
-          <g>
-            <rect x={m.gutX0 + 4} y={PAD.t + 4} width={m.gutX1 - m.gutX0 - 8} height={16} rx={4} className="chart-offchip" />
-            <text x={m.gutX0 + 10} y={PAD.t + 16} className="chart-band-label" fill="#f0b90b">
-              OFF-BOOK COPY
-            </text>
-          </g>
-        )}
 
         {/* ---- trade quote: bracket from here to the projected end price */}
         {preview?.kind === "trade" && preview.endTick !== undefined && (
