@@ -5,7 +5,6 @@ import { baseDecimals, quoteDecimals } from "../lib/config";
 import { Brand } from "./Brand";
 import { MarketBrowser } from "./MarketBrowser";
 import { Portfolio } from "./Portfolio";
-import { MARKET_PROFILES, type MarketMode } from "../lib/markets";
 
 function TokenGlyph({ sym, glyph }: { sym: "base" | "quote" | "eth"; glyph: string }) {
   const letter = sym === "eth" ? "Ξ" : glyph;
@@ -24,7 +23,7 @@ function identGradient(address: string): string {
 }
 
 export function Header() {
-  const { cfg, account, balances, faucet, busy, rpcError, configured, market, marketMode, setMarketMode } = useApp();
+  const { cfg, account, balances, faucet, busy, rpcError, configured, market, marketMode } = useApp();
   const [copied, setCopied] = useState(false);
   const [fauceting, setFauceting] = useState(false);
   const [browseOpen, setBrowseOpen] = useState(false);
@@ -54,10 +53,6 @@ export function Header() {
       setFauceting(false);
     }
   };
-  const switchMarket = (mode: MarketMode) => {
-    if (mode !== marketMode) setMarketMode(mode);
-  };
-
   return (
     <header className="hdr">
       <div className="hdr-left">
@@ -70,17 +65,6 @@ export function Header() {
           </span>
           {market.pairLabel}
         </span>
-        <div className="market-switch" role="group" aria-label="Market UI mode">
-          {(["prediction", "spot"] as const).map((mode) => (
-            <button
-              key={mode}
-              className={`market-switch-btn ${marketMode === mode ? "market-switch-on" : ""}`}
-              onClick={() => switchMarket(mode)}
-            >
-              {MARKET_PROFILES[mode].toggleLabel}
-            </button>
-          ))}
-        </div>
         <span className="net">
           <span className={`dot ${rpcError ? "dot-bad" : configured ? "dot-ok" : "dot-warn"}`} />
           {question ?? venueLabel} <span className="dim">{venueDetail}</span>{" "}

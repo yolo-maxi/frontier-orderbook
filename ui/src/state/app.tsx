@@ -217,6 +217,14 @@ interface AppData {
 const AppCtx = createContext<AppData | null>(null);
 const MARKET_STORAGE_KEY = "frontier-market-mode";
 
+function marketModeFromUrl(): MarketMode | null {
+  const params = new URLSearchParams(window.location.search);
+  const value = (params.get("surface") ?? params.get("mode") ?? params.get("market"))?.toLowerCase();
+  if (value === "clob" || value === "spot") return "spot";
+  if (value === "pm" || value === "prediction") return "prediction";
+  return null;
+}
+
 export function useApp(): AppData {
   const ctx = useContext(AppCtx);
   if (!ctx) throw new Error("useApp outside provider");
@@ -319,6 +327,8 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   });
   const [positions, setPositions] = useState<PositionRow[]>([]);
   const [marketMode, setMarketModeState] = useState<MarketMode>(() => {
+    const urlMode = marketModeFromUrl();
+    if (urlMode) return urlMode;
     const stored = window.localStorage.getItem(MARKET_STORAGE_KEY);
     return stored === "spot" || stored === "prediction" ? stored : DEFAULT_MARKET_MODE;
   });
