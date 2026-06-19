@@ -10,7 +10,7 @@ const MAX_UINT = 2n ** 256n - 1n;
 
 type Mode = "add" | "withdraw";
 
-export function CopyLiquidityPane() {
+export function CopyLiquidityPane({ embedded = false }: { embedded?: boolean }) {
   const { cfg, client, wallet, addr, balances, shadow, busy, sendTx, refresh } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
@@ -110,7 +110,7 @@ export function CopyLiquidityPane() {
   };
 
   return (
-    <div className="dbx-copy-pane">
+    <div className={`dbx-copy-pane ${embedded ? "in-ticket" : ""}`}>
       <div className="dbx-copy-head">
         <span className="dbx-copy-title">
           <i className="dbx-copy-swatch" /> Copy liquidity
