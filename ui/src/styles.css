@@ -2156,6 +2156,22 @@ body {
 .pred-meta-q-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .pred-q { font-size: 18px; font-weight: 600; line-height: 1.25; margin: 0; color: var(--text); }
 .pred-resolution { font-size: 11px; margin-top: 7px; line-height: 1.4; }
+.spot-meta {
+  border-color: rgba(46, 189, 133, 0.14);
+}
+.spot-cat {
+  color: var(--bid);
+  background: rgba(46, 189, 133, 0.09);
+}
+.spot-badge {
+  white-space: nowrap;
+  color: var(--bid);
+  border: 1px solid rgba(46, 189, 133, 0.22);
+  background: rgba(46, 189, 133, 0.06);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
 
 /* ---- P2: market discovery browser ---- */
 .browser-overlay {

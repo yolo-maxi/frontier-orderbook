@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useApp } from "../state/app";
-import { fmtPrice, niceStep, stepDecimals, tickToPrice } from "../lib/format";
+import { fmtPredictionPct, fmtPrice, niceStep, stepDecimals, tickToPrice } from "../lib/format";
 import { baseDecimals, quoteDecimals } from "../lib/config";
 import { formatUnits } from "viem";
 
@@ -219,6 +219,17 @@ export function OrderBook() {
 
   const { askBuckets, bidBuckets, askCopyOffBook, bidCopyOffBook, maxCum, mid, spread, dp, step } = model;
   const sizeDp = 3;
+  const isPrediction = market.mode === "prediction";
+  const fmtBookPrice = (price: number, decimals = dp) =>
+    isPrediction ? fmtPredictionPct(price, Math.min(3, decimals)) : fmtPrice(price, decimals);
+  const fmtBookStep = () =>
+    isPrediction ? `bucket ${fmtPrice(step / 100, 3)} pts` : `bucket $${fmtPrice(step, 3)}`;
+  const fmtBookSpread = () =>
+    spread !== null
+      ? isPrediction
+        ? `spread ${fmtPrice(spread / 100, 3)} pts`
+        : `spread ${fmtPrice(spread, 3)} · ${fmtPrice((spread / mid) * 10000, 2)} bps`
+      : "one-sided book";
 
   // mid-price direction (vs. previous non-equal mid) for the spread divider arrow
   const tracker = midDirRef.current;
@@ -235,7 +246,8 @@ export function OrderBook() {
   return (
     <section className="panel book-panel">
       <div className="panel-title">
-        <span className="book-title-main">Order Book</span> <span className="dim title-note">bucket ${fmtPrice(step, 3)}</span>
+        <span className="book-title-main">{isPrediction ? "Outcome Book" : "Order Book"}</span>{" "}
+        <span className="dim title-note">{fmtBookStep()}</span>
         {showCopy && (
           <span className="shadow-legend num" title={`Copy liquidity mirrors real fills at the book price, capped by pooled inventory. Copy fills pay ${shadow.feeBps} bps to the protocol.`}>
             <i className="shadow-swatch" /> copy {fmtSize(shadowR0, 2)} {market.baseSymbol} · {fmtSize(shadowR1, 0)} {market.quoteSymbol}
@@ -253,7 +265,7 @@ export function OrderBook() {
         )}
         {previewRange && (
           <span className="book-preview-chip num">
-            your {previewRange.side} ladder {fmtPrice(previewRange.pLo, 3)}–{fmtPrice(previewRange.pHi, 3)}
+            your {previewRange.side} ladder {fmtBookPrice(previewRange.pLo, 3)}–{fmtBookPrice(previewRange.pHi, 3)}
           </span>
         )}
       </div>
@@ -268,7 +280,7 @@ export function OrderBook() {
           {mergeGhosts(askBuckets, ghostsRef.current.ask, "ask").map((b) =>
             b.ghost ? (
               <div className="book-row book-row-ghost" key={`ga${b.price}`}>
-                <span className="px num">{fmtPrice(b.price, dp)}</span>
+                <span className="px num">{fmtBookPrice(b.price)}</span>
                 <span className="num">{fmtSize(b.size, sizeDp)}</span>
                 <span className="num dim">—</span>
               </div>
@@ -279,7 +291,7 @@ export function OrderBook() {
                 onMouseEnter={() => setHover({ side: "ask", price: b.price })}
                 onMouseLeave={() => setHover((h) => (h?.side === "ask" && h.price === b.price ? null : h))}
                 onClick={() => quoteAt("ask", b.price)}
-                title={`Click to quote an ask ladder from ${fmtPrice(b.price, dp)}`}
+                title={`Click to quote an ask ladder from ${fmtBookPrice(b.price)}`}
               >
                 {flashOverlay(flashesRef.current.ask.get(b.price))}
                 <div
@@ -295,7 +307,7 @@ export function OrderBook() {
                     }}
                   />
                 )}
-                <span className="px ask num">{fmtPrice(b.price, dp)}</span>
+                <span className="px ask num">{fmtBookPrice(b.price)}</span>
                 <span className="num">
                   {fmtSize(b.size, sizeDp)}
                   {showCopy && b.shadow > 0.0005 && <em className="shadow-tag" title="copy-mirrored depth">+{fmtSize(Math.min(b.shadow, b.size), sizeDp)}</em>}
@@ -309,15 +321,13 @@ export function OrderBook() {
           <span
             className={`book-mid-px ${midDir === 1 ? "up" : midDir === -1 ? "down" : ""}`}
           >
-            {fmtPrice(mid, 3)}
+            {fmtBookPrice(mid, 3)}
             {midDir !== 0 && (
               <span className="book-mid-arrow">{midDir === 1 ? "▲" : "▼"}</span>
             )}
           </span>
           <span className="book-mid-spread">
-            {spread !== null
-              ? `spread ${fmtPrice(spread, 3)} · ${fmtPrice((spread / mid) * 10000, 2)} bps`
-              : "one-sided book"}
+            {fmtBookSpread()}
           </span>
         </div>
         <div className="book-side book-bids">
@@ -325,7 +335,7 @@ export function OrderBook() {
           {mergeGhosts(bidBuckets, ghostsRef.current.bid, "bid").map((b) =>
             b.ghost ? (
               <div className="book-row book-row-ghost" key={`gb${b.price}`}>
-                <span className="px num">{fmtPrice(b.price, dp)}</span>
+                <span className="px num">{fmtBookPrice(b.price)}</span>
                 <span className="num">{fmtSize(b.size, sizeDp)}</span>
                 <span className="num dim">—</span>
               </div>
@@ -336,7 +346,7 @@ export function OrderBook() {
                 onMouseEnter={() => setHover({ side: "bid", price: b.price })}
                 onMouseLeave={() => setHover((h) => (h?.side === "bid" && h.price === b.price ? null : h))}
                 onClick={() => quoteAt("bid", b.price)}
-                title={`Click to quote a bid ladder to ${fmtPrice(b.price, dp)}`}
+                title={`Click to quote a bid ladder to ${fmtBookPrice(b.price)}`}
               >
                 {flashOverlay(flashesRef.current.bid.get(b.price))}
                 <div
@@ -352,7 +362,7 @@ export function OrderBook() {
                     }}
                   />
                 )}
-                <span className="px bid num">{fmtPrice(b.price, dp)}</span>
+                <span className="px bid num">{fmtBookPrice(b.price)}</span>
                 <span className="num">
                   {fmtSize(b.size, sizeDp)}
                   {showCopy && b.shadow > 0.0005 && <em className="shadow-tag" title="copy-mirrored depth">+{fmtSize(Math.min(b.shadow, b.size), sizeDp)}</em>}
@@ -369,6 +379,7 @@ export function OrderBook() {
         bidBuckets={bidBuckets}
         mid={mid}
         dp={dp}
+        isPrediction={isPrediction}
         baseSym={market.baseSymbol}
         quoteSym={market.quoteSymbol}
       />
@@ -382,6 +393,7 @@ function BookHoverDetail({
   bidBuckets,
   mid,
   dp,
+  isPrediction,
   baseSym,
   quoteSym,
 }: {
@@ -390,6 +402,7 @@ function BookHoverDetail({
   bidBuckets: Bucket[];
   mid: number;
   dp: number;
+  isPrediction: boolean;
   baseSym: string;
   quoteSym: string;
 }) {
@@ -406,9 +419,10 @@ function BookHoverDetail({
   const distBps = mid > 0 ? Math.abs((b.price - mid) / mid) * 10000 : 0;
   const notional = b.size * b.price; // approx quote notional at this level
   const cumNotional = b.cum * b.price;
+  const displayPx = isPrediction ? fmtPredictionPct(b.price, Math.min(3, dp)) : fmtPrice(b.price, dp);
   return (
     <div className={`book-detail num ${hover.side === "ask" ? "detail-ask" : "detail-bid"}`}>
-      <span className="detail-px">{fmtPrice(b.price, dp)}</span>
+      <span className="detail-px">{displayPx}</span>
       <span className="detail-cell">
         <span className="dim">size</span> {fmtSize(b.size, 3)} {baseSym}
       </span>

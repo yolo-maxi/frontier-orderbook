@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp, type PositionRow } from "../state/app";
-import { fmtAmount, fmtNum, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
+import { fmtAmount, fmtNum, fmtPredictionPct, fmtPrice, fmtTime, tickToPrice } from "../lib/format";
 import { baseDecimals, quoteDecimals } from "../lib/config";
 import { ProbabilityPill } from "./ProbabilityPill";
 
@@ -25,6 +25,11 @@ export function MarketPanel() {
   const bestAsk = summary?.hasAsk ? tickToPrice(summary.bestAsk) : null;
   const bestBid = summary?.hasBid ? tickToPrice(summary.bestBid) : null;
   const spread = bestAsk !== null && bestBid !== null ? bestAsk - bestBid : null;
+  const displayLast = last !== null ? (isPrediction ? fmtPredictionPct(last, 3) : fmtPrice(last, 3)) : "—";
+  const displayBid = bestBid !== null ? (isPrediction ? fmtPredictionPct(bestBid, 3) : fmtPrice(bestBid, 3)) : "—";
+  const displayAsk = bestAsk !== null ? (isPrediction ? fmtPredictionPct(bestAsk, 3) : fmtPrice(bestAsk, 3)) : "—";
+  const displaySpread =
+    spread !== null ? (isPrediction ? `${fmtPrice(spread / 100, 3)} pts` : fmtPrice(spread, 3)) : "—";
 
   // last-price flash on change
   const prevLast = useRef<number | null>(null);
@@ -77,13 +82,30 @@ export function MarketPanel() {
           <div className="pred-resolution dim">{predictionMeta.resolution}</div>
         </div>
       )}
+      {!isPrediction && (
+        <div className="panel pred-meta spot-meta">
+          <div className="pred-meta-top">
+            <span className="pred-cat spot-cat">Spot CLOB</span>
+            <span className="pred-meta-stats num dim">
+              Pair {market.pairLabel} · quote {market.quoteSymbol} · settlement on-chain
+            </span>
+          </div>
+          <div className="pred-meta-q-row">
+            <h2 className="pred-q">ETH / USDC central limit order book</h2>
+            <span className="spot-badge num">maker ladders · taker sweeps</span>
+          </div>
+          <div className="pred-resolution dim">
+            Pure spot venue: WETH bids and asks, live depth, fills, maker positions and copy liquidity.
+          </div>
+        </div>
+      )}
       <div className="panel price-head">
         <div className="ph-main">
           <span
             key={flash?.key ?? "static"}
             className={`ph-last num ${trendCls} ${flash ? `flash-${flash.dir}` : ""}`}
           >
-            {last !== null ? fmtPrice(last, 3) : "—"}
+            {displayLast}
           </span>
           <span className="ph-sub">{market.priceUnit}</span>
           {isPrediction && <ProbabilityPill price={last} size="sm" />}
@@ -97,15 +119,15 @@ export function MarketPanel() {
           </div>
           <div className="ph-stat">
             <span className="dim">Best Bid</span>
-            <span className="bid">{bestBid !== null ? fmtPrice(bestBid, 3) : "—"}</span>
+            <span className="bid">{displayBid}</span>
           </div>
           <div className="ph-stat">
             <span className="dim">Best Ask</span>
-            <span className="ask">{bestAsk !== null ? fmtPrice(bestAsk, 3) : "—"}</span>
+            <span className="ask">{displayAsk}</span>
           </div>
           <div className="ph-stat">
             <span className="dim">Spread</span>
-            <span>{spread !== null ? fmtPrice(spread, 3) : "—"}</span>
+            <span>{displaySpread}</span>
           </div>
           <div className="ph-stat">
             <span className="dim">Tick</span>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { predictionPriceToProbability } from "../lib/format";
 
 /**
  * P6 — probability pill / meter.
@@ -15,7 +16,7 @@ export function ProbabilityPill({
   price: number | null;
   size?: "sm" | "md" | "lg";
 }) {
-  const prob = price === null ? null : Math.max(0, Math.min(1, price));
+  const prob = price === null ? null : Math.max(0, Math.min(1, predictionPriceToProbability(price)));
   const pct = prob === null ? null : prob * 100;
 
   const prev = useRef<number | null>(null);

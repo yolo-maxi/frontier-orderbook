@@ -29,12 +29,12 @@ export function FrontierMark({ size = 22 }: { size?: number }) {
   );
 }
 
-export function Brand({ markSize = 22 }: { markSize?: number }) {
+export function Brand({ markSize = 22, tag = "CLOB" }: { markSize?: number; tag?: string }) {
   return (
     <span className="brand">
       <FrontierMark size={markSize} />
       <span className="brand-word">FRONTIER</span>
-      <span className="brand-tag">CLOB</span>
+      <span className="brand-tag">{tag}</span>
     </span>
   );
 }

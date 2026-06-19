@@ -31,6 +31,17 @@ export function fmtPrice(p: number, dp = 2): string {
   });
 }
 
+export function predictionPriceToProbability(price: number): number {
+  // The shared demo book is still ticked around ETH-style prices (~4,000).
+  // In prediction mode, display that as a probability ladder (~40%) instead
+  // of leaking the raw spot-style quote into the outcome UI.
+  return price > 1 ? price / 10_000 : price;
+}
+
+export function fmtPredictionPct(price: number, dp = 2): string {
+  return `${fmtPrice(predictionPriceToProbability(price) * 100, dp)}%`;
+}
+
 /** Format a token bigint amount. */
 export function fmtAmount(x: bigint, dp = 4, decimals = 18): string {
   const s = formatUnits(x, decimals);

@@ -5,7 +5,7 @@ import { baseDecimals, quoteDecimals } from "../lib/config";
 import { Brand } from "./Brand";
 import { MarketBrowser } from "./MarketBrowser";
 import { Portfolio } from "./Portfolio";
-import type { MarketMode } from "../lib/markets";
+import { MARKET_PROFILES, type MarketMode } from "../lib/markets";
 
 function TokenGlyph({ sym, glyph }: { sym: "base" | "quote" | "eth"; glyph: string }) {
   const letter = sym === "eth" ? "Ξ" : glyph;
@@ -35,6 +35,9 @@ export function Header() {
   const question = cfg.darkbox?.market?.question;
   const faucetAvailable = !cfg.darkbox;
   const identBg = useMemo(() => identGradient(account.address), [account.address]);
+  const isPrediction = marketMode === "prediction";
+  const venueLabel = isPrediction ? "Outcome market" : cfg.name;
+  const venueDetail = isPrediction ? "YES/NO market" : "Spot CLOB";
 
   const copy = () => {
     navigator.clipboard?.writeText(account.address).then(() => {
@@ -58,7 +61,7 @@ export function Header() {
   return (
     <header className="hdr">
       <div className="hdr-left">
-        <Brand />
+        <Brand tag={isPrediction ? "PM" : "CLOB"} />
         <span className="hdr-sep" />
         <span className="pair">
           <span className="pair-glyphs">
@@ -68,22 +71,20 @@ export function Header() {
           {market.pairLabel}
         </span>
         <div className="market-switch" role="group" aria-label="Market UI mode">
-          <button
-            className={`market-switch-btn ${marketMode === "prediction" ? "market-switch-on" : ""}`}
-            onClick={() => switchMarket("prediction")}
-          >
-            Prediction
-          </button>
-          <button
-            className={`market-switch-btn ${marketMode === "spot" ? "market-switch-on" : ""}`}
-            onClick={() => switchMarket("spot")}
-          >
-            ETH/USDC
-          </button>
+          {(["prediction", "spot"] as const).map((mode) => (
+            <button
+              key={mode}
+              className={`market-switch-btn ${marketMode === mode ? "market-switch-on" : ""}`}
+              onClick={() => switchMarket(mode)}
+            >
+              {MARKET_PROFILES[mode].toggleLabel}
+            </button>
+          ))}
         </div>
         <span className="net">
           <span className={`dot ${rpcError ? "dot-bad" : configured ? "dot-ok" : "dot-warn"}`} />
-          {question ?? cfg.name} <span className="dim num">#{cfg.chainId}</span>
+          {question ?? venueLabel} <span className="dim">{venueDetail}</span>{" "}
+          <span className="dim num">#{cfg.chainId}</span>
         </span>
       </div>
       <div className="hdr-right">
@@ -98,7 +99,7 @@ export function Header() {
             <TokenGlyph sym="eth" glyph="Ξ" /> {fmtAmount(balances.eth, 3)}
           </span>
         </div>
-        {marketMode === "prediction" && (
+        {isPrediction && (
           <>
             <button className="btn btn-ghost btn-discover" onClick={() => setBrowseOpen(true)} title="Browse prediction markets">
               Discover
