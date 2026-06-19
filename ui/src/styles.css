@@ -785,10 +785,11 @@ body {
   width: 14px;
   height: 9px;
   border-radius: 2px;
+  background-color: rgba(240, 185, 11, 0.18);
   background-image: repeating-linear-gradient(
     -45deg,
-    rgba(160, 170, 190, 0.7) 0,
-    rgba(160, 170, 190, 0.7) 2px,
+    rgba(240, 185, 11, 0.85) 0,
+    rgba(240, 185, 11, 0.85) 2px,
     transparent 2px,
     transparent 4px
   );
@@ -801,6 +802,11 @@ body {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
+.shadow-explainer-simple {
+  padding: 7px 10px;
+  background: rgba(240, 185, 11, 0.06);
+  border-color: rgba(240, 185, 11, 0.22);
+}
 .shadow-explainer-head {
   display: flex;
   align-items: center;
@@ -808,6 +814,10 @@ body {
   font-weight: 600;
   font-size: 13px;
   margin-bottom: 5px;
+}
+.shadow-explainer-simple .shadow-explainer-head {
+  color: #f0b90b;
+  margin-bottom: 0;
 }
 .shadow-explainer p {
   margin: 0;

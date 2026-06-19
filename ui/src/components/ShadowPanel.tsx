@@ -123,16 +123,10 @@ export function ShadowPanel() {
 
   return (
     <div className="trade-panel">
-      <div className="shadow-explainer">
+      <div className="shadow-explainer shadow-explainer-simple">
         <div className="shadow-explainer-head">
           <i className="shadow-swatch" /> Copy liquidity
         </div>
-        <p className="dim">
-          Pooled inventory that <b>mirrors real fills</b> at the book price — depth without a
-          price view. It makes a thin {market.mode === "prediction" ? "prediction" : "spot"} book
-          fill deeper. Mirrors pay <b>{shadow.feeBps} bps</b> to the protocol and earn no maker
-          rebate, so resting makers keep their edge.
-        </p>
       </div>
 
       <div className="seg">
