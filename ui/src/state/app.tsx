@@ -99,6 +99,15 @@ export interface Balances {
   no: bigint; // NO outcome token balance
 }
 
+/** Pooled copy-liquidity inventory. Contract names are still shadow* for ABI compatibility. */
+export interface ShadowInfo {
+  reserve0: bigint;
+  reserve1: bigint;
+  totalShares: bigint;
+  myShares: bigint;
+  feeBps: number;
+}
+
 /** What the chart should preview on top of live data. */
 export interface ChartPreview {
   kind: "make" | "trade";
@@ -140,6 +149,7 @@ interface AppData {
   makerEvents: MakerEvent[];
   priceHistory: PricePoint[];
   balances: Balances;
+  shadow: ShadowInfo;
   positions: PositionRow[];
   rpcError: string | null;
   toasts: TxToast[];
@@ -295,6 +305,13 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [makerEvents, setMakerEvents] = useState<MakerEvent[]>([]);
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n, no: 0n });
+  const [shadow, setShadow] = useState<ShadowInfo>({
+    reserve0: 0n,
+    reserve1: 0n,
+    totalShares: 0n,
+    myShares: 0n,
+    feeBps: 30,
+  });
   const [positions, setPositions] = useState<PositionRow[]>([]);
   const [rpcError, setRpcError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<TxToast[]>([]);
@@ -668,6 +685,46 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     };
   }, [configured, client, cfg, account, addr, noTokenAddr, nonce]);
 
+  // -------- copy liquidity pool state (3s + manual)
+  useEffect(() => {
+    if (!configured) return;
+    let stop = false;
+    const tick = async () => {
+      try {
+        const [reserves, myShares] = await Promise.all([
+          client.readContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "shadowReserves",
+          }),
+          client.readContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "shadowSharesOf",
+            args: [addr],
+          }),
+        ]);
+        if (!stop) {
+          setShadow({
+            reserve0: reserves[0],
+            reserve1: reserves[1],
+            totalShares: reserves[2],
+            myShares,
+            feeBps: 30,
+          });
+        }
+      } catch {
+        /* copy-liquidity views are optional on older local deploys */
+      }
+    };
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [configured, client, cfg, addr, nonce]);
+
   // -------- positions: Deposit logs (owner-filtered) + per-id state (3s)
   const knownIds = useRef<Set<bigint>>(new Set());
   const depositScanFrom = useRef<bigint>(0n);
@@ -863,6 +920,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     makerEvents,
     priceHistory,
     balances,
+    shadow,
     positions,
     rpcError,
     toasts,

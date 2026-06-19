@@ -1,5 +1,9 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { formatUnits } from "viem";
+import { baseDecimals, quoteDecimals } from "../../lib/config";
 import { fmtCents, fmtPct, type Outcome, type OrderPreview, type PredictionBook, type PredictionLevel } from "../../lib/prediction";
+import { useApp } from "../../state/app";
+import { CopyLiquidityPane } from "./CopyLiquidityPane";
 
 /**
  * Liquidity depth view — bars on an explicit price axis (mid centred, bids green
@@ -23,6 +27,10 @@ export function DepthBars({
   preview?: OrderPreview | null;
   onDragRange?: (loCents: number, hiCents: number) => void;
 }) {
+  const { cfg, shadow } = useApp();
+  const baseDec = baseDecimals(cfg);
+  const quoteDec = quoteDecimals(cfg);
+  const seedCopy = new URLSearchParams(window.location.search).get("seedCopy") === "1";
   const book = outcome === "YES" ? yes : no;
   const bids = book.bidDepth;
   const asks = book.askDepth;
@@ -53,6 +61,12 @@ export function DepthBars({
   axisRef.current = { pMin, half };
   const maxSize = Math.max(1, ...all.map((l) => l.size));
   const barW = Math.max(1.6, Math.min(4.5, 64 / Math.max(8, all.length)));
+  const seededAskCopy = seedCopy && shadow.reserve0 === 0n ? maxSize * 1.6 : 0;
+  const seededBidCopy = seedCopy && shadow.reserve1 === 0n ? maxSize * Math.max(0.3, mid) * 1.6 : 0;
+  const askCopyFill = allocateCopyFill(asks, Number(formatUnits(shadow.reserve0, baseDec)) + seededAskCopy);
+  const bidCopyShares =
+    mid > 0 ? (Number(formatUnits(shadow.reserve1, quoteDec)) + seededBidCopy) / Math.max(0.01, mid) : 0;
+  const bidCopyFill = allocateCopyFill(bids, bidCopyShares);
 
   const lo = pv ? Math.min(pv.fromProb, pv.toProb) : 0;
   const hi = pv ? Math.max(pv.fromProb, pv.toProb) : 0;
@@ -155,10 +169,26 @@ export function DepthBars({
             )}
             <div className="dbx-mid-line" style={{ left: `${x(mid)}%` }} />
             {bids.map((l, i) => (
-              <Bar key={`b${i}`} level={l} x={x(l.probability)} w={barW} h={(l.size / maxSize) * 100} side="bid" />
+              <Bar
+                key={`b${i}`}
+                level={l}
+                x={x(l.probability)}
+                w={barW}
+                h={(l.size / maxSize) * 100}
+                copyFill={bidCopyFill[i] ?? 0}
+                side="bid"
+              />
             ))}
             {asks.map((l, i) => (
-              <Bar key={`a${i}`} level={l} x={x(l.probability)} w={barW} h={(l.size / maxSize) * 100} side="ask" />
+              <Bar
+                key={`a${i}`}
+                level={l}
+                x={x(l.probability)}
+                w={barW}
+                h={(l.size / maxSize) * 100}
+                copyFill={askCopyFill[i] ?? 0}
+                side="ask"
+              />
             ))}
           </>
         )}
@@ -202,20 +232,49 @@ export function DepthBars({
       ) : (
         <div className="dbx-depth-hint dim">resting liquidity · type an order to see where it lands</div>
       )}
+
+      <CopyLiquidityPane />
     </section>
   );
 }
 
-function Bar({ level, x, w, h, side }: { level: PredictionLevel; x: number; w: number; h: number; side: "bid" | "ask" }) {
+function Bar({
+  level,
+  x,
+  w,
+  h,
+  copyFill,
+  side,
+}: {
+  level: PredictionLevel;
+  x: number;
+  w: number;
+  h: number;
+  copyFill: number;
+  side: "bid" | "ask";
+}) {
   return (
     <div
       className={`dbx-bar2 ${side}`}
       title={`${fmtCents(level.probability, 1)} · ${level.size.toLocaleString("en-US", { maximumFractionDigits: 1 })} sh`}
       style={{ left: `${x - w / 2}%`, width: `${w}%`, height: `${Math.max(3, h)}%` }}
-    />
+    >
+      {copyFill > 0 && <span className="dbx-bar-copy" style={{ height: `${Math.max(7, copyFill * 100)}%` }} />}
+    </div>
   );
 }
 
 function fmtUsdShort(n: number): string {
   return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+function allocateCopyFill(levels: PredictionLevel[], budget: number): number[] {
+  if (!Number.isFinite(budget) || budget <= 0) return levels.map(() => 0);
+  let remaining = budget;
+  return levels.map((level) => {
+    if (remaining <= 0 || level.size <= 0) return 0;
+    const used = Math.min(level.size, remaining);
+    remaining -= used;
+    return used / level.size;
+  });
 }
