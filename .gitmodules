@@ -4,3 +4,6 @@
 [submodule "prototype/lib/v4-core"]
 	path = prototype/lib/v4-core
 	url = https://github.com/uniswap/v4-core
+[submodule "prototype/lib/base-std"]
+	path = prototype/lib/base-std
+	url = https://github.com/base/base-std

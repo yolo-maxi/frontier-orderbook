@@ -8,6 +8,10 @@ optimizer = true
 optimizer_runs = 44444444
 via_ir = true
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
+base = true
+remappings = [
+  "base-std/=lib/base-std/src/",
+]
 
 # Deployment profile: size-optimized for EIP-170 chains (Base Sepolia etc).
 # The default profile favors runtime gas for benchmarks; this one favors
