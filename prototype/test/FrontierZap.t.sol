@@ -24,6 +24,7 @@ contract FrontierZapTest is Test {
     address internal taker = makeAddr("taker");
 
     uint128 internal constant L = 1e18;
+    uint16 internal constant TAKER_FEE_BPS = 30;
 
     function setUp() public {
         t0 = new MockERC20("YES", "YES");
@@ -43,6 +44,21 @@ contract FrontierZapTest is Test {
             t1.approve(address(router), type(uint256).max);
             vm.stopPrank();
         }
+    }
+
+    function _approveBookForActors(UniformFrontierBook target) internal {
+        address[6] memory users = [lp, lp2, user, user2, maker, taker];
+        for (uint256 i = 0; i < users.length; i++) {
+            vm.startPrank(users[i]);
+            t0.approve(address(target), type(uint256).max);
+            t1.approve(address(target), type(uint256).max);
+            vm.stopPrank();
+        }
+    }
+
+    function _useTakerFeeBook() internal {
+        book = newBookWithFees(address(t0), address(t1), 1, 100, address(0), address(0), feeRecipient, 0, TAKER_FEE_BPS);
+        _approveBookForActors(book);
     }
 
     function _seedPool(uint256 amount0, uint256 amount1) internal {
@@ -74,6 +90,56 @@ contract FrontierZapTest is Test {
         (uint256 r0, uint256 r1,) = book.shadowReserves();
         assertGe(t0.balanceOf(address(book)), r0, "reserve0 solvent");
         assertGe(t1.balanceOf(address(book)), r1, "reserve1 solvent");
+    }
+
+    function _trackedBalance(MockERC20 token, address actor) internal view returns (uint256) {
+        return token.balanceOf(actor) + token.balanceOf(address(router)) + token.balanceOf(address(book))
+            + token.balanceOf(feeRecipient);
+    }
+
+    function _assertRouterEmpty() internal view {
+        assertEq(t0.balanceOf(address(router)), 0, "router token0 dust");
+        assertEq(t1.balanceOf(address(router)), 0, "router token1 dust");
+    }
+
+    function _assertFeeZapExact(uint256 amount0, uint256 amount1, address actor) internal {
+        FrontierRouter.ZapResult memory preview = router.previewZapDepositShadow(book, amount0, amount1);
+        assertGt(preview.swapIn, 0, "fee test exercises swap input");
+        assertGt(preview.swapOut, 0, "fee test exercises swap output");
+        assertGt(preview.shares, 0, "fee test mints shares");
+
+        uint256 tracked0Before = _trackedBalance(t0, actor);
+        uint256 tracked1Before = _trackedBalance(t1, actor);
+        uint256 feesBefore = t0.balanceOf(feeRecipient) + t1.balanceOf(feeRecipient);
+        uint256 sharesBefore = book.shadowSharesOf(actor);
+
+        vm.prank(actor);
+        FrontierRouter.ZapResult memory z =
+            router.zapDepositShadow(book, amount0, amount1, preview.swapOut, preview.shares, actor, block.timestamp);
+
+        _assertZapEq(preview, z);
+        assertEq(book.shadowSharesOf(actor) - sharesBefore, z.shares, "shares paid for");
+        assertGt(z.amount0Deposited + z.amount1Deposited, 0, "nonzero deposit backs shares");
+
+        uint256 held0 = amount0;
+        uint256 held1 = amount1;
+        if (z.swapIn > 0) {
+            if (z.swapped0For1) {
+                held0 -= z.swapIn;
+                held1 += z.swapOut;
+            } else {
+                held1 -= z.swapIn;
+                held0 += z.swapOut;
+            }
+        }
+        assertEq(held0, z.amount0Deposited + z.refund0, "token0 deposited/refunded from held");
+        assertEq(held1, z.amount1Deposited + z.refund1, "token1 deposited/refunded from held");
+
+        assertEq(_trackedBalance(t0, actor), tracked0Before, "token0 conserved across actor/router/book/fees");
+        assertEq(_trackedBalance(t1, actor), tracked1Before, "token1 conserved across actor/router/book/fees");
+        assertGt(t0.balanceOf(feeRecipient) + t1.balanceOf(feeRecipient), feesBefore, "fee path charged");
+        _assertRouterEmpty();
+        _assertReserveSolvent();
     }
 
     function testDepositShadowForCreditsRecipientAndWithdraws() public {
@@ -160,6 +226,35 @@ contract FrontierZapTest is Test {
         assertEq(t0.balanceOf(address(router)), 0, "router token0 dust");
         assertEq(t1.balanceOf(address(router)), 0, "router token1 dust");
         _assertReserveSolvent();
+    }
+
+    function testTakerFeeZapsMatchPreviewAndConserveBothDirections() public {
+        _useTakerFeeBook();
+        _seedPool(200 * uint256(L), 200 * uint256(L));
+        _seedMarket();
+
+        _assertFeeZapExact(0, 30 * uint256(L), user);
+        _assertFeeZapExact(30 * uint256(L), 0, user2);
+    }
+
+    function testTakerFeeSmallSwapBudgetDoesNotUnderflow() public {
+        _useTakerFeeBook();
+        _seedPool(100 * uint256(L), 100 * uint256(L));
+        _seedMarket();
+
+        vm.expectRevert(bytes("insufficient shares"));
+        router.previewZapDepositShadow(book, 0, 1);
+
+        vm.expectRevert(bytes("insufficient shares"));
+        router.previewZapDepositShadow(book, 1, 0);
+
+        vm.prank(user);
+        vm.expectRevert(bytes("insufficient shares"));
+        router.zapDepositShadow(book, 0, 1, 0, 0, user, block.timestamp);
+
+        vm.prank(user);
+        vm.expectRevert(bytes("insufficient shares"));
+        router.zapDepositShadow(book, 1, 0, 0, 0, user, block.timestamp);
     }
 
     function testZapGuardsPreventBadExecution() public {
@@ -293,6 +388,17 @@ contract FrontierZapTest is Test {
         _assertZapEq(preview, z);
         assertEq(book.shadowSharesOf(user), z.shares, "shares credited");
         _assertReserveSolvent();
+    }
+
+    function testFuzz_TakerFeePreviewMatchesActual(uint96 raw, bool sellOutcome) public {
+        _useTakerFeeBook();
+        _seedPool(200 * uint256(L), 200 * uint256(L));
+        _seedMarket();
+
+        uint256 amount = bound(uint256(raw), 3 * uint256(L), 50 * uint256(L));
+        uint256 amount0 = sellOutcome ? amount : 0;
+        uint256 amount1 = sellOutcome ? 0 : amount;
+        _assertFeeZapExact(amount0, amount1, user);
     }
 }
 

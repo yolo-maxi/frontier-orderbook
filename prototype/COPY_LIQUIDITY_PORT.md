@@ -40,12 +40,15 @@ Main already had the core copy-liquidity accounting surface: `shadowReserves()`,
   - `depositShadowFor` credits recipient and withdraws correctly.
   - Balanced zap with no swap.
   - Quote-heavy zap and outcome-heavy zap rebalance through the book.
+  - 30 bps taker-fee zaps in both directions, with exact preview/execution parity, token conservation, fee charging, router dust checks, and reserve solvency.
   - Guard failures for swap/slippage/share/zero amount cases.
+  - Small one-sided fee-bearing swap budgets revert as insufficient shares instead of underflowing in gross-budget math.
   - Empty pool first deposit behavior.
   - 1 wei and sequential deposits with rounding-bounded withdrawal.
   - Max-uint preview guard.
 - Fuzz coverage:
   - `testFuzz_PreviewMatchesActual` verifies preview/result equality across balanced and one-sided inputs.
+  - `testFuzz_TakerFeePreviewMatchesActual` verifies exact preview/result equality and conservation with 30 bps taker fees on one-sided inputs.
 - Simulation coverage:
   - Multi-actor flow: seed copy liquidity, two users zap from opposite sides, takers sweep, makers quote, users and seed LP withdraw, final reserves and shares are zero.
 - Invariant coverage:
@@ -68,20 +71,21 @@ Foundry still prints repo-wide lint advisories/non-fatal warnings; the Solidity 
 `forge test`
 
 ```text
-Ran 41 test suites in 30.14s (108.02s CPU time): 255 tests passed, 0 failed, 2 skipped (257 total tests)
+Ran 41 test suites in 27.21s (98.60s CPU time): 258 tests passed, 0 failed, 2 skipped (260 total tests)
 ```
 
 `forge test --match-contract Zap -vvv`
 
 ```text
-Ran 1 test suite in 1.43s (1.42s CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)
+Ran 1 test suite in 2.60s (2.59s CPU time): 13 tests passed, 0 failed, 0 skipped (13 total tests)
 ```
 
-`forge test --match-test testFuzz_PreviewMatchesActual --fuzz-runs 10000 -vv`
+`forge test --match-contract Zap --match-test testFuzz --fuzz-runs 10000 -vv`
 
 ```text
-[PASS] testFuzz_PreviewMatchesActual(uint96,uint96,uint8) (runs: 10001, μ: 1904274, ~: 2041109)
-1 passed
+[PASS] testFuzz_PreviewMatchesActual(uint96,uint96,uint8) (runs: 10001, μ: 1933273, ~: 2075974)
+[PASS] testFuzz_TakerFeePreviewMatchesActual(uint96,bool) (runs: 10000, μ: 9034695, ~: 9073070)
+2 passed
 ```
 
 `forge test --match-contract CopyLiquidityInvariant -vv`
