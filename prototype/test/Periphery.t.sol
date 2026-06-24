@@ -68,8 +68,7 @@ contract PeripheryTest is Test {
         uint256 bal1 = t1.balanceOf(trader);
 
         vm.prank(trader);
-        uint256[] memory amounts =
-            router.swapExactTokensForTokens(amountIn, q0, path, trader, block.timestamp);
+        uint256[] memory amounts = router.swapExactTokensForTokens(amountIn, q0, path, trader, block.timestamp);
 
         assertEq(amounts[1], q0, "execution == lens quote (token0 out)");
         assertEq(amounts[0], q1, "spent == lens quote (token1 in)");
@@ -85,8 +84,7 @@ contract PeripheryTest is Test {
         path[0] = address(t0);
         path[1] = address(t1);
         vm.prank(trader);
-        uint256[] memory amounts =
-            router.swapExactTokensForTokens(amountIn, q1, path, trader, block.timestamp);
+        uint256[] memory amounts = router.swapExactTokensForTokens(amountIn, q1, path, trader, block.timestamp);
 
         assertEq(amounts[0], q0, "token0 spent == quote");
         assertEq(amounts[1], q1, "token1 out == quote");
@@ -101,7 +99,7 @@ contract PeripheryTest is Test {
         router.swapExactTokensForTokens(uint256(L), 100 * uint256(L), path, trader, block.timestamp);
     }
 
-    function testLensDepthAndSummary() public {
+    function testLensDepthAndSummary() public view {
         FrontierLens.BookSummary memory s = lens.summary(book, 50);
         assertEq(s.currentTick, 100);
         assertEq(s.bestAsk, 101, "best ask found");
@@ -227,8 +225,7 @@ contract GeoPeripheryTest is Test {
         FrontierLens.Curve memory c = lens.curveOf(book);
         assertTrue(c.geo, "geometric book detected");
         assertEq(c.d, book.geoD(), "denominator read");
-        FrontierLens.Curve memory lin =
-            lens.curveOf(FrontierBookBase(address(new FrontierLens()))); // any non-book: no geoD
+        FrontierLens.Curve memory lin = lens.curveOf(FrontierBookBase(address(new FrontierLens()))); // any non-book: no geoD
         assertTrue(!lin.geo, "non-geo contract is linear-classed");
     }
 
@@ -256,8 +253,7 @@ contract GeoPeripheryTest is Test {
 
         uint256 bal1 = t1.balanceOf(trader);
         vm.prank(trader);
-        (uint256 paid, uint256 received) =
-            router.buyExactIn(book, amountIn, q0, trader, block.timestamp);
+        (uint256 paid, uint256 received) = router.buyExactIn(book, amountIn, q0, trader, block.timestamp);
         assertEq(received, q0, "received == quote");
         assertEq(paid, q1, "paid == quote");
         assertEq(bal1 - t1.balanceOf(trader), q1, "unspent refunded");

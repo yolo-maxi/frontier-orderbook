@@ -362,8 +362,8 @@ contract PermissionRegistry is IPermissionRegistry, EIP712 {
             if (expiry == 0) return (false, expiry, false);
             if (length == 4) return (true, expiry, true);
 
-            uint256 selectorCount = (length - 4) / 4;
-            for (uint256 i; i < selectorCount; ++i) {
+            uint256 packedSelectorCount = (length - 4) / 4;
+            for (uint256 i; i < packedSelectorCount; ++i) {
                 bytes4 current = bytes4(word << ((i + 1) * 32));
                 if (current == selector) return (true, expiry, true);
                 if (current > selector) break;
