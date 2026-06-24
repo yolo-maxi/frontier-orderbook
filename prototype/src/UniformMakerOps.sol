@@ -50,6 +50,23 @@ contract UniformMakerOps is FrontierBookBase {
         external
         returns (uint256 shares, uint256 amount0, uint256 amount1)
     {
+        return _depositShadow(msg.sender, amount0Max, amount1Max, minSharesOut);
+    }
+
+    /// @notice Add copy liquidity paid by the caller and credit the minted
+    /// shares to `recipient`. Used by router zaps after rebalancing.
+    function depositShadowFor(address recipient, uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
+        external
+        returns (uint256 shares, uint256 amount0, uint256 amount1)
+    {
+        if (recipient == address(0)) revert ZeroOwner();
+        return _depositShadow(recipient, amount0Max, amount1Max, minSharesOut);
+    }
+
+    function _depositShadow(address recipient, uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
+        internal
+        returns (uint256 shares, uint256 amount0, uint256 amount1)
+    {
         if (amount0Max == 0 && amount1Max == 0) revert ZeroAmounts();
         uint256 total = shadowTotalShares;
         if (total == 0) {
@@ -70,13 +87,13 @@ contract UniformMakerOps is FrontierBookBase {
         if (shares < minSharesOut || shares == 0) revert InsufficientShares();
 
         shadowTotalShares = total + shares;
-        shadowShares[msg.sender] += shares;
+        shadowShares[recipient] += shares;
         shadowReserve0 += amount0;
         shadowReserve1 += amount1;
 
         _transferInExact(token0, msg.sender, amount0);
         _transferInExact(token1, msg.sender, amount1);
-        emit ShadowDeposit(msg.sender, amount0, amount1, shares);
+        emit ShadowDeposit(recipient, amount0, amount1, shares);
     }
 
     /// @notice Burn copy shares for a pro-rata slice of both reserves.

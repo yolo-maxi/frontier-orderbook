@@ -243,23 +243,27 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
         _makerOpsCall();
     }
 
-    function cancelWithWitness(uint256, int24) external returns (uint256 proceeds1, uint256 principal0) {
+    function cancelWithWitness(uint256, int24) external returns (uint256, uint256) {
         _makerOpsCall();
     }
 
-    function cancel(uint256) external returns (uint256 proceeds1, uint256 principal0) {
+    function cancel(uint256) external returns (uint256, uint256) {
         _makerOpsCall();
     }
 
-    function cancelBidWithWitness(uint256, int24) external returns (uint256 proceeds0, uint256 refund1) {
+    function cancelBidWithWitness(uint256, int24) external returns (uint256, uint256) {
         _makerOpsCall();
     }
 
-    function cancelBid(uint256) external returns (uint256 proceeds0, uint256 refund1) {
+    function cancelBid(uint256) external returns (uint256, uint256) {
         _makerOpsCall();
     }
 
     function depositShadow(uint256, uint256, uint256) external returns (uint256, uint256, uint256) {
+        _makerOpsCall();
+    }
+
+    function depositShadowFor(address, uint256, uint256, uint256) external returns (uint256, uint256, uint256) {
         _makerOpsCall();
     }
 
@@ -686,7 +690,7 @@ contract UniformFrontierBook is IRangeOrderBook, FrontierBookBase {
     }
 
     /// @notice The book's price curve at a tick (X18 token1 per token0).
-    function rateAt(int24 t) external view returns (uint256) {
+    function rateAt(int24 t) external pure returns (uint256) {
         return _rate(t);
     }
 

@@ -71,7 +71,7 @@ contract BookHandler is Test {
         book.sweepWithLimits(target, bound(maxFills, 1, 64), bound(budget, 1e6, 1e27), 0, block.timestamp);
     }
 
-    function claimOrCancel(uint256 seed, uint256 pick, bool doCancel, bool internalCredit) external {
+    function claimOrCancel(uint256 seed, uint256 pick, bool doCancel, bool) external {
         if (allPositions.length == 0) return;
         uint256 id = allPositions[pick % allPositions.length];
         (address owner,,,,,, bool live, bool isBid) = book.positions(id);

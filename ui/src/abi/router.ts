@@ -5,7 +5,7 @@ export const routerAbi = [
       {
         "name": "_factory",
         "type": "address",
-        "internalType": "contract FrontierBookFactory"
+        "internalType": "interface IFrontierBookRegistry"
       },
       {
         "name": "_lens",
@@ -14,6 +14,79 @@ export const routerAbi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "CopyLiquidityZap",
+    "inputs": [
+      {
+        "name": "book",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "swapped0For1",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "swapIn",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "swapOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount0Deposited",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1Deposited",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "refund0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "refund1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "function",
@@ -35,7 +108,7 @@ export const routerAbi = [
       {
         "name": "book",
         "type": "address",
-        "internalType": "contract RollingFrontierBook"
+        "internalType": "contract UniformFrontierBook"
       },
       {
         "name": "amount1In",
@@ -80,7 +153,7 @@ export const routerAbi = [
       {
         "name": "",
         "type": "address",
-        "internalType": "contract FrontierBookFactory"
+        "internalType": "interface IFrontierBookRegistry"
       }
     ],
     "stateMutability": "view"
@@ -129,7 +202,7 @@ export const routerAbi = [
       {
         "name": "book",
         "type": "address",
-        "internalType": "contract RollingFrontierBook"
+        "internalType": "contract UniformFrontierBook"
       },
       {
         "name": "amount0In",
@@ -210,7 +283,7 @@ export const routerAbi = [
       {
         "name": "book",
         "type": "address",
-        "internalType": "contract RollingFrontierBook"
+        "internalType": "contract UniformFrontierBook"
       },
       {
         "name": "amount0In",
@@ -293,7 +366,7 @@ export const routerAbi = [
       {
         "name": "book",
         "type": "address",
-        "internalType": "contract RollingFrontierBook"
+        "internalType": "contract UniformFrontierBook"
       },
       {
         "name": "amount0In",

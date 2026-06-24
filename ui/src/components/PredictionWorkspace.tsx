@@ -22,7 +22,7 @@ import { MarketTicket } from "./market/MarketTicket";
 import { CopyLiquidityPane } from "./market/CopyLiquidityPane";
 
 export function PredictionWorkspace() {
-  const { summary, depth, noSummary, noDepth, positions, balances, cfg } = useApp();
+  const { summary, depth, noSummary, noDepth, positions, balances, cfg, shadow, noShadow } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
   const quoteSym = quoteSymbol(cfg);
@@ -42,6 +42,7 @@ export function PredictionWorkspace() {
   const copyBook = outcome === "YES" ? yesBookAddr(cfg) : noBookAddr(cfg);
   const copyToken = outcome === "YES" ? yesTokenAddr(cfg) : noTokenAddr(cfg);
   const copyBalance = outcome === "YES" ? balances.weth : balances.no;
+  const copyLiquidity = outcome === "YES" ? shadow : noShadow;
 
   return (
     <main className="dbx-shell">
@@ -53,6 +54,7 @@ export function PredictionWorkspace() {
           onOutcome={setOutcome}
           yes={yes}
           no={no}
+          copyLiquidity={copyLiquidity}
           preview={orderPreview}
           onDragRange={(lo, hi) => setBand({ lo: String(lo), hi: String(hi) })}
         />
@@ -80,6 +82,7 @@ export function PredictionWorkspace() {
         </div>
         {copyBook && copyToken ? (
           <CopyLiquidityPane
+            key={copyBook}
             bookAddress={copyBook}
             outcomeSymbol={outcome}
             outcomeToken={copyToken}

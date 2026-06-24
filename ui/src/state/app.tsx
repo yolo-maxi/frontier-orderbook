@@ -150,6 +150,7 @@ interface AppData {
   priceHistory: PricePoint[];
   balances: Balances;
   shadow: ShadowInfo;
+  noShadow: ShadowInfo | null;
   positions: PositionRow[];
   rpcError: string | null;
   toasts: TxToast[];
@@ -204,6 +205,13 @@ const MAX_HISTORY = 1200;
 const LENS_GAS_HINT = 1_000_000_000n;
 const TICK_MAX = 8_388_607; // int24 sentinels used by lens.summary
 const TICK_MIN = -8_388_608;
+const EMPTY_SHADOW: ShadowInfo = {
+  reserve0: 0n,
+  reserve1: 0n,
+  totalShares: 0n,
+  myShares: 0n,
+  feeBps: 30,
+};
 
 /** eth_call with an explicit gas field — viem's readContract typing omits
  * `gas`, but the per-tick lens scans need a raised budget on nodes that
@@ -305,13 +313,8 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [makerEvents, setMakerEvents] = useState<MakerEvent[]>([]);
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n, no: 0n });
-  const [shadow, setShadow] = useState<ShadowInfo>({
-    reserve0: 0n,
-    reserve1: 0n,
-    totalShares: 0n,
-    myShares: 0n,
-    feeBps: 30,
-  });
+  const [shadow, setShadow] = useState<ShadowInfo>(EMPTY_SHADOW);
+  const [noShadow, setNoShadow] = useState<ShadowInfo | null>(null);
   const [positions, setPositions] = useState<PositionRow[]>([]);
   const [rpcError, setRpcError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<TxToast[]>([]);
@@ -689,32 +692,36 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   useEffect(() => {
     if (!configured) return;
     let stop = false;
+    const readShadow = async (book: `0x${string}`): Promise<ShadowInfo> => {
+      const [reserves, myShares] = await Promise.all([
+        client.readContract({
+          address: book,
+          abi: bookAbi,
+          functionName: "shadowReserves",
+        }),
+        client.readContract({
+          address: book,
+          abi: bookAbi,
+          functionName: "shadowSharesOf",
+          args: [addr],
+        }),
+      ]);
+      return {
+        reserve0: reserves[0],
+        reserve1: reserves[1],
+        totalShares: reserves[2],
+        myShares,
+        feeBps: 30,
+      };
+    };
     const tick = async () => {
-      try {
-        const [reserves, myShares] = await Promise.all([
-          client.readContract({
-            address: cfg.contracts.book,
-            abi: bookAbi,
-            functionName: "shadowReserves",
-          }),
-          client.readContract({
-            address: cfg.contracts.book,
-            abi: bookAbi,
-            functionName: "shadowSharesOf",
-            args: [addr],
-          }),
-        ]);
-        if (!stop) {
-          setShadow({
-            reserve0: reserves[0],
-            reserve1: reserves[1],
-            totalShares: reserves[2],
-            myShares,
-            feeBps: 30,
-          });
-        }
-      } catch {
-        /* copy-liquidity views are optional on older local deploys */
+      const [yesCopy, noCopy] = await Promise.all([
+        readShadow(cfg.contracts.book).catch(() => EMPTY_SHADOW),
+        noBookAddr ? readShadow(noBookAddr).catch(() => null) : Promise.resolve(null),
+      ]);
+      if (!stop) {
+        setShadow(yesCopy);
+        setNoShadow(noCopy);
       }
     };
     tick();
@@ -723,7 +730,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, addr, nonce]);
+  }, [configured, client, cfg, addr, noBookAddr, nonce]);
 
   // -------- positions: Deposit logs (owner-filtered) + per-id state (3s)
   const knownIds = useRef<Set<bigint>>(new Set());
@@ -921,6 +928,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     priceHistory,
     balances,
     shadow,
+    noShadow,
     positions,
     rpcError,
     toasts,

@@ -5,13 +5,14 @@ libs = ["lib"]
 solc = "0.8.26"
 evm_version = "cancun"
 optimizer = true
-optimizer_runs = 44444444
+optimizer_runs = 200
 via_ir = true
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
 
-# Deployment profile: size-optimized for EIP-170 chains (Base Sepolia etc).
-# The default profile favors runtime gas for benchmarks; this one favors
-# bytecode size. FOUNDRY_PROFILE=deploy forge build --sizes
+# Deployment profile: kept as an explicit deploy alias for EIP-170 chains
+# (Base Sepolia etc). The default profile uses the same size-safe optimizer
+# setting so plain `forge build --sizes` exercises deployable bytecode.
+# FOUNDRY_PROFILE=deploy forge build --sizes
 [profile.deploy]
 optimizer = true
 optimizer_runs = 200
