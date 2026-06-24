@@ -3,10 +3,10 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Frontier',
   description: 'The order book is back onchain — a thin-tick CLOB with compressed settlement',
-  base: '/',
+  base: '/docs/',
   appearance: 'force-dark',
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/brand/mark.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/docs/brand/mark.svg' }],
   ],
   themeConfig: {
     siteTitle: 'FRONTIER · DOCS',
