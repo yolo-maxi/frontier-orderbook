@@ -3,15 +3,15 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Frontier',
   description: 'The order book is back onchain — a thin-tick CLOB with compressed settlement',
-  base: '/docs/',
+  base: '/',
   appearance: 'force-dark',
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/docs/brand/mark.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/brand/mark.svg' }],
   ],
   themeConfig: {
     siteTitle: 'FRONTIER · DOCS',
     nav: [
-      { text: 'App', link: 'https://clob.repo.box' },
+      { text: 'App', link: 'https://frontier-pm.repo.box' },
       { text: 'Build', link: '/guide/build' },
       { text: 'GitHub', link: 'https://github.com/yolo-maxi/frontier-orderbook' },
     ],

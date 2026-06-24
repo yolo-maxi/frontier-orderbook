@@ -7,7 +7,7 @@ hero:
   actions:
     - theme: brand
       text: Trade at the edge
-      link: https://clob.repo.box
+      link: https://frontier-pm.repo.box
     - theme: alt
       text: 30 seconds to your first fill
       link: /guide/demo
@@ -44,7 +44,7 @@ onchain.
     <p><b>Probability is the y-axis.</b> Ticks are geometric basis-point steps; the book is the crowd's distribution over the outcome.</p>
     <p><b>Make the odds, don't take them.</b> Seed a fresh market with one ladder across the range — no curve to babysit, fills accrue and claim whenever.</p>
     <p><b>Resolution is just the last trade.</b> Winners hold tokens worth $1, losers $0. It's the same settlement that powers every fill.</p>
-    <p class="fr-pm-cta"><a href="https://clob.repo.box">Open a market →</a> · <a href="/guide/mechanism">How the book works →</a></p>
+    <p class="fr-pm-cta"><a href="https://frontier-pm.repo.box">Open a market →</a> · <a href="/guide/mechanism">How the book works →</a></p>
   </div>
 </div>
 
@@ -68,7 +68,7 @@ The demo exchange is a real market: bots quote ETH-USDC around the live
 Coinbase price at a ±0.1% spread, a flow bot trades against them, and the
 book settles every fill onchain.
 
-1. **[Open the exchange](https://clob.repo.box)** — a demo wallet is created for you.
+1. **[Open the exchange](https://frontier-pm.repo.box)** — a demo wallet is created for you.
 2. Hit **Faucet** for test WETH + USDC.
 3. **Trade** — market or limit, with a quote that's exact to the wei.
 4. **Make** — drag out a ladder, watch it land on the chart, collect your

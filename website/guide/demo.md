@@ -1,8 +1,8 @@
 # Live Demo Guide
 
-**App: <https://clob.repo.box>** · RPC: `https://rpc-clob.repo.box`
+**App: <https://frontier-pm.repo.box>** · RPC: `https://rpc.testnet.arc.network`
 (chain id 84009, 2s blocks) · addresses: served at
-[`/deployment.json`](https://clob.repo.box/deployment.json)
+[`/deployment.json`](https://frontier-pm.repo.box/deployment.json)
 
 ![The exchange](/exchange.png)
 
