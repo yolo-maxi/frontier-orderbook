@@ -3,7 +3,7 @@ layout: home
 hero:
   name: "FRONTIER"
   text: "The order book is back onchain."
-  tagline: A full central-limit order book, living on the chain. Prices in tenths of a cent. Whole ladders in one click. Fills that wait for you. No operator — nothing to trust but the chain.
+  tagline: A full central-limit order book, living on the chain. Basis-point ticks. Whole ladders in one click. Fills that wait for you. No operator — nothing to trust but the chain.
   actions:
     - theme: brand
       text: Trade at the edge
@@ -17,8 +17,8 @@ hero:
 ---
 
 <div class="fr-hero-strip">
-  <span><span class="dot">●</span> <b>$0.001</b> ticks</span>
-  <span><span class="dot">●</span> <b>1,335×</b> cheaper sweeps</span>
+  <span><span class="dot">●</span> <b>1 bp</b> ticks</span>
+  <span><span class="dot">●</span> <b>194k gas</b> for 5,000 levels</span>
   <span><span class="dot">●</span> <b>no operator</b></span>
   <span><span class="dot">●</span> fills that <b>wait for you</b></span>
 </div>
@@ -41,7 +41,7 @@ onchain.
     <div class="fr-pm-row bid"><span>YES 0.61</span><span class="bar"><i style="width:33%"></i></span><span class="sz">980</span></div>
   </div>
   <div class="fr-pm-copy">
-    <p><b>Probability is the y-axis.</b> Every tick is a half-cent of implied odds; the book is the crowd's distribution over the outcome.</p>
+    <p><b>Probability is the y-axis.</b> Ticks are geometric basis-point steps; the book is the crowd's distribution over the outcome.</p>
     <p><b>Make the odds, don't take them.</b> Seed a fresh market with one ladder across the range — no curve to babysit, fills accrue and claim whenever.</p>
     <p><b>Resolution is just the last trade.</b> Winners hold tokens worth $1, losers $0. It's the same settlement that powers every fill.</p>
     <p class="fr-pm-cta"><a href="https://clob.repo.box">Open a market →</a> · <a href="/guide/mechanism">How the book works →</a></p>
@@ -80,9 +80,10 @@ book settles every fill onchain.
 
 Order books lost to AMMs onchain for one reason: every price level used
 to cost gas, so fine-grained books were unexecutable — a 5,000-level
-sweep cost ten blocks of gas. Frontier's settlement compression collapses
-any run of levels into one closed-form update: that same sweep now costs
-**1,335× less** and fineness is free. The trade-off that created the AMM
+sweep could cost block-scale gas. Frontier's settlement compression collapses
+any run of levels into one closed-form update: the current 5,000-level
+ask benchmark is **194,299 gas**, and the production geometric curve is
+**177,815 gas** for the same shape. The trade-off that created the AMM
 era is gone.
 
 What's left is what order books were always better at: real limit

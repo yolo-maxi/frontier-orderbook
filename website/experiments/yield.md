@@ -15,15 +15,21 @@ vault while resting, get filled on 4, cancel — the 6 returned share-units
 redeem **6.6 WETH**. Yield earned while quoted, claims still O(1).
 
 The honest cost: orders are denominated in share units, so a resting
-order's effective underlying price drifts by ~APY *in the taker's favor*.
-Makers requote occasionally (O(1), ~104k gas) or accept the drift.
+order's effective underlying price drifts by roughly APY *in the taker's
+favor*. Makers requote occasionally or accept the drift.
 
 On the devnet, `MockYieldVault` (with a public `drip()`) stands in for
 Aave; on a real chain, point a book at waWETH or a Morpho vault share —
 no code changes.
 
-**Levels 1–2 (designed, not built — `NOTES-yield.md`):** vault-native
-quoting capital, where a maker vault holds aTokens and the sweep's pull
-path withdraws just-in-time (~one extra call per sweep, amortized across
-the whole sweep). All yield questions vanish for single-owner vaults —
-this is the natural upgrade for the RangeLP/cluster-vault pattern.
+**Level 1 (shipped as an experiment):** `YieldRangeLP` is a personal
+market-making vault whose idle token0/token1 inventory sits in 4626-style
+vaults and is pulled back just-in-time on `rebalance()`. Posted principal
+still lives in the book while quoted; idle inventory earns lending yield.
+`close()` exits in kind if a vault redeem fails, so the owner receives the
+yield shares rather than getting stuck behind a frozen lending market.
+Tests cover idle-capital yield, close returning principal plus yield, and
+the in-kind failure path in `test/YieldRangeLP.t.sol`.
+
+**Level 2 (designed, not built — `NOTES-yield.md`):** buffered adapters
+for posted capital, if the Level 1 vault pattern proves worth hardening.

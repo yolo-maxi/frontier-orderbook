@@ -4,7 +4,8 @@
 makers exiting the sold fraction — without per-user work?
 
 **Answer:** yes; built, 8 tests passing, then **deliberately reverted**.
-Full design preserved in `NOTES-partial-fills.md`.
+It is not in the current deploy-facing books. Full design preserved in
+`NOTES-partial-fills.md`.
 
 The mechanism was a per-level *watermark*: price settling 40% into a level
 irreversibly sells 40% of that bucket pro-rata, recorded as one

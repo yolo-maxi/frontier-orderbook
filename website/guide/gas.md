@@ -24,7 +24,8 @@ contract — is in the ~$15 range, cheap enough to be ephemeral.
 
 The unit of taker cost is the **maker order endpoint** — a tick where some
 order starts or ends, i.e. where the aggregate ladder changes composition.
-Each distinct endpoint crossed costs ~10–13k marginal. Everything between
+Each distinct endpoint crossed costs roughly 9–12k marginal in the current
+isolated benches. Everything between
 two endpoints settles in one closed-form sum, no matter how many price
 levels it spans — which is why the 500-level and 5,000-level sweeps in the
 table cost nearly the same.
@@ -53,20 +54,21 @@ within 12 gas of a 1,000-tick one (both touch the same two endpoint slots
 plus one or two bitmap words). And there is no fragmentation tax over
 time: a claim costs the same after 2 position lifecycles or 40.
 
-Requotes and cancels execute in a delegatecalled companion module
-(`FrontierMakerOps`) so the book fits EIP-170; the hop costs ~3–7k on
-those operations and nothing on the hot swap path. Hooked books pay one
-external call (~1–3k plus the hook's own logic) per flagged action;
-hookless books are byte-identical to a system without hooks.
+Requotes, cancels, transfers, and copy-liquidity deposits/withdrawals
+execute in a delegatecalled companion module (`UniformMakerOps` for the
+linear test book, `GeometricMakerOps` for the production curve). The hop
+is paid on maker-management calls and nothing on the hot sweep path.
+Hooked books pay one external call (~1–3k plus the hook's own logic) per
+flagged action; hookless books only pay the address-bit check.
 
 ## Against per-level settlement
 
-For reference, the same scenarios on a conventional per-level engine (the
-pre-telescoping implementation, `test/PublishBench.t.sol` at both
-commits): a 5,000-level sweep was 286.8M gas — about ten blocks,
-unexecutable — versus 214,805 now, a **1,335× compression**. Fine ticks
-went from the reason on-chain books die to costing nothing; the full
-before/after matrix lives in the bench file.
+For reference, the current `test/PublishBench.t.sol` scenarios measure a
+5,000-level one-maker ask sweep at **194,299 gas** and the bid mirror at
+**195,988 gas**. The production `1.0001^tick` curve measures **177,815 gas**
+for the same 5,000-level one-maker sweep in `test/GeoBook.t.sol`. Fine
+ticks went from the reason on-chain books die to costing bitmap-word
+reads; the current matrix lives in the bench files.
 
 ## Methodology note
 

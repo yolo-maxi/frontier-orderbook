@@ -13,6 +13,7 @@ Every owner gate in the protocol runs one check:
 ```solidity
 function _authOwner(address owner) internal view {
     if (msg.sender != owner) {
+        if (address(permissions) == address(0)) revert NotOwner();
         permissions.requireAuthorizedCall(owner, msg.sender, address(this), msg.sig);
     }
 }

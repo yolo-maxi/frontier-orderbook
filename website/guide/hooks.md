@@ -30,8 +30,8 @@ possible.
 
 - **Permissions live in the hook contract's address.** The low 6 bits
   encode which callbacks the hook receives. Capabilities are inspectable
-  on-chain and immutable — bound at book creation via
-  `factory.createBookWithHooks`, validated never to change. A hook can't
+  on-chain and immutable for a given book — bound at book creation via
+  `factory.createGeoBookWithHooks` or `createGeoBookWithHooksAndFees`. A hook can't
   quietly acquire a veto it didn't launch with.
 - **Unflagged callbacks are never called.** Not "called and ignored" —
   never dispatched. A hookless book (`hooks = address(0)`) executes
@@ -50,15 +50,16 @@ function _callHook(uint160 flag, bytes memory data, bytes4 expected) internal {
     address h = address(hooks);
     if (h == address(0) || !h.hasFlag(flag) || msg.sender == h) return;
     (bool ok, bytes memory ret) = h.call(data);
-    require(ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == expected, "hook rejected");
+    if (!ok || ret.length < 32 || abi.decode(ret, (bytes4)) != expected) revert HookRejected();
 }
 ```
 
 `hasFlag` is a pure check on the address bits — the only state the
 permission system has. Cancels and requotes run inside the delegatecalled
-`FrontierMakerOps` companion, so `afterCancel` fires from the book's own
-address context like everything else; hooks never need to know the
-companion exists.
+maker-ops companion (`UniformMakerOps` on the linear test book,
+`GeometricMakerOps` on the production curve), so `afterCancel` fires from
+the book's own address context like everything else; hooks never need to
+know the companion exists.
 
 Deploying a hook at a flag-carrying address uses CREATE2 salt mining,
 exactly as in Uniswap v4 (tests shortcut with `deployCodeTo`).
@@ -66,7 +67,7 @@ exactly as in Uniswap v4 (tests shortcut with `deployCodeTo`).
 ```solidity
 uint160 flags = FrontierHookFlags.BEFORE_DEPOSIT_FLAG | FrontierHookFlags.AFTER_SWEEP_FLAG;
 // mine a CREATE2 salt so the hook's address carries `flags` in its low bits
-factory.createBookWithHooks(weth, usdc, 1, startTick, hookAddr);
+factory.createGeoBookWithHooks(weth, usdc, 1, startTick, hookAddr);
 ```
 
 Cost: one external call per flagged action — ~1–3k for the hop plus
@@ -109,7 +110,7 @@ per-block observations do. Tests verify exact averaging across moves,
 interpolation inside intervals, and lookback bounds.
 
 Measured all-in cost to takers (`testTwapHookSweepOverhead`, `--isolate`):
-**~32–35k gas per sweep** — the call hop is ~2.5k and the rest is the
+**31,770 gas on the first sweep, 34,550 gas steady-state** — the call hop is ~2.5k and the rest is the
 oracle's own storage (a fresh ring-buffer slot is a 20k zero→nonzero
 write; once the 256-slot ring wraps, observations become ~5k overwrites
 and the steady-state cost drops toward ~20k). On a typical 150–220k

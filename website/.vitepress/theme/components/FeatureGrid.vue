@@ -39,8 +39,8 @@ const buildFeatures = [
 const protocolFeatures = [
   {
     icon: 'ticks', accent: 'green',
-    title: 'Ticks finer than a cent',
-    body: 'Prices step in $0.001 increments — granularity a centralized exchange would envy. The gas bill doesn’t care how fine the grid is.',
+    title: 'Basis-point ticks',
+    body: 'Production books use the 1.0001^tick curve. The gas bill scales with endpoints and bitmap words, not every price level.',
     link: '/guide/gas', linkText: 'See the numbers',
   },
   {
