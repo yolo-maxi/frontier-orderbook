@@ -64,12 +64,14 @@ carries the same ≥1 unit so the sweep bitmap sees it.
 
 ## Also in the core
 
-- **Internal balances**: claims can credit an in-book ledger; every deposit
-  spends credit first. `recycleBidIntoAsk` flips filled orders to the other
-  side with zero token transfers — works with zero approvals.
 - **Transferable positions**: ownership moves; claims and refunds follow.
 - **Taker protections**: `sweepWithLimits(target, maxSteps, maxPay, minOut,
   deadline)` in both directions, resumable parking on any budget.
+- **Copy-liquidity accounting**: `depositShadow` / `withdrawShadow` manage
+  a pooled shadow inventory with `shadowReserves` and `shadowSharesOf`
+  views. It mirrors real fills without posting independent price levels.
+- **Per-book fees**: maker claim fees and taker input fees are immutable,
+  capped at 1,000 bps, and default to zero in the deploy script.
 - **Solvency discipline**: fills collect ceil per run, claims pay floor per
   span; dust accrues to the book, never a deficit. Differential fuzzing
   holds token0 flows exact against an eager reference implementation.

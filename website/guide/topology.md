@@ -6,14 +6,14 @@ from what exists today to where it could go.
 
 ## 1. Factory of ephemeral books (what's built)
 
-Anyone deploys a book for any pair at any tick spacing; many books per
-pair coexist; the factory tracks a canonical book per pair for routers.
-Books are disposable — no protocol-wide state, no cleanup.
+Anyone deploys a geometric book for any pair at any tick spacing; many books
+per pair coexist; the factory tracks the first/default book per pair for
+routers. Books are disposable — no protocol-wide state, no cleanup.
 
 | Surface | Controlled by |
 |---|---|
 | Factory | nobody after deploy (immutable) |
-| A book | nobody — creator only picks tick spacing + hook **at birth** |
+| A book | nobody — creator only picks tick spacing, hook, fee recipient, and fee bps **at birth** |
 | Hooks | **their own admins** — this is the real power surface |
 | Permission registry | nobody (shared public good; users manage their own grants) |
 | Router / Lens / MakerKit | stateless, permissionless, replaceable |
@@ -27,8 +27,8 @@ pays its own deployment.
 All books live in one contract, keyed by `(token0, token1, spacing, hook)`.
 
 **Gains:** one deployment forever; cross-book token netting (a
-recycle-style internal ledger spanning every market — flash-accounting
-multi-hop swaps with zero intermediate transfers); one approval per token
+flash-accounting ledger spanning every market — multi-hop swaps with zero
+intermediate transfers); one approval per token
 for everything; cheaper book creation (a storage write, not a deploy).
 
 **Costs:** systemic risk concentrates (one bug = every market); the
@@ -60,8 +60,9 @@ address and immutable per book).
 
 ## What actually matters
 
-- **Fee power**: nonexistent today; trivially global in a singleton;
-  per-book-at-birth in the factory model. Decide before there's revenue.
+- **Fee power**: per-book-at-birth in the factory model (`makerFeeBps`
+  and `takerFeeBps`, capped at 1,000 bps); trivially global in a
+  singleton. Decide before there's revenue.
 - **Upgrade power**: factory model has none (redeploy + migrate by
   choice); singleton needs explicit governance or strict immutability.
 - **The registry should stay adminless** in every topology — it's the

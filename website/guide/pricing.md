@@ -21,12 +21,12 @@ worst rounding); BTC at $100k in **$10 steps**. A 5% move crosses
 `ln(1.05)/ln(1.0001) ≈ 488` ticks — which is why per-tick settlement was
 the blocker, and endpoint telescoping is the fix.
 
-## The demo curve
+## The uniform test curve
 
-The devnet uses a linear placeholder for legibility: both tokens 18
-decimals, `price = 1 + 0.001 × tick` USDC/WETH. So $1,628.61 = tick
-1,627,605 and one tick = **$0.001** — deliberately absurdly thin
-(±0.1% ≈ ±1,630 ticks) to showcase that fineness is free.
+The broad correctness and gas suites still exercise `UniformFrontierBook`
+directly on its linear base curve: `price = 1 + 0.001 × tick` in X18 raw
+units. That path exists to test the shared frontier machinery without
+geometric pow arithmetic; it is not the deploy script's production curve.
 
 The production curve is implemented as `GeometricFrontierBook`: the same
 machinery with `1.0001^tick` swapped in. Geometric sums **telescope** — a
@@ -35,3 +35,6 @@ per endpoint — so sweeps stay O(endpoints) and the gas behavior is
 curve-independent. Because every span is a difference of the same
 deterministic curve over a shared denominator, partial claims sum exactly
 against ceil-rounded deposits: no rounding leak by construction.
+
+`prototype/script/DeployFrontier.s.sol` deploys the geometric factory and
+creates a geometric book through `createGeoBookWithFees`.

@@ -15,7 +15,8 @@
    (average price, impact, min received, slippage presets).
 4. **Make** tab: place limit ladders — pick a price range and a size per
    level (uniform across the range). One position can span thousands of
-   thin levels; placing it costs the same as one level.
+   thin levels; placing it costs by endpoints/bitmap words, not by every
+   covered price level.
 5. **Positions** tab: live fill status; claim proceeds or cancel for the
    unfilled remainder at any time. Settlement is lazy — claims never
    expire and never depend on anyone else.
@@ -35,10 +36,13 @@ So the book you see tracks real ETH, with a live ~1–2 bps spread.
 ## Redeploying
 
 ```sh
-cd prototype && ./deploy-devnet.sh        # devnet (this is what's live)
-RPC=https://sepolia.base.org DEPLOYER_KEY=0x... ./deploy-devnet.sh   # Base Sepolia, once funded
+cd prototype
+FOUNDRY_PROFILE=deploy forge script script/DeployFrontier.s.sol:DeployFrontier \
+  --rpc-url "$RPC_URL" --broadcast
 ```
 
-The devnet runs anvil with the code-size limit disabled — see
-[Roadmap & Caveats](/roadmap). Demo faucet keys are the well-known anvil
-keys: devnet only, never reuse the pattern anywhere real.
+Required env: `DEPLOYER_KEY`, `TOKEN0`, `TOKEN1`, `TICK_SPACING`, and
+`START_TICK`. Optional env: `DEPLOY_NAME`, `DEPLOY_OUT`,
+`FEE_RECIPIENT`, `MAKER_FEE_BPS`, and `TAKER_FEE_BPS`; fees default to
+zero and are capped at 1,000 bps. Demo faucet keys are devnet only, never
+reuse the pattern anywhere real.

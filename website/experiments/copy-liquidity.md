@@ -5,8 +5,9 @@ faking a price, and without quietly subsidising the people who provide that
 synthetic depth at the expense of honest makers?
 
 **Answer:** yes; built on the uniform book, 12 tests passing. Copy liquidity
-is a single pooled inventory that **mirrors real fills at the book price**, pays
-the protocol a full fee on every mirror, and earns no maker treatment.
+is a single pooled inventory that **mirrors real fills at the book price**,
+pays the protocol copy fee when the book has a fee recipient, and earns no
+maker treatment.
 
 ## What it is
 
@@ -24,9 +25,11 @@ on mirrored size and bear inventory risk, exactly like the maker they copy.
 ## The fee twist — why honest makers come out ahead
 
 Every copy-mirrored fill pays a fee (30 bps in the experiment) on the quote
-leg, routed to the **protocol**, never retained by the pool. Copy depth is
-explicitly *not* a maker: no maker-fee waiver, no rebate eligibility. The taker
-also pays the normal taker fee on the combined real+copy notional.
+leg when `feeRecipient` is set, routed to the **protocol**, never retained
+by the pool. With no fee recipient, the copy fee is zero and the mirror
+settles at pure book price. Copy depth is explicitly *not* a maker: no
+maker-fee waiver, no rebate eligibility. If the book has a nonzero taker
+fee, the taker also pays it on the combined real+copy notional.
 
 The intuition: copy volume is extra protocol revenue from flow that would not
 otherwise route through real makers. That revenue is what lets the protocol

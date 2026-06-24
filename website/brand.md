@@ -132,9 +132,9 @@ asking permission.
 - **Energy without emoji.** Exclamation points are a budget: ~one per page.
 
 <div class="fr-dont">
-  <div class="yes">"Prices step in tenths of a cent. Gas doesn't care."</div>
+  <div class="yes">"Prices step in basis points. Gas doesn't care."</div>
   <div class="no">"Ultra-low fees with granular pricing technology"</div>
-  <div class="yes">"1,335× cheaper than the naive book. Here's the table."</div>
+  <div class="yes">"5,000 levels settle in 194,299 gas. Here's the table."</div>
   <div class="no">"Blazingly fast and efficient"</div>
   <div class="yes">"No operator. Nothing to trust but the chain."</div>
   <div class="no">"Trustless decentralized paradigm"</div>
@@ -145,7 +145,7 @@ asking permission.
 **book** (a market — cheap, parallel, abandonable) · **ladder** (a range
 of limit orders placed as one position) · **sweep** (what takers do) ·
 **the frontier** (the live edge) · **claim** (collect fills — never
-expires) · **recycle** (filled liquidity straight into a new quote).
+expires) · **requote** (move an unfilled ladder in place).
 
 Avoid: "swap" for book trades (AMM language — say *trade* or *sweep*),
 "pool," "LP" outside the actual LP-wrapper experiments, "slippage
