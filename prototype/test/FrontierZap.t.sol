@@ -9,10 +9,11 @@ import {FrontierLens} from "../src/periphery/FrontierLens.sol";
 import {FrontierRouter} from "../src/periphery/FrontierRouter.sol";
 import {newBookWithFees, newFactory} from "./utils/BookFab.sol";
 
-contract FrontierZapTest is Test {
+abstract contract FrontierZapBaseTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
     UniformFrontierBook internal book;
+    FrontierGeoBookFactory internal factory;
     FrontierRouter internal router;
     address internal feeRecipient = makeAddr("feeRecipient");
 
@@ -29,9 +30,9 @@ contract FrontierZapTest is Test {
     function setUp() public {
         t0 = new MockERC20("YES", "YES");
         t1 = new MockERC20("sUSDC", "sUSDC");
-        book = newBookWithFees(address(t0), address(t1), 1, 100, address(0), address(0), feeRecipient, 0, 0);
-        FrontierGeoBookFactory factory = newFactory(address(0));
+        factory = newFactory(address(0));
         router = new FrontierRouter(address(factory), new FrontierLens());
+        book = _deployBook(0);
 
         address[6] memory users = [lp, lp2, user, user2, maker, taker];
         for (uint256 i = 0; i < users.length; i++) {
@@ -46,6 +47,8 @@ contract FrontierZapTest is Test {
         }
     }
 
+    function _deployBook(uint16 takerFeeBps) internal virtual returns (UniformFrontierBook);
+
     function _approveBookForActors(UniformFrontierBook target) internal {
         address[6] memory users = [lp, lp2, user, user2, maker, taker];
         for (uint256 i = 0; i < users.length; i++) {
@@ -57,7 +60,7 @@ contract FrontierZapTest is Test {
     }
 
     function _useTakerFeeBook() internal {
-        book = newBookWithFees(address(t0), address(t1), 1, 100, address(0), address(0), feeRecipient, 0, TAKER_FEE_BPS);
+        book = _deployBook(TAKER_FEE_BPS);
         _approveBookForActors(book);
     }
 
@@ -289,8 +292,7 @@ contract FrontierZapTest is Test {
         assertEq(r1, 7 * uint256(L), "reserve1");
         assertEq(total, 9 * uint256(L), "total shares");
 
-        UniformFrontierBook fresh =
-            newBookWithFees(address(t0), address(t1), 1, 100, address(0), address(0), feeRecipient, 0, 0);
+        UniformFrontierBook fresh = _deployBook(0);
         vm.expectRevert(bytes("imbalanced first deposit"));
         router.previewZapDepositShadow(fresh, uint256(L), 0);
     }
@@ -399,6 +401,24 @@ contract FrontierZapTest is Test {
         uint256 amount0 = sellOutcome ? amount : 0;
         uint256 amount1 = sellOutcome ? 0 : amount;
         _assertFeeZapExact(amount0, amount1, user);
+    }
+}
+
+contract FrontierZapTest is FrontierZapBaseTest {
+    function _deployBook(uint16 takerFeeBps) internal override returns (UniformFrontierBook) {
+        return newBookWithFees(
+            address(t0), address(t1), 1, 100, address(0), address(0), feeRecipient, 0, takerFeeBps
+        );
+    }
+}
+
+contract FrontierZapGeometricTest is FrontierZapBaseTest {
+    function _deployBook(uint16 takerFeeBps) internal override returns (UniformFrontierBook) {
+        return UniformFrontierBook(
+            factory.createGeoBookWithFees(
+                address(t0), address(t1), 1, 100, feeRecipient, 0, takerFeeBps
+            )
+        );
     }
 }
 
