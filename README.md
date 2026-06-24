@@ -87,3 +87,7 @@ FOUNDRY_PROFILE=deploy forge script script/DeployFrontier.s.sol:DeployFrontier -
 ```
 
 Before announcing a market, run the smoke-test checklist in `skill.md`.
+
+## License
+
+Frontier is licensed under the [Business Source License 1.1](./LICENSE) (BUSL-1.1) — source-available, **not** open source. Non-production use is permitted; production/commercial use requires a license from the Licensor. Each release converts to GPL-2.0-or-later on its Change Date (3 years after publication). See [`LICENSE`](./LICENSE) for full terms.

@@ -2,6 +2,12 @@
   "name": "frontier-docs",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vitepress dev", "build": "vitepress build" },
-  "devDependencies": { "vitepress": "^1.3.4" }
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build"
+  },
+  "devDependencies": {
+    "vitepress": "^1.3.4"
+  },
+  "license": "BUSL-1.1"
 }
