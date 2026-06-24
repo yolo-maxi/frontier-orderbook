@@ -1,24 +1,37 @@
 {
-  "name": "Frontier Arc Testnet - WETH/USDC",
+  "name": "Frontier Testnet \u2014 YES/USDC",
   "chainId": 5042002,
   "rpcUrl": "https://rpc.testnet.arc.network",
   "contracts": {
-    "book": "0x89f3d7C34f86c4A24E72DDa2c4BDAD33aF7f3cB2",
-    "factory": "0xE391ab3eA709f66896eE774FBD16096b0e2972a6",
+    "book": "0x8dF8bba836512dEFf4B3755EA0b0c5B81764a83D",
     "router": "0x965648Aecdd23b91970E497f497D51AAFFFBEaDD",
     "lens": "0x25C53b1E4f36B17187C6e0Bc27F59Ba9feb44a37",
-    "registry": "0x0000000000000000000000000000000000000000",
-    "lpFactory": "0x0000000000000000000000000000000000000000",
-    "yieldVault": "0x0000000000000000000000000000000000000000",
-    "weth": "0x0A797239869af85442bb667f67949C59BE9006d1",
-    "usdc": "0xD8836a33604a95717E1f159194C1563d4bccC460"
+    "factory": "0xE391ab3eA709f66896eE774FBD16096b0e2972a6",
+    "weth": "0x206f4b9069757A82d2059C369A9ED0c66fc437ad",
+    "usdc": "0xfF3088439D59559eb3Ba740429eBBA5303FB3D80"
   },
   "tokens": {
-    "base": "WETH",
+    "base": "YES",
     "quote": "USDC",
-    "baseAddress": "0x0A797239869af85442bb667f67949C59BE9006d1",
-    "quoteAddress": "0xD8836a33604a95717E1f159194C1563d4bccC460",
-    "baseDecimals": 18,
-    "quoteDecimals": 18
+    "baseAddress": "0x206f4b9069757A82d2059C369A9ED0c66fc437ad",
+    "quoteAddress": "0xfF3088439D59559eb3Ba740429eBBA5303FB3D80",
+    "baseDecimals": 6,
+    "quoteDecimals": 6
+  },
+  "darkbox": {
+    "network": "frontier-testnet",
+    "marketFactory": "0x23bc8FB74d4Bb89e899BC1558B08A843E6eE9796",
+    "syntheticUSDC": "0xfF3088439D59559eb3Ba740429eBBA5303FB3D80",
+    "selectedSide": "yes",
+    "market": {
+      "marketId": "0x411057b1581c43730758ee056a2a9f92c097dce4ad350b054e987742812184a9",
+      "market": "0x4fbe02ed6F654ce151f993EAaf4FB5b2a83B32E9",
+      "question": "Will ETH close above $5,000 in 2026?",
+      "yesToken": "0x206f4b9069757A82d2059C369A9ED0c66fc437ad",
+      "noToken": "0x95c9e2D314166531DdF20d1a45b5dC3dc528bdC1",
+      "yesBook": "0x8dF8bba836512dEFf4B3755EA0b0c5B81764a83D",
+      "noBook": "0xb14cA2720F22E98aABce78a1F9f032D0dBaE5ED8"
+    },
+    "category": "Crypto \u00b7 Price"
   }
 }

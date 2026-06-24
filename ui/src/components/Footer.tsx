@@ -1,27 +1,14 @@
-import { VenueStatus } from "./VenueStatus";
-import { useApp } from "../state/app";
-
 export function Footer() {
-  const { marketMode } = useApp();
-  const copy =
-    marketMode === "prediction"
-      ? "Frontier — outcome market · YES/NO settlement · devnet"
-      : "Frontier — ETH/USDC spot CLOB · maker ladders · devnet";
-
   return (
     <footer className="ftr">
-      <span className="ftr-meta">{copy}</span>
-      <VenueStatus />
+      <span>
+        Frontier prediction markets · testnet demo · split/merge outcome tokens on a{" "}
+        <span className="dim">Frontier</span> geometric CLOB
+      </span>
       <span className="ftr-links">
         <a href="/docs/">Docs</a>
         <span className="ftr-sep" />
-        <a
-          href="https://github.com/yolo-maxi/frontier-orderbook"
-          target="_blank"
-          rel="noreferrer"
-        >
-          github.com/yolo-maxi/frontier-orderbook
-        </a>
+        <span className="dim">On-chain funds — use care</span>
       </span>
     </footer>
   );

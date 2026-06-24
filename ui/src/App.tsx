@@ -3,13 +3,9 @@ import { loadConfig, type DeploymentConfig } from "./lib/config";
 import { AppProvider, useApp } from "./state/app";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
-import { OrderBook } from "./components/OrderBook";
-import { MarketPanel } from "./components/MarketPanel";
-import { SidePanel } from "./components/SidePanel";
 import { Toasts } from "./components/Toasts";
 import { Brand } from "./components/Brand";
-import { CommandPalette } from "./components/CommandPalette";
-import { PredictionSurface } from "./components/PredictionSurface";
+import { PredictionWorkspace } from "./components/PredictionWorkspace";
 
 type ConfigState =
   | { phase: "loading" }
@@ -73,7 +69,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { cfg, configured, rpcError, marketMode } = useApp();
+  const { cfg, configured, rpcError } = useApp();
 
   return (
     <div className="app">
@@ -100,19 +96,10 @@ function Shell() {
           </div>
         </main>
       ) : (
-        marketMode === "prediction" ? (
-          <PredictionSurface />
-        ) : (
-          <main className="grid">
-            <OrderBook />
-            <MarketPanel />
-            <SidePanel />
-          </main>
-        )
+        <PredictionWorkspace />
       )}
       <Footer />
       <Toasts />
-      <CommandPalette />
     </div>
   );
 }

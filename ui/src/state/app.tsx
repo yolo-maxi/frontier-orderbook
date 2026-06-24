@@ -19,27 +19,11 @@ import {
 import type { DeploymentConfig } from "../lib/config";
 import { isConfigured } from "../lib/config";
 import { makePublicClient, makeWalletClient, type DemoWalletClient } from "../lib/chain";
-import { ensureGas, loadOrCreateAccount } from "../lib/wallet";
+import { connectInjected, ensureGas, getInjected, loadOrCreateAccount, type InjectedConnection } from "../lib/wallet";
 import { bookAbi } from "../abi/book";
 import { lensAbi } from "../abi/lens";
 import { erc20Abi } from "../abi/erc20";
 import { tickToPrice } from "../lib/format";
-import {
-  DEFAULT_MARKET_MODE,
-  LIVE_PREDICTION_MARKET,
-  MARKET_PROFILES,
-  PREDICTION_CATALOG,
-  type MarketMode,
-  type MarketProfile,
-  type PredictionMeta,
-} from "../lib/markets";
-import {
-  fetchIndexerStatus,
-  fetchMarketStats,
-  indexerEnabled,
-  type IndexerStatus,
-  type MarketStats,
-} from "../lib/indexer";
 
 // ---------------------------------------------------------------- types
 
@@ -58,9 +42,12 @@ export interface DepthLevel {
   bidSize: bigint;
 }
 
+export type BookOutcome = "YES" | "NO";
+
 export interface Fill {
   key: string;
   time: number; // ms
+  outcome: BookOutcome; // which outcome book emitted this fill
   side: "buy" | "sell";
   priceLo: number;
   priceHi: number;
@@ -73,6 +60,7 @@ export interface Fill {
 export interface MakerEvent {
   key: string;
   time: number; // ms
+  outcome: BookOutcome; // which outcome book emitted this event
   kind: "place" | "requote" | "cancel" | "claim";
   side: "ask" | "bid" | null; // inferred from range vs current tick (null when unknown)
   positionId: bigint;
@@ -106,31 +94,18 @@ export interface PositionRow {
 
 export interface Balances {
   eth: bigint;
-  weth: bigint;
-  usdc: bigint;
+  weth: bigint; // YES outcome token balance
+  usdc: bigint; // sUSDC collateral balance
+  no: bigint; // NO outcome token balance
 }
 
-/**
- * MM (loop 2) — venue health: RPC round-trip latency and block cadence. A
- * maker wants to know, at a glance, how fresh the book is and how fast the
- * chain is producing blocks (i.e. how quickly a quote finalises). `blockTimeMs`
- * is an EWMA of inter-block intervals observed by the poller. `confirmations`
- * helper converts an event's block into a confirmation count vs. the head.
- */
-export interface ChainStatus {
-  latencyMs: number | null; // eth_blockNumber round-trip
-  head: bigint | null; // latest block height
-  blockTimeMs: number | null; // smoothed inter-block interval
-  lastBlockAt: number | null; // wall-clock ms when head last advanced
-}
-
-/** Pooled copy-liquidity inventory (mirrors real fills at book price). */
+/** Pooled copy-liquidity inventory. Contract names are still shadow* for ABI compatibility. */
 export interface ShadowInfo {
-  reserve0: bigint; // token0 available to mirror ask fills
-  reserve1: bigint; // token1 available to mirror bid fills
+  reserve0: bigint;
+  reserve1: bigint;
   totalShares: bigint;
-  myShares: bigint; // shares held by the demo wallet
-  feeBps: number; // SHADOW_FEE_BPS routed to the protocol
+  myShares: bigint;
+  feeBps: number;
 }
 
 /** What the chart should preview on top of live data. */
@@ -151,79 +126,45 @@ export interface TxToast {
   detail?: string;
 }
 
-/**
- * U2 — commands routed through the global bus. Hotkeys and the command palette
- * dispatch these; the relevant panel (Side panel for tab/side switches, Make
- * panel for quote actions, Positions panel for bulk cancels) handles them.
- */
-export type AppCommand =
-  | { type: "focus-tab"; tab: "trade" | "make" | "shadow" | "positions" }
-  | { type: "set-side"; side: "buy" | "sell" }
-  | { type: "toggle-side" }
-  | { type: "submit" }
-  | { type: "cancel-all" }
-  | { type: "cancel-bids" }
-  | { type: "cancel-asks" }
-  | { type: "claim-all" }
-  | { type: "quote-at-price"; side: "ask" | "bid"; price: number };
-
 interface AppData {
   cfg: DeploymentConfig;
   configured: boolean;
   client: PublicClient;
   wallet: DemoWalletClient;
   account: PrivateKeyAccount;
+  /** Active address — the connected injected wallet, else the demo wallet. */
+  addr: `0x${string}`;
+  walletKind: "demo" | "injected";
+  connect: () => Promise<void>;
+  disconnect: () => void;
+  connecting: boolean;
   summary: BookSummary | null;
   depth: DepthLevel[];
+  /** NO book — live when the deployment ships a noBook, else null (NO derived). */
+  noSummary: BookSummary | null;
+  noDepth: DepthLevel[];
+  /** noBook address when deployed, else null. */
+  noBookAddr: `0x${string}` | null;
   fills: Fill[];
   makerEvents: MakerEvent[];
   priceHistory: PricePoint[];
   balances: Balances;
   shadow: ShadowInfo;
   positions: PositionRow[];
-  marketMode: MarketMode;
-  market: MarketProfile;
-  setMarketMode: (mode: MarketMode) => void;
-  /** P1/P2 — prediction metadata for the active market (prediction mode). */
-  predictionMeta: PredictionMeta;
-  /** P2 — which prediction-catalog card the UI is focused on. */
-  selectedMarketId: string;
-  setSelectedMarketId: (id: string) => void;
-  /** U2 — global command bus: panels subscribe, hotkeys/palette dispatch. */
-  dispatchCommand: (cmd: AppCommand) => void;
-  onCommand: (handler: (cmd: AppCommand) => void) => () => void;
-  /** MM — venue health (latency + block cadence). */
-  chainStatus: ChainStatus;
-  /** Indexer health, or null when no indexer is configured. */
-  indexerStatus: IndexerStatus | null;
-  /** Indexer-served aggregates for the active prediction market, or null. */
-  marketStats: MarketStats | null;
   rpcError: string | null;
   toasts: TxToast[];
   busy: string | null;
   preview: ChartPreview | null;
   setPreview: (p: ChartPreview | null) => void;
-  /** Make or Copy tab is active: the book portion of the screen expands. */
+  /** Make tab is active: the book portion of the screen expands. */
   makeFocus: boolean;
   setMakeFocus: (b: boolean) => void;
-  /** Copy tab is active: show copy-liquidity sheen on the book/chart. */
-  copyFocus: boolean;
-  setCopyFocus: (b: boolean) => void;
   sendTx: (label: string, fn: () => Promise<`0x${string}`>) => Promise<boolean>;
   faucet: () => Promise<void>;
   refresh: () => void;
 }
 
 const AppCtx = createContext<AppData | null>(null);
-const MARKET_STORAGE_KEY = "frontier-market-mode";
-
-function marketModeFromUrl(): MarketMode | null {
-  const params = new URLSearchParams(window.location.search);
-  const value = (params.get("surface") ?? params.get("mode") ?? params.get("market"))?.toLowerCase();
-  if (value === "clob" || value === "spot") return "spot";
-  if (value === "pm" || value === "prediction") return "prediction";
-  return null;
-}
 
 export function useApp(): AppData {
   const ctx = useContext(AppCtx);
@@ -233,26 +174,14 @@ export function useApp(): AppData {
 
 // ---------------------------------------------------------------- events
 
-const E18 = 10n ** 18n;
-const E15 = 10n ** 15n;
-
-/** token1 value of an ASCENDING ask run [e, e+n*s), taker pays ceil. */
-function askRunValue1(e: number, a0: bigint, slope: bigint, n: bigint, s: number): bigint {
-  const sumK = (n * (n - 1n)) / 2n;
-  const sumK2 = ((n - 1n) * n * (2n * n - 1n)) / 6n;
-  const c0 = E18 + BigInt(e) * E15;
-  const c1 = BigInt(s) * E15;
-  const val = a0 * c0 * n + (a0 * c1 + slope * c0) * sumK + slope * c1 * sumK2;
-  return val <= 0n ? 0n : (val + E18 - 1n) / E18;
-}
-
-/** token1 value of a DESCENDING bid run from e, n levels, taker receives floor. */
-function bidRunValue1(e: number, a0: bigint, n: bigint, s: number): bigint {
-  const sumK = (n * (n - 1n)) / 2n;
-  const c0 = E18 + BigInt(e) * E15;
-  const c1 = BigInt(s) * E15;
-  const val = a0 * c0 * n - a0 * c1 * sumK;
-  return val <= 0n ? 0n : val / E18;
+/** Geometric notional (token1) of a run that swept the tick band [a, b].
+ * GeometricFrontierBook price = 1.0001**tick, so we value the swept base size
+ * at the run's mid price. Exact per-fill accounting lives on-chain; this is a
+ * display approximation for the activity tape. */
+function runNotional1(tickA: number, tickB: number, size0: bigint): bigint {
+  const px = tickToPrice((tickA + tickB) / 2);
+  const v = Number(size0) * px;
+  return Number.isFinite(v) && v > 0 ? BigInt(Math.round(v)) : 0n;
 }
 
 const runFilledEvent = getAbiItem({ abi: bookAbi, name: "RunFilled" });
@@ -304,20 +233,78 @@ async function readDepth(
   return decodeFunctionResult({ abi: lensAbi, functionName: "depth", data: res.data });
 }
 
+type RawLevel = { tick: number | bigint; askSize: bigint; bidSize: bigint };
+
+/** Merge the lens's separate ask/bid scans into one per-tick depth ladder. */
+function mergeDepth(askLevels: readonly RawLevel[], bidLevels: readonly RawLevel[]): DepthLevel[] {
+  const merged = new Map<number, DepthLevel>();
+  for (const l of askLevels) {
+    if (l.askSize > 0n) {
+      merged.set(Number(l.tick), { tick: Number(l.tick), askSize: l.askSize, bidSize: 0n });
+    }
+  }
+  for (const l of bidLevels) {
+    if (l.bidSize > 0n) {
+      const t = Number(l.tick);
+      const prev = merged.get(t);
+      merged.set(t, { tick: t, askSize: prev?.askSize ?? 0n, bidSize: l.bidSize });
+    }
+  }
+  return [...merged.values()];
+}
+
 // ---------------------------------------------------------------- provider
 
 export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children: ReactNode }) {
   const configured = useMemo(() => isConfigured(cfg), [cfg]);
+  const noBookAddr = useMemo<`0x${string}` | null>(() => {
+    const a = cfg.darkbox?.market?.noBook;
+    return a && !/^0x0*$/.test(a) ? a : null;
+  }, [cfg]);
+  const noTokenAddr = useMemo<`0x${string}` | null>(() => {
+    const a = cfg.darkbox?.market?.noToken;
+    return a && !/^0x0*$/.test(a) ? a : null;
+  }, [cfg]);
   const client = useMemo(() => makePublicClient(cfg), [cfg]);
   const account = useMemo(() => loadOrCreateAccount(), []);
   const wallet = useMemo(() => makeWalletClient(cfg, account), [cfg, account]);
 
+  // Active wallet: an injected browser wallet when connected, else the auto demo
+  // wallet so the UI is usable immediately. `addr` is whichever is active.
+  const [injected, setInjected] = useState<InjectedConnection | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const addr = injected?.address ?? account.address;
+  const activeWallet = injected?.wallet ?? wallet;
+  const walletKind: "demo" | "injected" = injected ? "injected" : "demo";
+
+  const connect = useCallback(async () => {
+    setConnecting(true);
+    try {
+      setInjected(await connectInjected(cfg));
+    } finally {
+      setConnecting(false);
+    }
+  }, [cfg]);
+  const disconnect = useCallback(() => setInjected(null), []);
+
+  useEffect(() => {
+    const eth = getInjected();
+    if (!eth?.on) return;
+    const onAccounts = (accs: string[]) => {
+      if (!accs?.length) setInjected(null); // wallet locked / disconnected
+    };
+    eth.on("accountsChanged", onAccounts);
+    return () => eth.removeListener?.("accountsChanged", onAccounts);
+  }, []);
+
   const [summary, setSummary] = useState<BookSummary | null>(null);
   const [depth, setDepth] = useState<DepthLevel[]>([]);
+  const [noSummary, setNoSummary] = useState<BookSummary | null>(null);
+  const [noDepth, setNoDepth] = useState<DepthLevel[]>([]);
   const [fills, setFills] = useState<Fill[]>([]);
   const [makerEvents, setMakerEvents] = useState<MakerEvent[]>([]);
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
-  const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n });
+  const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n, no: 0n });
   const [shadow, setShadow] = useState<ShadowInfo>({
     reserve0: 0n,
     reserve1: 0n,
@@ -326,54 +313,16 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     feeBps: 30,
   });
   const [positions, setPositions] = useState<PositionRow[]>([]);
-  const [marketMode, setMarketModeState] = useState<MarketMode>(() => {
-    const urlMode = marketModeFromUrl();
-    if (urlMode) return urlMode;
-    const stored = window.localStorage.getItem(MARKET_STORAGE_KEY);
-    return stored === "spot" || stored === "prediction" ? stored : DEFAULT_MARKET_MODE;
-  });
-  const [chainStatus, setChainStatus] = useState<ChainStatus>({
-    latencyMs: null,
-    head: null,
-    blockTimeMs: null,
-    lastBlockAt: null,
-  });
-  const [indexerStatus, setIndexerStatus] = useState<IndexerStatus | null>(null);
-  const [marketStats, setMarketStats] = useState<MarketStats | null>(null);
   const [rpcError, setRpcError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<TxToast[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [preview, setPreview] = useState<ChartPreview | null>(null);
   const [makeFocus, setMakeFocus] = useState(false);
-  const [copyFocus, setCopyFocus] = useState(false);
   const [nonce, setNonce] = useState(0); // manual refresh trigger
-  const [selectedMarketId, setSelectedMarketId] = useState<string>(LIVE_PREDICTION_MARKET.id);
-  const market = MARKET_PROFILES[marketMode];
-  const predictionMeta = useMemo(
-    () => PREDICTION_CATALOG.find((m) => m.id === selectedMarketId) ?? LIVE_PREDICTION_MARKET,
-    [selectedMarketId],
-  );
-
-  // U2 — command bus. Panels register handlers; hotkeys/palette dispatch.
-  const commandHandlers = useRef<Set<(cmd: AppCommand) => void>>(new Set());
-  const dispatchCommand = useCallback((cmd: AppCommand) => {
-    for (const h of commandHandlers.current) h(cmd);
-  }, []);
-  const onCommand = useCallback((handler: (cmd: AppCommand) => void) => {
-    commandHandlers.current.add(handler);
-    return () => {
-      commandHandlers.current.delete(handler);
-    };
-  }, []);
 
   const summaryRef = useRef<BookSummary | null>(null);
   summaryRef.current = summary;
   const errCount = useRef(0);
-
-  const setMarketMode = useCallback((mode: MarketMode) => {
-    setMarketModeState(mode);
-    window.localStorage.setItem(MARKET_STORAGE_KEY, mode);
-  }, []);
 
   const noteError = useCallback((e: unknown) => {
     errCount.current += 1;
@@ -439,24 +388,41 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
         ]);
         if (stop) return;
         setSummary(sum);
-        const merged = new Map<number, DepthLevel>();
-        for (const l of askLevels) {
-          if (l.askSize > 0n) {
-            merged.set(Number(l.tick), { tick: Number(l.tick), askSize: l.askSize, bidSize: 0n });
+        setDepth(mergeDepth(askLevels, bidLevels));
+        const curPx = tickToPrice(cur);
+        if (curPx > 0.005 && curPx < 0.995) {
+          setPriceHistory((h) => {
+            const next = [...h, { t: Date.now(), price: curPx }];
+            return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+          });
+        }
+
+        // NO book — live second leg when the deployment ships a noBook.
+        if (noBookAddr) {
+          try {
+            const ns = await readSummary(client, cfg.contracts.lens, noBookAddr, win);
+            const ncur = Number(ns.currentTick);
+            const nBestAsk = Number(ns.bestAsk);
+            const nBestBid = Number(ns.bestBid);
+            const [nAsk, nBid] = await Promise.all([
+              readDepth(client, cfg.contracts.lens, noBookAddr, ncur, ncur + win, DEPTH_MAX_LEVELS),
+              readDepth(client, cfg.contracts.lens, noBookAddr, ncur - win, ncur, DEPTH_MAX_LEVELS),
+            ]);
+            if (!stop) {
+              setNoSummary({
+                currentTick: ncur,
+                tickSpacing: Number(ns.tickSpacing),
+                bestAsk: nBestAsk,
+                bestBid: nBestBid,
+                hasAsk: nBestAsk !== TICK_MAX && nBestAsk > ncur,
+                hasBid: nBestBid !== TICK_MIN && nBestBid <= ncur,
+              });
+              setNoDepth(mergeDepth(nAsk, nBid));
+            }
+          } catch {
+            /* NO book optional — YES leg already succeeded */
           }
         }
-        for (const l of bidLevels) {
-          if (l.bidSize > 0n) {
-            const t = Number(l.tick);
-            const prev = merged.get(t);
-            merged.set(t, { tick: t, askSize: prev?.askSize ?? 0n, bidSize: l.bidSize });
-          }
-        }
-        setDepth([...merged.values()]);
-        setPriceHistory((h) => {
-          const next = [...h, { t: Date.now(), price: tickToPrice(cur) }];
-          return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
-        });
         noteOk();
       } catch (e) {
         if (!stop) noteError(e);
@@ -470,7 +436,51 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, noteError, noteOk]);
+  }, [configured, client, cfg, noBookAddr, noteError, noteOk]);
+
+  // -------- one-time historical price seed: reconstruct the YES price path from
+  // on-chain RunFilled events so the chart shows real movement on load, instead
+  // of a flat session-only line that starts empty every visit.
+  useEffect(() => {
+    if (!configured) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const latest = await client.getBlockNumber();
+        const span = 12000n; // ~100 min at ~0.5s blocks
+        const from = latest > span ? latest - span : 0n;
+        const blk = await client.getBlock({ blockNumber: latest });
+        const latestTs = Number(blk.timestamp) * 1000;
+        const logs = await client.getLogs({
+          address: cfg.contracts.book,
+          event: runFilledEvent,
+          fromBlock: from,
+          toBlock: latest,
+        });
+        const pts: PricePoint[] = [];
+        for (const log of logs) {
+          const tb = (log.args as { toBoundary?: number }).toBoundary;
+          if (tb === undefined) continue;
+          const px = tickToPrice(Number(tb)); // price after the run = the new YES price
+          if (!(px > 0.005 && px < 0.995)) continue; // band-gate junk
+          const t = latestTs - (Number(latest) - Number(log.blockNumber ?? latest)) * 500;
+          pts.push({ t, price: px });
+        }
+        pts.sort((a, b) => a.t - b.t);
+        if (!cancelled && pts.length) {
+          setPriceHistory((h) => {
+            const merged = [...pts, ...h].sort((a, b) => a.t - b.t);
+            return merged.length > MAX_HISTORY ? merged.slice(merged.length - MAX_HISTORY) : merged;
+          });
+        }
+      } catch {
+        /* historical seed is best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [configured, client, cfg]);
 
   // -------- fills feed via log polling (2.5s)
   useEffect(() => {
@@ -491,7 +501,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
           return;
         }
         const logs = await client.getLogs({
-          address: cfg.contracts.book,
+          address: noBookAddr ? [cfg.contracts.book, noBookAddr] : cfg.contracts.book,
           events: [runFilledEvent, intervalFilledEvent, depositEvent, requoteEvent, cancelEvent, claimEvent],
           fromBlock: from,
           toBlock: latest,
@@ -508,7 +518,9 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
         const curTick = summaryRef.current?.currentTick ?? null;
         const sideOf = (lower: number, upper: number): "ask" | "bid" | null =>
           curTick === null ? null : lower > curTick ? "ask" : upper <= curTick + spacing ? "bid" : null;
+        const noLc = noBookAddr?.toLowerCase();
         for (const log of logs) {
+          const fillOutcome: BookOutcome = noLc && log.address.toLowerCase() === noLc ? "NO" : "YES";
           if (log.eventName === "Deposit" || log.eventName === "Requote") {
             const a = log.args as {
               positionId?: bigint;
@@ -524,6 +536,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             makers.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
+              outcome: fillOutcome,
               kind: log.eventName === "Deposit" ? "place" : "requote",
               side: sideOf(lo, hi),
               positionId: a.positionId,
@@ -545,6 +558,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             makers.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
+              outcome: fillOutcome,
               kind: log.eventName === "Cancel" ? "cancel" : "claim",
               side: null,
               positionId: a.positionId,
@@ -577,12 +591,11 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             const slope = a.slopePerLevel ?? 0n;
             let size = start * n + (slope * n * (n - 1n)) / 2n;
             if (size < 0n) size = 0n;
-            const value1 = isBuy
-              ? askRunValue1(lo, start, slope, n, spacing)
-              : bidRunValue1(lo, start, n, spacing);
+            const value1 = runNotional1(lo, hi, size);
             parsed.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
+              outcome: fillOutcome,
               side: isBuy ? "buy" : "sell",
               priceLo: tickToPrice(isBuy ? lo : hi + spacing),
               priceHi: tickToPrice(isBuy ? hi : lo + spacing),
@@ -598,6 +611,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
             parsed.push({
               key: `${log.blockNumber}-${log.logIndex}`,
               time: now,
+              outcome: fillOutcome,
               side: "sell", // bid interval filled: taker sold token0 into bids
               priceLo: tickToPrice(lo),
               priceHi: tickToPrice(lo + spacing),
@@ -627,7 +641,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, noteError, noteOk]);
+  }, [configured, client, cfg, noBookAddr, noteError, noteOk]);
 
   // -------- balances (3s + manual)
   useEffect(() => {
@@ -635,47 +649,30 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     let stop = false;
     const tick = async () => {
       try {
-        const [eth, weth, usdc, reserves, myShares, feeBps] = await Promise.all([
-          client.getBalance({ address: account.address }),
+        const [eth, weth, usdc, no] = await Promise.all([
+          client.getBalance({ address: addr }),
           client.readContract({
             address: cfg.contracts.weth,
             abi: erc20Abi,
             functionName: "balanceOf",
-            args: [account.address],
+            args: [addr],
           }),
           client.readContract({
             address: cfg.contracts.usdc,
             abi: erc20Abi,
             functionName: "balanceOf",
-            args: [account.address],
+            args: [addr],
           }),
-          client.readContract({
-            address: cfg.contracts.book,
-            abi: bookAbi,
-            functionName: "shadowReserves",
-          }),
-          client.readContract({
-            address: cfg.contracts.book,
-            abi: bookAbi,
-            functionName: "shadowSharesOf",
-            args: [account.address],
-          }),
-          client.readContract({
-            address: cfg.contracts.book,
-            abi: bookAbi,
-            functionName: "SHADOW_FEE_BPS",
-          }),
+          noTokenAddr
+            ? client.readContract({
+                address: noTokenAddr,
+                abi: erc20Abi,
+                functionName: "balanceOf",
+                args: [addr],
+              })
+            : Promise.resolve(0n),
         ]);
-        if (!stop) {
-          setBalances({ eth, weth, usdc });
-          setShadow({
-            reserve0: reserves[0],
-            reserve1: reserves[1],
-            totalShares: reserves[2],
-            myShares,
-            feeBps: Number(feeBps),
-          });
-        }
+        if (!stop) setBalances({ eth, weth, usdc, no });
       } catch {
         /* covered by main poll's error banner */
       }
@@ -686,98 +683,47 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, account, nonce]);
+  }, [configured, client, cfg, account, addr, noTokenAddr, nonce]);
 
-  // -------- MM: venue health — RPC latency + block cadence (2s)
-  const blockTimeRef = useRef<number | null>(null);
-  const lastHeadRef = useRef<{ block: bigint; at: number } | null>(null);
+  // -------- copy liquidity pool state (3s + manual)
   useEffect(() => {
     if (!configured) return;
     let stop = false;
-    let inflight = false;
     const tick = async () => {
-      if (inflight || stop) return;
-      inflight = true;
       try {
-        const t0 = performance.now();
-        const head = await client.getBlockNumber();
-        const latencyMs = Math.round(performance.now() - t0);
-        const now = Date.now();
-        const prev = lastHeadRef.current;
-        if (prev && head > prev.block) {
-          const dt = now - prev.at;
-          // EWMA over inter-block intervals; ignore absurd gaps (tab sleep)
-          if (dt > 0 && dt < 120_000) {
-            const blocks = Number(head - prev.block);
-            const perBlock = dt / Math.max(1, blocks);
-            blockTimeRef.current =
-              blockTimeRef.current === null
-                ? perBlock
-                : blockTimeRef.current * 0.7 + perBlock * 0.3;
-          }
-          lastHeadRef.current = { block: head, at: now };
-        } else if (!prev) {
-          lastHeadRef.current = { block: head, at: now };
-        }
+        const [reserves, myShares] = await Promise.all([
+          client.readContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "shadowReserves",
+          }),
+          client.readContract({
+            address: cfg.contracts.book,
+            abi: bookAbi,
+            functionName: "shadowSharesOf",
+            args: [addr],
+          }),
+        ]);
         if (!stop) {
-          setChainStatus({
-            latencyMs,
-            head,
-            blockTimeMs: blockTimeRef.current,
-            lastBlockAt: lastHeadRef.current?.at ?? null,
+          setShadow({
+            reserve0: reserves[0],
+            reserve1: reserves[1],
+            totalShares: reserves[2],
+            myShares,
+            feeBps: 30,
           });
         }
       } catch {
-        if (!stop) setChainStatus((s) => ({ ...s, latencyMs: null }));
-      } finally {
-        inflight = false;
+        /* copy-liquidity views are optional on older local deploys */
       }
     };
     tick();
-    const id = setInterval(tick, 2000);
+    const id = setInterval(tick, 3000);
     return () => {
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client]);
-
-  // -------- indexer health probe (10s) — optional; null when unconfigured
-  useEffect(() => {
-    if (!configured || !indexerEnabled(cfg)) {
-      setIndexerStatus(null);
-      return;
-    }
-    let stop = false;
-    const tick = async () => {
-      const st = await fetchIndexerStatus(cfg);
-      if (!stop) setIndexerStatus(st);
-    };
-    tick();
-    const id = setInterval(tick, 10_000);
-    return () => {
-      stop = true;
-      clearInterval(id);
-    };
-  }, [configured, cfg]);
-
-  // -------- indexer market aggregates for the active market (15s)
-  useEffect(() => {
-    if (!configured || !indexerEnabled(cfg)) {
-      setMarketStats(null);
-      return;
-    }
-    let stop = false;
-    const tick = async () => {
-      const stats = await fetchMarketStats(cfg, selectedMarketId);
-      if (!stop) setMarketStats(stats);
-    };
-    tick();
-    const id = setInterval(tick, 15_000);
-    return () => {
-      stop = true;
-      clearInterval(id);
-    };
-  }, [configured, cfg, selectedMarketId]);
+  }, [configured, client, cfg, addr, nonce]);
 
   // -------- positions: Deposit logs (owner-filtered) + per-id state (3s)
   const knownIds = useRef<Set<bigint>>(new Set());
@@ -795,7 +741,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
           const logs = await client.getLogs({
             address: cfg.contracts.book,
             event: depositEvent,
-            args: { owner: account.address },
+            args: { owner: addr },
             fromBlock: depositScanFrom.current,
             toBlock: latest,
           });
@@ -815,7 +761,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
               args: [id],
             });
             const [owner, lower, upper, liquidity, slope, , , live, isBid] = p;
-            if (owner.toLowerCase() !== account.address.toLowerCase()) return null;
+            if (owner.toLowerCase() !== addr.toLowerCase()) return null;
             let claimable = 0n;
             let unfilled = 0n;
             if (live) {
@@ -877,7 +823,7 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       stop = true;
       clearInterval(id);
     };
-  }, [configured, client, cfg, account, nonce]);
+  }, [configured, client, cfg, account, addr, noTokenAddr, nonce]);
 
   // -------- tx pipeline
   const toastSeq = useRef(0);
@@ -918,63 +864,64 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     [client, pushToast, refresh],
   );
 
-  // -------- faucet: gas + base + quote demo balances
+  // -------- faucet: top up gas, then mint collateral (and base on spot demos).
+  // Decimals come from the manifest — no 18-decimal assumption. On prediction
+  // markets only collateral is minted; users split it into YES + NO themselves.
   const faucet = useCallback(async () => {
     try {
       await ensureGas(client, cfg, account.address);
     } catch {
       /* may already have gas */
     }
-    const okWeth = await sendTx(`Faucet: mint 10 ${market.baseSymbol}`, () =>
-      wallet.writeContract({
-        address: cfg.contracts.weth,
-        abi: erc20Abi,
-        functionName: "mint",
-        args: [account.address, parseUnits("10", 18)],
-      }),
-    );
-    if (!okWeth) return;
-    await sendTx(`Faucet: mint 50,000 ${market.quoteSymbol}`, () =>
+    const isPredictionMarket = !!cfg.darkbox;
+    const qDec = cfg.tokens?.quoteDecimals ?? 18;
+    const quoteSym = cfg.tokens?.quote ?? "USDC";
+    const okQuote = await sendTx(`Faucet: mint 1,000 ${quoteSym}`, () =>
       wallet.writeContract({
         address: cfg.contracts.usdc,
         abi: erc20Abi,
         functionName: "mint",
-        args: [account.address, parseUnits("50000", 18)],
+        args: [account.address, parseUnits("1000", qDec)],
       }),
     );
-  }, [client, cfg, account, wallet, sendTx, market.baseSymbol, market.quoteSymbol]);
+    if (!okQuote || isPredictionMarket) return;
+    const bDec = cfg.tokens?.baseDecimals ?? 18;
+    await sendTx(`Faucet: mint 10 ${cfg.tokens?.base ?? "WETH"}`, () =>
+      wallet.writeContract({
+        address: cfg.contracts.weth,
+        abi: erc20Abi,
+        functionName: "mint",
+        args: [account.address, parseUnits("10", bDec)],
+      }),
+    );
+  }, [client, cfg, account, wallet, sendTx]);
 
   const value: AppData = {
     cfg,
     configured,
-    marketMode,
-    market,
-    setMarketMode,
-    predictionMeta,
-    selectedMarketId,
-    setSelectedMarketId,
-    dispatchCommand,
-    onCommand,
     preview,
     setPreview,
     makeFocus,
     setMakeFocus,
-    copyFocus,
-    setCopyFocus,
     client,
-    wallet,
+    wallet: activeWallet,
     account,
+    addr,
+    walletKind,
+    connect,
+    disconnect,
+    connecting,
     summary,
     depth,
+    noSummary,
+    noDepth,
+    noBookAddr,
     fills,
     makerEvents,
     priceHistory,
     balances,
     shadow,
     positions,
-    chainStatus,
-    indexerStatus,
-    marketStats,
     rpcError,
     toasts,
     busy,

@@ -1,14 +1,12 @@
 import { useMemo, useState } from "react";
 import { useApp } from "../state/app";
 import { fmtAmount, shortAddr } from "../lib/format";
-import { baseDecimals, quoteDecimals } from "../lib/config";
+import { baseDecimals, baseSymbol, quoteDecimals, quoteSymbol } from "../lib/config";
 import { Brand } from "./Brand";
-import { MarketBrowser } from "./MarketBrowser";
-import { Portfolio } from "./Portfolio";
 
-function TokenGlyph({ sym, glyph }: { sym: "base" | "quote" | "eth"; glyph: string }) {
-  const letter = sym === "eth" ? "Ξ" : glyph;
-  return <span className={`tok-glyph tok-${sym}`}>{letter}</span>;
+function TokenGlyph({ sym, label }: { sym: "base" | "quote" | "eth"; label?: string }) {
+  const letter = sym === "eth" ? "Ξ" : (label ?? sym).slice(0, 1).toUpperCase();
+  return <span className={`tok-glyph tok-${sym === "base" ? "weth" : sym === "quote" ? "usdc" : "eth"}`}>{letter}</span>;
 }
 
 /** Deterministic identicon-ish gradient dot derived from the address. */
@@ -23,26 +21,34 @@ function identGradient(address: string): string {
 }
 
 export function Header() {
-  const { cfg, account, balances, faucet, busy, rpcError, configured, market, marketMode } = useApp();
+  const { cfg, addr, walletKind, connect, disconnect, connecting, balances, faucet, busy, rpcError, configured } =
+    useApp();
   const [copied, setCopied] = useState(false);
   const [fauceting, setFauceting] = useState(false);
-  const [browseOpen, setBrowseOpen] = useState(false);
-  const [portfolioOpen, setPortfolioOpen] = useState(false);
+  const [connErr, setConnErr] = useState<string | null>(null);
 
+  const base = baseSymbol(cfg);
+  const quote = quoteSymbol(cfg);
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
-  const question = cfg.darkbox?.market?.question;
-  const faucetAvailable = !cfg.darkbox;
-  const identBg = useMemo(() => identGradient(account.address), [account.address]);
-  const isPrediction = marketMode === "prediction";
-  const venueLabel = isPrediction ? "Outcome market" : cfg.name;
-  const venueDetail = isPrediction ? "YES/NO market" : "Spot CLOB";
+  const connected = walletKind === "injected";
+  const identBg = useMemo(() => identGradient(addr), [addr]);
 
   const copy = () => {
-    navigator.clipboard?.writeText(account.address).then(() => {
+    navigator.clipboard?.writeText(addr).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });
+  };
+
+  const onConnect = async () => {
+    setConnErr(null);
+    try {
+      await connect();
+    } catch (e) {
+      setConnErr(e instanceof Error ? e.message : "Connect failed");
+      setTimeout(() => setConnErr(null), 5000);
+    }
   };
 
   const onFaucet = async () => {
@@ -53,61 +59,70 @@ export function Header() {
       setFauceting(false);
     }
   };
+
   return (
     <header className="hdr">
       <div className="hdr-left">
-        <Brand tag={isPrediction ? "PM" : "CLOB"} />
+        <Brand />
         <span className="hdr-sep" />
         <span className="pair">
           <span className="pair-glyphs">
-            <TokenGlyph sym="base" glyph={market.baseGlyph} />
-            <TokenGlyph sym="quote" glyph={market.quoteGlyph} />
+            <TokenGlyph sym="base" label={base} />
+            <TokenGlyph sym="quote" label={quote} />
           </span>
-          {market.pairLabel}
+          YES / NO
         </span>
         <span className="net">
           <span className={`dot ${rpcError ? "dot-bad" : configured ? "dot-ok" : "dot-warn"}`} />
-          {question ?? venueLabel} <span className="dim">{venueDetail}</span>{" "}
-          <span className="dim num">#{cfg.chainId}</span>
+          {cfg.name} <span className="dim num">#{cfg.chainId}</span>
         </span>
       </div>
       <div className="hdr-right">
         <div className="bal-group num">
           <span className="bal">
-            <TokenGlyph sym="base" glyph={market.baseGlyph} /> {fmtAmount(balances.weth, 4, baseDec)}
+            <TokenGlyph sym="base" label={base} /> {fmtAmount(balances.weth, 4, baseDec)}
           </span>
           <span className="bal">
-            <TokenGlyph sym="quote" glyph={market.quoteGlyph} /> {fmtAmount(balances.usdc, 2, quoteDec)}
+            <TokenGlyph sym="quote" label={quote} /> {fmtAmount(balances.usdc, 2, quoteDec)}
           </span>
           <span className="bal bal-gas" title="Native gas balance">
-            <TokenGlyph sym="eth" glyph="Ξ" /> {fmtAmount(balances.eth, 3)}
+            <TokenGlyph sym="eth" /> {fmtAmount(balances.eth, 3)}
           </span>
         </div>
-        {isPrediction && (
-          <>
-            <button className="btn btn-ghost btn-discover" onClick={() => setBrowseOpen(true)} title="Browse prediction markets">
-              Discover
-            </button>
-            <button className="btn btn-ghost btn-discover" onClick={() => setPortfolioOpen(true)} title="Your positions, PnL and activity">
-              Portfolio
-            </button>
-          </>
-        )}
-        <button className="wallet-chip" onClick={copy} title={account.address}>
-          <span className="ident-dot" style={{ background: identBg }} />
-          {copied ? "copied" : shortAddr(account.address)}
-        </button>
         <button
-          className="btn btn-accent"
-          onClick={onFaucet}
-          disabled={!configured || !faucetAvailable || fauceting || busy !== null}
-          title={faucetAvailable ? market.faucetTitle : "DarkBox market tokens come from seeded/split collateral, not the demo faucet"}
+          className={`wallet-chip ${connected ? "wallet-connected" : "wallet-demo"}`}
+          onClick={copy}
+          title={connected ? `Connected: ${addr}` : `Demo wallet: ${addr}`}
         >
-          {!faucetAvailable ? "Seeded market" : fauceting ? "Minting…" : "Faucet"}
+          <span className="ident-dot" style={{ background: identBg }} />
+          {copied ? "copied" : connected ? shortAddr(addr) : `demo · ${shortAddr(addr)}`}
         </button>
+        {configured && (
+          <button
+            className="btn btn-ghost btn-faucet"
+            onClick={onFaucet}
+            disabled={fauceting || busy !== null}
+            title={`Mint demo ${quote} to the active wallet (Frontier testnet)`}
+          >
+            {fauceting ? "Minting…" : `Get ${quote}`}
+          </button>
+        )}
+        {connected ? (
+          <button className="btn btn-ghost" onClick={disconnect} title="Disconnect wallet">
+            Disconnect
+          </button>
+        ) : (
+          <button
+            className="btn btn-connect"
+            onClick={onConnect}
+            disabled={connecting}
+            title={connErr ?? "Connect a browser wallet (MetaMask, Rabby, …) on Frontier testnet"}
+          >
+            {connecting ? "Connecting…" : "Connect Wallet"}
+          </button>
+        )}
       </div>
-      {browseOpen && <MarketBrowser onClose={() => setBrowseOpen(false)} />}
-      {portfolioOpen && <Portfolio onClose={() => setPortfolioOpen(false)} />}
+      {connErr && <div className="banner banner-bad">Wallet: {connErr}</div>}
     </header>
   );
 }

@@ -6,6 +6,11 @@ export const routerAbi = [
         "name": "_factory",
         "type": "address",
         "internalType": "contract FrontierBookFactory"
+      },
+      {
+        "name": "_lens",
+        "type": "address",
+        "internalType": "contract FrontierLens"
       }
     ],
     "stateMutability": "nonpayable"
@@ -76,6 +81,124 @@ export const routerAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract FrontierBookFactory"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getAmountsOut",
+    "inputs": [
+      {
+        "name": "amountIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "path",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amounts",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lens",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract FrontierLens"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "previewZapDepositShadow",
+    "inputs": [
+      {
+        "name": "book",
+        "type": "address",
+        "internalType": "contract RollingFrontierBook"
+      },
+      {
+        "name": "amount0In",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1In",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "z",
+        "type": "tuple",
+        "internalType": "struct FrontierRouter.ZapResult",
+        "components": [
+          {
+            "name": "amount0In",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "amount1In",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "swapped0For1",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "swapIn",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "swapOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "amount0Deposited",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "amount1Deposited",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "shares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "refund0",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "refund1",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
@@ -159,6 +282,107 @@ export const routerAbi = [
         "name": "amounts",
         "type": "uint256[]",
         "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "zapDepositShadow",
+    "inputs": [
+      {
+        "name": "book",
+        "type": "address",
+        "internalType": "contract RollingFrontierBook"
+      },
+      {
+        "name": "amount0In",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1In",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minSwapOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minSharesOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "z",
+        "type": "tuple",
+        "internalType": "struct FrontierRouter.ZapResult",
+        "components": [
+          {
+            "name": "amount0In",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "amount1In",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "swapped0For1",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "swapIn",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "swapOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "amount0Deposited",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "amount1Deposited",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "shares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "refund0",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "refund1",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "stateMutability": "nonpayable"
