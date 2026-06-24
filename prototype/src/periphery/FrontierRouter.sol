@@ -23,7 +23,7 @@ contract FrontierRouter {
     /// taker sweeps are bounded to this many ticks past the current pointer
     /// so exhausted books don't strand the pointer at grid extremes
     int24 public constant SWEEP_WINDOW = 200_000;
-    uint256 internal constant SHADOW_FEE_BPS = 30;
+    uint256 internal constant MIRROR_FEE_BPS = 30;
     uint256 internal constant BPS = 10_000;
     uint256 internal constant ZAP_SEARCH_STEPS = 18;
 
@@ -40,7 +40,7 @@ contract FrontierRouter {
         uint256 refund1;
     }
 
-    event CopyLiquidityZap(
+    event MirrorLiquidityZap(
         address indexed book,
         address indexed user,
         address indexed recipient,
@@ -119,9 +119,9 @@ contract FrontierRouter {
         return _sell(book, amount0In, minOut1, to, deadline);
     }
 
-    /// @notice Preview a copy-liquidity zap against current book and shadow
+    /// @notice Preview a mirror-liquidity zap against current book and mirror
     /// reserves. Execution still needs minSwapOut/minSharesOut guards.
-    function previewZapDepositShadow(UniformFrontierBook book, uint256 amount0In, uint256 amount1In)
+    function previewZapDepositMirror(UniformFrontierBook book, uint256 amount0In, uint256 amount1In)
         external
         view
         returns (ZapResult memory z)
@@ -130,8 +130,8 @@ contract FrontierRouter {
     }
 
     /// @notice Pull token0/token1, rebalance the heavy side through the book,
-    /// deposit into copy liquidity for `to`, and refund unused dust.
-    function zapDepositShadow(
+    /// deposit into mirror liquidity for `to`, and refund unused dust.
+    function zapDepositMirror(
         UniformFrontierBook book,
         uint256 amount0In,
         uint256 amount1In,
@@ -174,7 +174,7 @@ contract FrontierRouter {
 
         _ensureApproved(t0, address(book));
         _ensureApproved(t1, address(book));
-        (z.shares, z.amount0Deposited, z.amount1Deposited) = book.depositShadowFor(to, held0, held1, minSharesOut);
+        (z.shares, z.amount0Deposited, z.amount1Deposited) = book.depositMirrorFor(to, held0, held1, minSharesOut);
 
         z.amount0In = amount0In;
         z.amount1In = amount1In;
@@ -183,7 +183,7 @@ contract FrontierRouter {
         if (z.refund0 > 0) require(t0.transfer(msg.sender, z.refund0), "refund0 failed");
         if (z.refund1 > 0) require(t1.transfer(msg.sender, z.refund1), "refund1 failed");
 
-        emit CopyLiquidityZap(
+        emit MirrorLiquidityZap(
             address(book),
             msg.sender,
             to,
@@ -251,7 +251,7 @@ contract FrontierRouter {
         z.amount0In = amount0In;
         z.amount1In = amount1In;
 
-        (uint256 r0, uint256 r1, uint256 total) = book.shadowReserves();
+        (uint256 r0, uint256 r1, uint256 total) = book.mirrorReserves();
         if (total == 0 && (amount0In == 0 || amount1In == 0)) revert("imbalanced first deposit");
 
         uint256 held0 = amount0In;
@@ -265,7 +265,7 @@ contract FrontierRouter {
             if (lhs < rhs && amount1In > 0) {
                 swapBudget = _chooseBuySwap(book, r0, r1, amount0In, amount1In);
                 if (swapBudget > 0) {
-                    (uint256 spent, uint256 out, uint256 nr0, uint256 nr1) = _quoteBuyShadowed(book, swapBudget, r0, r1);
+                    (uint256 spent, uint256 out, uint256 nr0, uint256 nr1) = _quoteBuyMirrored(book, swapBudget, r0, r1);
                     if (spent > 0 && out > 0) {
                         z.swapped0For1 = false;
                         z.swapIn = spent;
@@ -282,7 +282,7 @@ contract FrontierRouter {
                 swapBudget = _chooseSellSwap(book, r0, r1, amount0In, amount1In);
                 if (swapBudget > 0) {
                     (uint256 spent, uint256 out, uint256 nr0, uint256 nr1) =
-                        _quoteSellShadowed(book, swapBudget, r0, r1);
+                        _quoteSellMirrored(book, swapBudget, r0, r1);
                     if (spent > 0 && out > 0) {
                         z.swapped0For1 = true;
                         z.swapIn = spent;
@@ -309,7 +309,7 @@ contract FrontierRouter {
         view
         returns (uint256)
     {
-        (uint256 spentFull, uint256 outFull,,) = _quoteBuyShadowed(book, amount1, r0, r1);
+        (uint256 spentFull, uint256 outFull,,) = _quoteBuyMirrored(book, amount1, r0, r1);
         if (spentFull == 0 || outFull == 0) return 0;
         if (!_buyCrosses(book, amount1, r0, r1, amount0, amount1)) return amount1;
 
@@ -328,7 +328,7 @@ contract FrontierRouter {
         view
         returns (uint256)
     {
-        (uint256 spentFull, uint256 outFull,,) = _quoteSellShadowed(book, amount0, r0, r1);
+        (uint256 spentFull, uint256 outFull,,) = _quoteSellMirrored(book, amount0, r0, r1);
         if (spentFull == 0 || outFull == 0) return 0;
         if (!_sellCrosses(book, amount0, r0, r1, amount0, amount1)) return amount0;
 
@@ -350,7 +350,7 @@ contract FrontierRouter {
         uint256 amount0,
         uint256 amount1
     ) internal view returns (bool) {
-        (uint256 spent, uint256 out, uint256 nr0, uint256 nr1) = _quoteBuyShadowed(book, budget1, r0, r1);
+        (uint256 spent, uint256 out, uint256 nr0, uint256 nr1) = _quoteBuyMirrored(book, budget1, r0, r1);
         uint256 h0 = amount0 + out;
         uint256 h1 = amount1 - spent;
         return h0 * nr1 >= h1 * nr0;
@@ -364,13 +364,13 @@ contract FrontierRouter {
         uint256 amount0,
         uint256 amount1
     ) internal view returns (bool) {
-        (uint256 spent, uint256 out, uint256 nr0, uint256 nr1) = _quoteSellShadowed(book, budget0, r0, r1);
+        (uint256 spent, uint256 out, uint256 nr0, uint256 nr1) = _quoteSellMirrored(book, budget0, r0, r1);
         uint256 h0 = amount0 - spent;
         uint256 h1 = amount1 + out;
         return h0 * nr1 <= h1 * nr0;
     }
 
-    function _quoteBuyShadowed(UniformFrontierBook book, uint256 budget1, uint256 r0, uint256 r1)
+    function _quoteBuyMirrored(UniformFrontierBook book, uint256 budget1, uint256 r0, uint256 r1)
         internal
         view
         returns (uint256 spent1, uint256 out0, uint256 nr0, uint256 nr1)
@@ -388,14 +388,14 @@ contract FrontierRouter {
         uint256 grossSpent = realSpent1;
         out0 = realOut0;
         if (r0 > 0) {
-            uint256 shadowOut = r0 < realOut0 ? r0 : realOut0;
-            if (shadowOut > 0) {
-                uint256 shadowPaid = _mulDivUp(realSpent1, shadowOut, realOut0);
-                uint256 shadowFee = _shadowFee(book, shadowPaid);
-                grossSpent += shadowPaid;
-                out0 += shadowOut;
-                nr0 = r0 - shadowOut;
-                nr1 = r1 + shadowPaid - shadowFee;
+            uint256 mirrorOut = r0 < realOut0 ? r0 : realOut0;
+            if (mirrorOut > 0) {
+                uint256 mirrorPaid = _mulDivUp(realSpent1, mirrorOut, realOut0);
+                uint256 mirrorFee = _mirrorFee(book, mirrorPaid);
+                grossSpent += mirrorPaid;
+                out0 += mirrorOut;
+                nr0 = r0 - mirrorOut;
+                nr1 = r1 + mirrorPaid - mirrorFee;
             }
         }
 
@@ -403,7 +403,7 @@ contract FrontierRouter {
         if (spent1 > budget1) return (0, 0, r0, r1);
     }
 
-    function _quoteSellShadowed(UniformFrontierBook book, uint256 budget0, uint256 r0, uint256 r1)
+    function _quoteSellMirrored(UniformFrontierBook book, uint256 budget0, uint256 r0, uint256 r1)
         internal
         view
         returns (uint256 spent0, uint256 out1, uint256 nr0, uint256 nr1)
@@ -421,18 +421,18 @@ contract FrontierRouter {
         uint256 grossSpent = realSpent0;
         out1 = realOut1;
         if (r1 > 0) {
-            uint256 grossShadowOut = realOut1;
-            uint256 shadowPaid = realSpent0;
-            if (grossShadowOut > r1) {
-                grossShadowOut = r1;
-                shadowPaid = (realSpent0 * grossShadowOut) / realOut1;
-                if (shadowPaid == 0) return (0, 0, r0, r1);
+            uint256 grossMirrorOut = realOut1;
+            uint256 mirrorPaid = realSpent0;
+            if (grossMirrorOut > r1) {
+                grossMirrorOut = r1;
+                mirrorPaid = (realSpent0 * grossMirrorOut) / realOut1;
+                if (mirrorPaid == 0) return (0, 0, r0, r1);
             }
-            uint256 shadowFee = _shadowFee(book, grossShadowOut);
-            grossSpent += shadowPaid;
-            out1 += grossShadowOut - shadowFee;
-            nr0 = r0 + shadowPaid;
-            nr1 = r1 - grossShadowOut;
+            uint256 mirrorFee = _mirrorFee(book, grossMirrorOut);
+            grossSpent += mirrorPaid;
+            out1 += grossMirrorOut - mirrorFee;
+            nr0 = r0 + mirrorPaid;
+            nr1 = r1 - grossMirrorOut;
         }
 
         spent0 = _takerTotal(grossSpent, book.takerFeeBps());
@@ -481,9 +481,9 @@ contract FrontierRouter {
         }
     }
 
-    function _shadowFee(UniformFrontierBook book, uint256 grossToken1) internal view returns (uint256) {
+    function _mirrorFee(UniformFrontierBook book, uint256 grossToken1) internal view returns (uint256) {
         if (book.feeRecipient() == address(0)) return 0;
-        return (grossToken1 * SHADOW_FEE_BPS) / BPS;
+        return (grossToken1 * MIRROR_FEE_BPS) / BPS;
     }
 
     function _maxGrossForTotal(uint256 maxTotal, uint16 feeBps) internal pure returns (uint256) {

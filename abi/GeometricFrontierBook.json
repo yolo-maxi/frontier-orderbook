@@ -83,7 +83,7 @@
   },
   {
     "type": "function",
-    "name": "SHADOW_FEE_BPS",
+    "name": "MIRROR_FEE_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -239,12 +239,12 @@
     ],
     "outputs": [
       {
-        "name": "proceeds1",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "principal0",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -263,12 +263,12 @@
     ],
     "outputs": [
       {
-        "name": "proceeds0",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "refund1",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -292,12 +292,12 @@
     ],
     "outputs": [
       {
-        "name": "proceeds0",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "refund1",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -321,12 +321,12 @@
     ],
     "outputs": [
       {
-        "name": "proceeds1",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "principal0",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -559,8 +559,52 @@
   },
   {
     "type": "function",
-    "name": "depositShadow",
+    "name": "depositMirror",
     "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "depositMirrorFor",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
       {
         "name": "",
         "type": "uint256",
@@ -738,6 +782,48 @@
   },
   {
     "type": "function",
+    "name": "mirrorReserves",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "reserve0",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "reserve1",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "mirrorSharesOf",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "moveTickTo",
     "inputs": [
       {
@@ -846,7 +932,7 @@
         "internalType": "uint256"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -903,48 +989,6 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "shadowReserves",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "reserve0",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "reserve1",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "totalShares",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "shadowSharesOf",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1129,7 +1173,7 @@
   },
   {
     "type": "function",
-    "name": "withdrawShadow",
+    "name": "withdrawMirror",
     "inputs": [
       {
         "name": "",
@@ -1318,6 +1362,93 @@
   },
   {
     "type": "event",
+    "name": "MirrorDeposit",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MirrorFee",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MirrorWithdraw",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "PositionTransferred",
     "inputs": [
       {
@@ -1399,93 +1530,6 @@
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ShadowDeposit",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount0",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "shares",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ShadowFee",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "fee",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "recipient",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ShadowWithdraw",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount0",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "shares",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1590,6 +1634,11 @@
   },
   {
     "type": "error",
+    "name": "MirrorFeeTransferFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NegativeActive",
     "inputs": []
   },
@@ -1646,11 +1695,6 @@
   {
     "type": "error",
     "name": "RangeNotBelowPrice",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "ShadowFeeTransferFailed",
     "inputs": []
   },
   {

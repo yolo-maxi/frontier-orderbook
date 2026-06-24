@@ -1,10 +1,10 @@
-# Copy-Liquidity Geometric Zap
+# Mirror-Liquidity Geometric Zap
 
 ## Finding
 
-The geometric shadow zap already used the curve-aware quote path. No router or book contract fix was required.
+The geometric mirror zap already used the curve-aware quote path. No router or book contract fix was required.
 
-`FrontierRouter._prepareZap` chooses a rebalance budget through `_quoteBuyShadowed` / `_quoteSellShadowed`; those call `_quoteBuyGross` / `_quoteSellGross`, which route to `FrontierLens.quoteBuy` / `FrontierLens.quoteSell`. The lens detects geometric books with `geoD()` and uses the geometric `GeoTickMath` span math, so the rebalance preview is not hard-coded to uniform-curve prices.
+`FrontierRouter._prepareZap` chooses a rebalance budget through `_quoteBuyMirrored` / `_quoteSellMirrored`; those call `_quoteBuyGross` / `_quoteSellGross`, which route to `FrontierLens.quoteBuy` / `FrontierLens.quoteSell`. The lens detects geometric books with `geoD()` and uses the geometric `GeoTickMath` span math, so the rebalance preview is not hard-coded to uniform-curve prices.
 
 `GeometricFrontierBook` is still accepted by the existing `UniformFrontierBook` router signatures because it inherits `UniformFrontierBook`. No signature changes were needed.
 
@@ -24,7 +24,7 @@ The geometric shadow zap already used the curve-aware quote path. No router or b
   - taker-fee zaps
   - preview-vs-actual fuzz
   - taker-fee preview-vs-actual fuzz
-  - multi-actor copy-liquidity simulation with sweeps and full withdrawal drain
+  - multi-actor mirror-liquidity simulation with sweeps and full withdrawal drain
 
 ## Gates
 
@@ -56,8 +56,8 @@ From `forge test --match-contract FrontierZapGeometricTest --gas-report`:
 
 | Function | Min | Avg | Median | Max | Calls |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `FrontierRouter.previewZapDepositShadow` | 991 | 706,181 | 619,759 | 899,801 | 524 |
-| `FrontierRouter.zapDepositShadow` | 37,497 | 1,008,907 | 937,809 | 1,210,392 | 526 |
+| `FrontierRouter.previewZapDepositMirror` | 991 | 706,181 | 619,759 | 899,801 | 524 |
+| `FrontierRouter.zapDepositMirror` | 37,497 | 1,008,907 | 937,809 | 1,210,392 | 526 |
 
 Selected geometric suite test gas:
 
@@ -66,7 +66,7 @@ Selected geometric suite test gas:
 | `testBalancedZapMatchesPreviewAndRawDeposit` | 388,416 |
 | `testQuoteHeavyZapRebalancesAndDeposits` | 2,616,419 |
 | `testOutcomeHeavyZapRebalancesAndDeposits` | 2,027,333 |
-| `testMultiActorCopyLiquiditySimulation` | 3,517,307 |
+| `testMultiActorMirrorLiquiditySimulation` | 3,517,307 |
 | `testTakerFeeZapsMatchPreviewAndConserveBothDirections` | 12,120,022 |
 
 ## Blockers
