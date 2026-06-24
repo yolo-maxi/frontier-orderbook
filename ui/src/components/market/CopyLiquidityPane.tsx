@@ -228,6 +228,7 @@ export function CopyLiquidityPane({
   const swapToDec = zapPreview?.swapped0For1 ? quoteDec : baseDec;
   const hasRefund = !!zapPreview && (zapPreview.refund0 > 0n || zapPreview.refund1 > 0n);
   const addDisabled = busy !== null || !ready || insufficient || !zapPreview || zapPreview.shares === 0n;
+  const canApprove = !previewErr && !!zapPreview && !insufficient;
   const addLabel = insufficient
     ? "Insufficient balance"
     : previewErr
@@ -353,11 +354,11 @@ export function CopyLiquidityPane({
               <div className="dbx-copy-line dim">Loading preview...</div>
             )}
           </div>
-          {needsYes && !insufficient ? (
+          {canApprove && needsYes ? (
             <button className="dbx-copy-cta" disabled={busy !== null} onClick={() => approve(token, outcomeSymbol)}>
               Approve {outcomeSymbol}
             </button>
-          ) : needsQuote && !insufficient ? (
+          ) : canApprove && needsQuote ? (
             <button className="dbx-copy-cta" disabled={busy !== null} onClick={() => approve(cfg.contracts.usdc, quoteSym)}>
               Approve {quoteSym}
             </button>

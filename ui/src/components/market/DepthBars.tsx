@@ -4,6 +4,11 @@ import { baseDecimals, quoteDecimals } from "../../lib/config";
 import { fmtCents, fmtPct, type Outcome, type OrderPreview, type PredictionBook, type PredictionLevel } from "../../lib/prediction";
 import { useApp } from "../../state/app";
 
+type CopyLiquidityDepth = {
+  reserve0: bigint;
+  reserve1: bigint;
+};
+
 /**
  * Liquidity depth view — bars on an explicit price axis (mid centred, bids green
  * left / asks red right, height = resting size). The order you're composing is a
@@ -16,6 +21,7 @@ export function DepthBars({
   onOutcome,
   yes,
   no,
+  copyLiquidity,
   preview,
   onDragRange,
 }: {
@@ -23,13 +29,16 @@ export function DepthBars({
   onOutcome: (o: Outcome) => void;
   yes: PredictionBook;
   no: PredictionBook;
+  copyLiquidity?: CopyLiquidityDepth | null;
   preview?: OrderPreview | null;
   onDragRange?: (loCents: number, hiCents: number) => void;
 }) {
-  const { cfg, shadow } = useApp();
+  const { cfg } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
   const seedCopy = new URLSearchParams(window.location.search).get("seedCopy") === "1";
+  const copyReserve0 = copyLiquidity?.reserve0 ?? 0n;
+  const copyReserve1 = copyLiquidity?.reserve1 ?? 0n;
   const book = outcome === "YES" ? yes : no;
   const bids = book.bidDepth;
   const asks = book.askDepth;
@@ -60,11 +69,11 @@ export function DepthBars({
   axisRef.current = { pMin, half };
   const maxSize = Math.max(1, ...all.map((l) => l.size));
   const barW = Math.max(1.6, Math.min(4.5, 64 / Math.max(8, all.length)));
-  const seededAskCopy = seedCopy && shadow.reserve0 === 0n ? maxSize * 1.6 : 0;
-  const seededBidCopy = seedCopy && shadow.reserve1 === 0n ? maxSize * Math.max(0.3, mid) * 1.6 : 0;
-  const askCopyFill = allocateCopyFill(asks, Number(formatUnits(shadow.reserve0, baseDec)) + seededAskCopy);
+  const seededAskCopy = seedCopy && copyReserve0 === 0n ? maxSize * 1.6 : 0;
+  const seededBidCopy = seedCopy && copyReserve1 === 0n ? maxSize * Math.max(0.3, mid) * 1.6 : 0;
+  const askCopyFill = allocateCopyFill(asks, Number(formatUnits(copyReserve0, baseDec)) + seededAskCopy);
   const bidCopyShares =
-    mid > 0 ? (Number(formatUnits(shadow.reserve1, quoteDec)) + seededBidCopy) / Math.max(0.01, mid) : 0;
+    mid > 0 ? (Number(formatUnits(copyReserve1, quoteDec)) + seededBidCopy) / Math.max(0.01, mid) : 0;
   const bidCopyFill = allocateCopyFill(bids, bidCopyShares);
 
   const lo = pv ? Math.min(pv.fromProb, pv.toProb) : 0;
