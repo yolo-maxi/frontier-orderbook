@@ -136,7 +136,7 @@ onUnmounted(() => {
     linear-gradient(180deg, var(--fr-ink-2) 0%, var(--fr-ink) 100%);
   padding: 14px 16px;
   overflow: hidden;
-  box-shadow: 0 0 0 1px rgba(46, 189, 133, 0.04),
+  box-\73 hadow: 0 0 0 1px rgba(46, 189, 133, 0.04),
     0 24px 60px -28px rgba(46, 189, 133, 0.35);
 }
 .grid-glow {

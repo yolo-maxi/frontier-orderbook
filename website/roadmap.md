@@ -14,10 +14,10 @@ hidden in the demo.
 2. **Fees are per-book-at-birth** — `MAKER_FEE_BPS` and `TAKER_FEE_BPS`
    default to zero, are capped at 1,000 bps, and require a recipient when
    nonzero. They are not a mutable protocol switch in the deployed book.
-3. **Copy liquidity is still experimental** — `depositShadow` /
-   `withdrawShadow` and `shadowReserves` are in the book, but the current
+3. **Mirror liquidity is still experimental** — `depositMirror` /
+   `withdrawMirror` and `mirrorReserves` are in the book, but the current
    design deliberately uses budget-halving, one pooled inventory, and a
-   constant 30 bps copy fee when a fee recipient exists.
+   constant 30 bps mirror fee when a fee recipient exists.
 4. **Pro-rata levels, not price-time priority** — a deliberate design
    stance (it's what makes O(1) aggregation possible, and requoting
    penalty-free), worth a conscious decision before mainnet.
@@ -31,7 +31,7 @@ hidden in the demo.
    deployer/factory split
 3. Fee policy: decide who may choose maker/taker bps and fee recipients
    before any production venue has revenue
-4. Copy-liquidity hardening: remove budget-halving, make fee config
+4. Mirror-liquidity hardening: remove budget-halving, make fee config
    explicit, and decide whether synthetic depth belongs in production
 5. Yield Level 2 — buffered adapters for posted capital, if Level 1 vault
    LPs prove useful

@@ -14,7 +14,7 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matc
 const routes = [
   ['Mechanism', '#mechanism'],
   ['Ladders', '#range-orders'],
-  ['Copy', '#copy-liquidity'],
+  ['Mirror', '#mirror-liquidity'],
   ['Markets', '#markets'],
   ['Build', '#build'],
 ]
@@ -472,10 +472,10 @@ function renderExplainerSection(explainer: FrontierExplainer) {
       ? 'range-orders'
       : explainer.id === 'fill'
         ? 'taker-fill'
-        : explainer.id === 'copy'
-          ? 'copy-liquidity'
+        : explainer.id === 'mirror'
+          ? 'mirror-liquidity'
           : 'frontier-sweep'
-  const reversed = explainer.id === 'copy' ? ' feature-section--reverse' : ''
+  const reversed = explainer.id === 'mirror' ? ' feature-section--reverse' : ''
   const controls = `<button class="replay-button" type="button" data-replay="${explainer.id}">Replay</button>`
 
   return `

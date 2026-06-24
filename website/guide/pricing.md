@@ -38,3 +38,27 @@ against ceil-rounded deposits: no rounding leak by construction.
 
 `prototype/script/DeployFrontier.s.sol` deploys the geometric factory and
 creates a geometric book through `createGeoBookWithFees`.
+
+## Uniform vs Geometric books
+
+Uniform books use constant-absolute tick spacing: each level is the same
+linear distance from the next one. In the current test book that is
+`price = 1 + 0.001 × tick`, so moving one tick always changes the raw price
+by the same amount. That makes uniform books a natural fit for bounded
+ranges such as prediction markets, where prices represent probabilities
+between 0 and 1 and evenly spaced levels are easy to read as percentage
+points or cents.
+
+Geometric books use constant-percentage tick spacing:
+`price = 1.0001^tick`, matching the Uniswap-v3 price convention. A one-tick
+move is always about one basis point, so the absolute step grows with price.
+That is the right shape for spot-token markets and other assets that move
+over wide multiplicative ranges.
+
+Mirror liquidity works on both book types. The pool accounting lives on the
+shared book surface (`mirrorReserves`, `depositMirror`, `withdrawMirror`),
+while zap rebalancing previews in `FrontierRouter` route through
+`_quoteBuyMirrored` / `_quoteSellMirrored` into the lens. `FrontierLens`
+probes `geoD()` to choose the geometric span math when the book is a
+`GeometricFrontierBook`; otherwise it uses the uniform curve. That keeps the
+preview curve-aware instead of assuming linear ticks.

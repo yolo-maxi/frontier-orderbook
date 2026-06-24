@@ -54,7 +54,7 @@ within 12 gas of a 1,000-tick one (both touch the same two endpoint slots
 plus one or two bitmap words). And there is no fragmentation tax over
 time: a claim costs the same after 2 position lifecycles or 40.
 
-Requotes, cancels, transfers, and copy-liquidity deposits/withdrawals
+Requotes, cancels, transfers, and mirror-liquidity deposits/withdrawals
 execute in a delegatecalled companion module (`UniformMakerOps` for the
 linear test book, `GeometricMakerOps` for the production curve). The hop
 is paid on maker-management calls and nothing on the hot sweep path.

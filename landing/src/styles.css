@@ -147,7 +147,7 @@ button {
   height: 8px;
   border-radius: 50%;
   background: var(--green);
-  box-shadow: 0 0 24px rgba(46, 189, 133, 0.7);
+  box-\73 hadow: 0 0 24px rgba(46, 189, 133, 0.7);
 }
 
 .site-header nav {
@@ -337,7 +337,7 @@ p {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(15, 19, 24, 0.72);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+  box-\73 hadow: 0 30px 80px rgba(0, 0, 0, 0.35);
   overflow: hidden;
   margin-top: 76px;
   backdrop-filter: blur(14px);
@@ -448,7 +448,7 @@ p {
   color: var(--green);
   font-size: 1.36rem;
   font-weight: 800;
-  text-shadow: 0 0 18px rgba(46, 189, 133, 0.34);
+  text-\73 hadow: 0 0 18px rgba(46, 189, 133, 0.34);
   animation: pricePulse 3600ms ease-in-out infinite;
 }
 
@@ -650,7 +650,7 @@ p {
   border-radius: 8px;
   background: rgba(15, 19, 24, 0.86);
   overflow: hidden;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.28);
+  box-\73 hadow: 0 28px 80px rgba(0, 0, 0, 0.28);
 }
 
 .explainer-toolbar {
@@ -764,7 +764,7 @@ p {
 
 .fx-handle {
   fill: var(--gold);
-  filter: drop-shadow(0 0 12px rgba(240, 185, 11, 0.45));
+  filter: drop-\73 hadow(0 0 12px rgba(240, 185, 11, 0.45));
   opacity: 0;
 }
 
@@ -819,7 +819,7 @@ p {
 }
 
 .fx-sheen,
-.fx-copy-glint {
+.fx-mirror-glint {
   fill: url("#fx-range-sheen");
   opacity: 0;
   transform: translateX(-120px);
@@ -827,8 +827,8 @@ p {
 
 .explainer-card.is-visible .fx-sheen,
 .explainer-card.is-replaying .fx-sheen,
-.explainer-card.is-visible .fx-copy-glint,
-.explainer-card.is-replaying .fx-copy-glint {
+.explainer-card.is-visible .fx-mirror-glint,
+.explainer-card.is-replaying .fx-mirror-glint {
   animation: sheen 2300ms ease 1200ms infinite;
 }
 
@@ -849,45 +849,45 @@ p {
   fill: rgba(46, 189, 133, 0.42);
 }
 
-.fx-copy-bar {
-  fill: url("#fx-copy-hatch");
+.fx-mirror-bar {
+  fill: url("#fx-mirror-hatch");
   stroke: rgba(240, 185, 11, 0.86);
   transform-box: fill-box;
   transform-origin: left center;
   transform: scaleX(0);
 }
 
-.explainer-card.is-visible .fx-copy-bar,
-.explainer-card.is-replaying .fx-copy-bar {
+.explainer-card.is-visible .fx-mirror-bar,
+.explainer-card.is-replaying .fx-mirror-bar {
   animation: growBar 780ms ease forwards;
 }
 
-.fx-copy-bar-1 {
+.fx-mirror-bar-1 {
   animation-delay: 420ms;
 }
 
-.fx-copy-bar-2 {
+.fx-mirror-bar-2 {
   animation-delay: 530ms;
 }
 
-.fx-copy-bar-3 {
+.fx-mirror-bar-3 {
   animation-delay: 640ms;
 }
 
-.fx-copy-bar-4 {
+.fx-mirror-bar-4 {
   animation-delay: 750ms;
 }
 
-.fx-copy-bar-5 {
+.fx-mirror-bar-5 {
   animation-delay: 860ms;
 }
 
-.fx-copy-bar-6 {
+.fx-mirror-bar-6 {
   animation-delay: 970ms;
 }
 
-.fx-copy-glint {
-  fill: url("#fx-copy-glint");
+.fx-mirror-glint {
+  fill: url("#fx-mirror-glint");
 }
 
 .fx-reserve-fill {
@@ -922,7 +922,7 @@ p {
 
 .fx-frontier {
   fill: url("#fx-frontier-edge");
-  filter: drop-shadow(0 0 12px rgba(46, 189, 133, 0.5));
+  filter: drop-\73 hadow(0 0 12px rgba(46, 189, 133, 0.5));
 }
 
 .explainer-card.is-visible .fx-frontier,
@@ -937,7 +937,7 @@ p {
 
 .fx-taker {
   fill: var(--green);
-  filter: drop-shadow(0 0 14px rgba(46, 189, 133, 0.5));
+  filter: drop-\73 hadow(0 0 14px rgba(46, 189, 133, 0.5));
 }
 
 .explainer-card.is-visible .fx-taker,
@@ -1063,19 +1063,19 @@ p {
   height: 6px;
   border-radius: 50%;
   background: var(--green);
-  box-shadow: 0 0 0 0 rgba(46, 189, 133, 0.55);
+  box-\73 hadow: 0 0 0 0 rgba(46, 189, 133, 0.55);
   animation: marketPulse 2s ease-out infinite;
 }
 
 @keyframes marketPulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(46, 189, 133, 0.55);
+    box-\73 hadow: 0 0 0 0 rgba(46, 189, 133, 0.55);
   }
   70% {
-    box-shadow: 0 0 0 5px rgba(46, 189, 133, 0);
+    box-\73 hadow: 0 0 0 5px rgba(46, 189, 133, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(46, 189, 133, 0);
+    box-\73 hadow: 0 0 0 0 rgba(46, 189, 133, 0);
   }
 }
 
@@ -1276,7 +1276,7 @@ p {
   border-radius: 12px;
   background: rgba(8, 11, 15, 0.96);
   overflow: hidden;
-  box-shadow: 0 24px 60px -32px rgba(0, 0, 0, 0.7);
+  box-\73 hadow: 0 24px 60px -32px rgba(0, 0, 0, 0.7);
 }
 
 .cw-bar {
@@ -1748,12 +1748,12 @@ p {
   stroke: var(--green);
   stroke-width: 3;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 10px rgba(46, 189, 133, 0.65));
+  filter: drop-\73 hadow(0 0 10px rgba(46, 189, 133, 0.65));
 }
 
 .fx-sweep-dot {
   fill: var(--green);
-  filter: drop-shadow(0 0 14px rgba(46, 189, 133, 0.7));
+  filter: drop-\73 hadow(0 0 14px rgba(46, 189, 133, 0.7));
 }
 
 .fx-sweep-caption {
@@ -1930,7 +1930,7 @@ p {
   stroke-linecap: round;
   stroke-dasharray: 240;
   stroke-dashoffset: 240;
-  filter: drop-shadow(0 0 8px rgba(240, 185, 11, 0.4));
+  filter: drop-\73 hadow(0 0 8px rgba(240, 185, 11, 0.4));
 }
 
 .explainer-card.is-visible .fx-range-stem,
@@ -2124,7 +2124,7 @@ p {
   transform-box: fill-box;
   transform-origin: top center;
   transform: scaleY(0);
-  filter: drop-shadow(0 0 14px rgba(240, 185, 11, 0.18));
+  filter: drop-\73 hadow(0 0 14px rgba(240, 185, 11, 0.18));
 }
 
 .explainer-card.is-visible .fx-order-block,
@@ -2141,7 +2141,7 @@ p {
   stroke: var(--gold);
   stroke-width: 2.5;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 6px rgba(240, 185, 11, 0.5));
+  filter: drop-\73 hadow(0 0 6px rgba(240, 185, 11, 0.5));
 }
 
 .fx-dim-line {
@@ -2246,7 +2246,7 @@ p {
   transform-box: fill-box;
   transform-origin: left center;
   transform: scaleX(0);
-  filter: drop-shadow(0 0 6px rgba(240, 185, 11, 0.22));
+  filter: drop-\73 hadow(0 0 6px rgba(240, 185, 11, 0.22));
 }
 
 .explainer-card.is-visible .fx-user-band,

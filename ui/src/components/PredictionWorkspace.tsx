@@ -19,10 +19,10 @@ import { OrderBookCard } from "./market/OrderBookCard";
 import { ActivityFeed } from "./market/ActivityFeed";
 import { MarketInfoCards } from "./market/MarketInfoCards";
 import { MarketTicket } from "./market/MarketTicket";
-import { CopyLiquidityPane } from "./market/CopyLiquidityPane";
+import { MirrorLiquidityPane } from "./market/MirrorLiquidityPane";
 
 export function PredictionWorkspace() {
-  const { summary, depth, noSummary, noDepth, positions, balances, cfg, shadow, noShadow } = useApp();
+  const { summary, depth, noSummary, noDepth, positions, balances, cfg, mirror, noMirror } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
   const quoteSym = quoteSymbol(cfg);
@@ -39,10 +39,10 @@ export function PredictionWorkspace() {
   );
   const exposure = useMemo(() => exposureFromPositions(positions, baseDec), [positions, baseDec]);
   const selected = outcome === "YES" ? yes : no;
-  const copyBook = outcome === "YES" ? yesBookAddr(cfg) : noBookAddr(cfg);
-  const copyToken = outcome === "YES" ? yesTokenAddr(cfg) : noTokenAddr(cfg);
-  const copyBalance = outcome === "YES" ? balances.weth : balances.no;
-  const copyLiquidity = outcome === "YES" ? shadow : noShadow;
+  const mirrorBook = outcome === "YES" ? yesBookAddr(cfg) : noBookAddr(cfg);
+  const mirrorToken = outcome === "YES" ? yesTokenAddr(cfg) : noTokenAddr(cfg);
+  const mirrorBalance = outcome === "YES" ? balances.weth : balances.no;
+  const mirrorLiquidity = outcome === "YES" ? mirror : noMirror;
 
   return (
     <main className="dbx-shell">
@@ -54,7 +54,7 @@ export function PredictionWorkspace() {
           onOutcome={setOutcome}
           yes={yes}
           no={no}
-          copyLiquidity={copyLiquidity}
+          mirrorLiquidity={mirrorLiquidity}
           preview={orderPreview}
           onDragRange={(lo, hi) => setBand({ lo: String(lo), hi: String(hi) })}
         />
@@ -80,22 +80,22 @@ export function PredictionWorkspace() {
             setBand={setBand}
           />
         </div>
-        {copyBook && copyToken ? (
-          <CopyLiquidityPane
-            key={copyBook}
-            bookAddress={copyBook}
+        {mirrorBook && mirrorToken ? (
+          <MirrorLiquidityPane
+            key={mirrorBook}
+            bookAddress={mirrorBook}
             outcomeSymbol={outcome}
-            outcomeToken={copyToken}
-            outcomeBalance={copyBalance}
+            outcomeToken={mirrorToken}
+            outcomeBalance={mirrorBalance}
           />
         ) : (
-          <div className="dbx-copy-pane">
-            <div className="dbx-copy-head">
-              <span className="dbx-copy-title">
-                <i className="dbx-copy-swatch" /> Copy liquidity
+          <div className="dbx-mirror-pane">
+            <div className="dbx-mirror-head">
+              <span className="dbx-mirror-title">
+                <i className="dbx-mirror-swatch" /> Mirror liquidity
               </span>
             </div>
-            <div className="dbx-note warn">Copy liquidity is unavailable because this outcome book is not deployed.</div>
+            <div className="dbx-note warn">Mirror liquidity is unavailable because this outcome book is not deployed.</div>
           </div>
         )}
         <section className="dbx-portfolio panel">

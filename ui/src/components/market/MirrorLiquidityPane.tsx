@@ -11,7 +11,7 @@ const MAX_UINT = 2n ** 256n - 1n;
 
 type Mode = "add" | "withdraw";
 
-interface CopyPool {
+interface MirrorPool {
   reserve0: bigint;
   reserve1: bigint;
   totalShares: bigint;
@@ -32,7 +32,7 @@ interface ZapPreview {
   refund1: bigint;
 }
 
-export function CopyLiquidityPane({
+export function MirrorLiquidityPane({
   bookAddress,
   outcomeSymbol = "YES",
   outcomeToken,
@@ -50,18 +50,18 @@ export function CopyLiquidityPane({
   const book = bookAddress ?? cfg.contracts.book;
   const token = outcomeToken ?? cfg.contracts.weth;
   const tokenBalance = outcomeBalance ?? balances.weth;
-  const [pool, setPool] = useState<CopyPool>({
+  const [pool, setPool] = useState<MirrorPool>({
     reserve0: 0n,
     reserve1: 0n,
     totalShares: 0n,
     myShares: 0n,
     feeBps: 30,
   });
-  const seedCopy = new URLSearchParams(window.location.search).get("seedCopy") === "1";
-  const displayReserve0 = seedCopy && pool.reserve0 === 0n ? parseUnits("0.5", baseDec) : pool.reserve0;
-  const displayReserve1 = seedCopy && pool.reserve1 === 0n ? parseUnits("2000", quoteDec) : pool.reserve1;
-  const displayTotalShares = seedCopy && pool.totalShares === 0n ? 4n : pool.totalShares;
-  const displayMyShares = seedCopy && pool.myShares === 0n ? 1n : pool.myShares;
+  const seedMirror = new URLSearchParams(window.location.search).get("seedMirror") === "1";
+  const displayReserve0 = seedMirror && pool.reserve0 === 0n ? parseUnits("0.5", baseDec) : pool.reserve0;
+  const displayReserve1 = seedMirror && pool.reserve1 === 0n ? parseUnits("2000", quoteDec) : pool.reserve1;
+  const displayTotalShares = seedMirror && pool.totalShares === 0n ? 4n : pool.totalShares;
+  const displayMyShares = seedMirror && pool.myShares === 0n ? 1n : pool.myShares;
   const [mode, setMode] = useState<Mode>("add");
   const [yesStr, setYesStr] = useState("");
   const [quoteStr, setQuoteStr] = useState("");
@@ -95,12 +95,12 @@ export function CopyLiquidityPane({
         client.readContract({
           address: book,
           abi: bookAbi,
-          functionName: "shadowReserves",
+          functionName: "mirrorReserves",
         }),
         client.readContract({
           address: book,
           abi: bookAbi,
-          functionName: "shadowSharesOf",
+          functionName: "mirrorSharesOf",
           args: [addr],
         }),
       ]);
@@ -156,7 +156,7 @@ export function CopyLiquidityPane({
       .readContract({
         address: cfg.contracts.router,
         abi: routerAbi,
-        functionName: "previewZapDepositShadow",
+        functionName: "previewZapDepositMirror",
         args: [book, yesAmount, quoteAmount],
       })
       .then((result) => {
@@ -190,11 +190,11 @@ export function CopyLiquidityPane({
     if (!ready || yesAmount === null || quoteAmount === null || !zapPreview || zapPreview.shares === 0n) return;
     const { timestamp } = await client.getBlock({ blockTag: "latest" });
     const deadline = timestamp + 600n;
-    const ok = await sendTx("Auto-balance copy liquidity", () =>
+    const ok = await sendTx("Auto-balance mirror liquidity", () =>
       wallet.writeContract({
         address: cfg.contracts.router,
         abi: routerAbi,
-        functionName: "zapDepositShadow",
+        functionName: "zapDepositMirror",
         args: [book, yesAmount, quoteAmount, minSwapOut, minSharesOut, addr, deadline],
       }),
     );
@@ -208,11 +208,11 @@ export function CopyLiquidityPane({
 
   const withdraw = async () => {
     if (withdrawShares === 0n) return;
-    const ok = await sendTx("Withdraw copy liquidity", () =>
+    const ok = await sendTx("Withdraw mirror liquidity", () =>
       wallet.writeContract({
         address: book,
         abi: bookAbi,
-        functionName: "withdrawShadow",
+        functionName: "withdrawMirror",
         args: [withdrawShares, 0n, 0n],
       }),
     );
@@ -238,24 +238,24 @@ export function CopyLiquidityPane({
         : "Auto-balance into pool";
 
   return (
-    <div className="dbx-copy-pane">
-      <div className="dbx-copy-head">
-        <span className="dbx-copy-title">
-          <i className="dbx-copy-swatch" /> Copy liquidity
+    <div className="dbx-mirror-pane">
+      <div className="dbx-mirror-head">
+        <span className="dbx-mirror-title">
+          <i className="dbx-mirror-swatch" /> Mirror liquidity
         </span>
         <span className="num dim">{pool.feeBps} bps</span>
       </div>
 
-      <div className="dbx-copy-stats num">
-        <CopyStat label={`Pooled ${outcomeSymbol}`} value={fmtAmount(displayReserve0, 4, baseDec)} />
-        <CopyStat label={`Pooled ${quoteSym}`} value={fmtAmount(displayReserve1, 2, quoteDec)} />
-        <CopyStat
+      <div className="dbx-mirror-stats num">
+        <MirrorStat label={`Pooled ${outcomeSymbol}`} value={fmtAmount(displayReserve0, 4, baseDec)} />
+        <MirrorStat label={`Pooled ${quoteSym}`} value={fmtAmount(displayReserve1, 2, quoteDec)} />
+        <MirrorStat
           label="Your share"
           value={displayTotalShares > 0n ? `${((Number(displayMyShares) / Number(displayTotalShares)) * 100).toFixed(2)}%` : "—"}
         />
       </div>
 
-      <div className="dbx-copy-modes">
+      <div className="dbx-mirror-modes">
         <button className={mode === "add" ? "on" : ""} onClick={() => setMode("add")}>
           Add
         </button>
@@ -266,7 +266,7 @@ export function CopyLiquidityPane({
 
       {mode === "add" ? (
         <>
-          <div className="dbx-copy-fields">
+          <div className="dbx-mirror-fields">
             <label className="dbx-field">
               <span className="dbx-field-label">
                 {outcomeSymbol} amount <span className="dbx-bal num">bal {fmtAmount(tokenBalance, 4, baseDec)}</span>
@@ -284,8 +284,8 @@ export function CopyLiquidityPane({
               </div>
             </label>
           </div>
-          <div className="dbx-copy-preview">
-            <div className="dbx-copy-preview-head">
+          <div className="dbx-mirror-preview">
+            <div className="dbx-mirror-preview-head">
               <span>Auto-balance into pool ratio</span>
               <label className="dbx-slip num">
                 <span>Slippage</span>
@@ -304,15 +304,15 @@ export function CopyLiquidityPane({
               </label>
             </div>
             {previewErr ? (
-              <div className="dbx-copy-line warn">Preview unavailable on this deployment.</div>
+              <div className="dbx-mirror-line warn">Preview unavailable on this deployment.</div>
             ) : !ready ? (
-              <div className="dbx-copy-line dim">Enter either side to preview the deposit.</div>
+              <div className="dbx-mirror-line dim">Enter either side to preview the deposit.</div>
             ) : zapPreview ? (
               <>
                 {pool.totalShares === 0n ? (
-                  <div className="dbx-copy-line dim">First deposit sets the copy-pool ratio. No rebalance swap is used.</div>
+                  <div className="dbx-mirror-line dim">First deposit sets the mirror pool ratio. No rebalance swap is used.</div>
                 ) : zapPreview.swapOut > 0n ? (
-                  <div className="dbx-copy-line">
+                  <div className="dbx-mirror-line">
                     <span>Rebalance</span>
                     <strong className="num">
                       {fmtAmount(zapPreview.swapIn, 4, swapFromDec)} {swapFromSymbol} →{" "}
@@ -320,21 +320,21 @@ export function CopyLiquidityPane({
                     </strong>
                   </div>
                 ) : (
-                  <div className="dbx-copy-line dim">No rebalance swap expected.</div>
+                  <div className="dbx-mirror-line dim">No rebalance swap expected.</div>
                 )}
-                <div className="dbx-copy-line">
+                <div className="dbx-mirror-line">
                   <span>Deposit</span>
                   <strong className="num">
                     {fmtAmount(zapPreview.amount0Deposited, 4, baseDec)} {outcomeSymbol} ·{" "}
                     {fmtAmount(zapPreview.amount1Deposited, 2, quoteDec)} {quoteSym}
                   </strong>
                 </div>
-                <div className="dbx-copy-line">
+                <div className="dbx-mirror-line">
                   <span>Estimated shares</span>
                   <strong className="num">{fmtAmount(zapPreview.shares, 4, baseDec)}</strong>
                 </div>
                 {hasRefund && (
-                  <div className="dbx-copy-line dim">
+                  <div className="dbx-mirror-line dim">
                     <span>Unused</span>
                     <strong className="num">
                       {fmtAmount(zapPreview.refund0, 4, baseDec)} {outcomeSymbol} ·{" "}
@@ -342,7 +342,7 @@ export function CopyLiquidityPane({
                     </strong>
                   </div>
                 )}
-                <div className="dbx-copy-line dim">
+                <div className="dbx-mirror-line dim">
                   <span>Guard</span>
                   <strong className="num">
                     min {fmtAmount(minSharesOut, 4, baseDec)} shares
@@ -351,26 +351,26 @@ export function CopyLiquidityPane({
                 </div>
               </>
             ) : (
-              <div className="dbx-copy-line dim">Loading preview...</div>
+              <div className="dbx-mirror-line dim">Loading preview...</div>
             )}
           </div>
           {canApprove && needsYes ? (
-            <button className="dbx-copy-cta" disabled={busy !== null} onClick={() => approve(token, outcomeSymbol)}>
+            <button className="dbx-mirror-cta" disabled={busy !== null} onClick={() => approve(token, outcomeSymbol)}>
               Approve {outcomeSymbol}
             </button>
           ) : canApprove && needsQuote ? (
-            <button className="dbx-copy-cta" disabled={busy !== null} onClick={() => approve(cfg.contracts.usdc, quoteSym)}>
+            <button className="dbx-mirror-cta" disabled={busy !== null} onClick={() => approve(cfg.contracts.usdc, quoteSym)}>
               Approve {quoteSym}
             </button>
           ) : (
-            <button className="dbx-copy-cta" disabled={addDisabled} onClick={add}>
+            <button className="dbx-mirror-cta" disabled={addDisabled} onClick={add}>
               {addLabel}
             </button>
           )}
         </>
       ) : (
         <>
-          <div className="dbx-copy-withdraw">
+          <div className="dbx-mirror-withdraw">
             <span className="dim">Withdraw {withdrawPct}%</span>
             <input type="range" min={0} max={100} value={withdrawPct} onChange={(e) => setWithdrawPct(Number(e.target.value))} />
             <span className="num">
@@ -378,8 +378,8 @@ export function CopyLiquidityPane({
               {fmtAmount((myQuote * BigInt(withdrawPct)) / 100n, 2, quoteDec)} {quoteSym}
             </span>
           </div>
-          <button className="dbx-copy-cta withdraw" disabled={busy !== null || pool.myShares === 0n || withdrawPct === 0} onClick={withdraw}>
-            {pool.myShares === 0n ? "No copy shares" : "Withdraw"}
+          <button className="dbx-mirror-cta withdraw" disabled={busy !== null || pool.myShares === 0n || withdrawPct === 0} onClick={withdraw}>
+            {pool.myShares === 0n ? "No mirror shares" : "Withdraw"}
           </button>
         </>
       )}
@@ -387,9 +387,9 @@ export function CopyLiquidityPane({
   );
 }
 
-function CopyStat({ label, value }: { label: string; value: string }) {
+function MirrorStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="dbx-copy-stat">
+    <div className="dbx-mirror-stat">
       <span>{label}</span>
       <strong>{value}</strong>
     </div>

@@ -5,7 +5,7 @@ export const routerAbi = [
       {
         "name": "_factory",
         "type": "address",
-        "internalType": "interface IFrontierBookRegistry"
+        "internalType": "address"
       },
       {
         "name": "_lens",
@@ -14,79 +14,6 @@ export const routerAbi = [
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "event",
-    "name": "CopyLiquidityZap",
-    "inputs": [
-      {
-        "name": "book",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "user",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "recipient",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "swapped0For1",
-        "type": "bool",
-        "indexed": false,
-        "internalType": "bool"
-      },
-      {
-        "name": "swapIn",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "swapOut",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount0Deposited",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1Deposited",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "shares",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "refund0",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "refund1",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
   },
   {
     "type": "function",
@@ -153,7 +80,7 @@ export const routerAbi = [
       {
         "name": "",
         "type": "address",
-        "internalType": "interface IFrontierBookRegistry"
+        "internalType": "contract IFrontierBookRegistry"
       }
     ],
     "stateMutability": "view"
@@ -197,7 +124,7 @@ export const routerAbi = [
   },
   {
     "type": "function",
-    "name": "previewZapDepositShadow",
+    "name": "previewZapDepositMirror",
     "inputs": [
       {
         "name": "book",
@@ -361,7 +288,7 @@ export const routerAbi = [
   },
   {
     "type": "function",
-    "name": "zapDepositShadow",
+    "name": "zapDepositMirror",
     "inputs": [
       {
         "name": "book",
@@ -459,5 +386,78 @@ export const routerAbi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "MirrorLiquidityZap",
+    "inputs": [
+      {
+        "name": "book",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "swapped0For1",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "swapIn",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "swapOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount0Deposited",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1Deposited",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "refund0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "refund1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
   }
 ] as const;

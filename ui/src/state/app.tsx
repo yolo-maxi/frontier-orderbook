@@ -99,8 +99,8 @@ export interface Balances {
   no: bigint; // NO outcome token balance
 }
 
-/** Pooled copy-liquidity inventory. Contract names are still shadow* for ABI compatibility. */
-export interface ShadowInfo {
+/** Pooled mirror-liquidity inventory. Contract names are still mirror* for ABI compatibility. */
+export interface MirrorInfo {
   reserve0: bigint;
   reserve1: bigint;
   totalShares: bigint;
@@ -149,8 +149,8 @@ interface AppData {
   makerEvents: MakerEvent[];
   priceHistory: PricePoint[];
   balances: Balances;
-  shadow: ShadowInfo;
-  noShadow: ShadowInfo | null;
+  mirror: MirrorInfo;
+  noMirror: MirrorInfo | null;
   positions: PositionRow[];
   rpcError: string | null;
   toasts: TxToast[];
@@ -205,7 +205,7 @@ const MAX_HISTORY = 1200;
 const LENS_GAS_HINT = 1_000_000_000n;
 const TICK_MAX = 8_388_607; // int24 sentinels used by lens.summary
 const TICK_MIN = -8_388_608;
-const EMPTY_SHADOW: ShadowInfo = {
+const EMPTY_MIRROR: MirrorInfo = {
   reserve0: 0n,
   reserve1: 0n,
   totalShares: 0n,
@@ -313,8 +313,8 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
   const [makerEvents, setMakerEvents] = useState<MakerEvent[]>([]);
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const [balances, setBalances] = useState<Balances>({ eth: 0n, weth: 0n, usdc: 0n, no: 0n });
-  const [shadow, setShadow] = useState<ShadowInfo>(EMPTY_SHADOW);
-  const [noShadow, setNoShadow] = useState<ShadowInfo | null>(null);
+  const [mirror, setMirror] = useState<MirrorInfo>(EMPTY_MIRROR);
+  const [noMirror, setNoMirror] = useState<MirrorInfo | null>(null);
   const [positions, setPositions] = useState<PositionRow[]>([]);
   const [rpcError, setRpcError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<TxToast[]>([]);
@@ -688,21 +688,21 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     };
   }, [configured, client, cfg, account, addr, noTokenAddr, nonce]);
 
-  // -------- copy liquidity pool state (3s + manual)
+  // -------- mirror liquidity pool state (3s + manual)
   useEffect(() => {
     if (!configured) return;
     let stop = false;
-    const readShadow = async (book: `0x${string}`): Promise<ShadowInfo> => {
+    const readMirror = async (book: `0x${string}`): Promise<MirrorInfo> => {
       const [reserves, myShares] = await Promise.all([
         client.readContract({
           address: book,
           abi: bookAbi,
-          functionName: "shadowReserves",
+          functionName: "mirrorReserves",
         }),
         client.readContract({
           address: book,
           abi: bookAbi,
-          functionName: "shadowSharesOf",
+          functionName: "mirrorSharesOf",
           args: [addr],
         }),
       ]);
@@ -715,13 +715,13 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
       };
     };
     const tick = async () => {
-      const [yesCopy, noCopy] = await Promise.all([
-        readShadow(cfg.contracts.book).catch(() => EMPTY_SHADOW),
-        noBookAddr ? readShadow(noBookAddr).catch(() => null) : Promise.resolve(null),
+      const [yesMirror, noMirror] = await Promise.all([
+        readMirror(cfg.contracts.book).catch(() => EMPTY_MIRROR),
+        noBookAddr ? readMirror(noBookAddr).catch(() => null) : Promise.resolve(null),
       ]);
       if (!stop) {
-        setShadow(yesCopy);
-        setNoShadow(noCopy);
+        setMirror(yesMirror);
+        setNoMirror(noMirror);
       }
     };
     tick();
@@ -927,8 +927,8 @@ export function AppProvider({ cfg, children }: { cfg: DeploymentConfig; children
     makerEvents,
     priceHistory,
     balances,
-    shadow,
-    noShadow,
+    mirror,
+    noMirror,
     positions,
     rpcError,
     toasts,

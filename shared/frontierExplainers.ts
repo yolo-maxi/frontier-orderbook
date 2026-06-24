@@ -1,4 +1,4 @@
-export type ExplainerId = 'range' | 'fill' | 'copy' | 'sweep'
+export type ExplainerId = 'range' | 'fill' | 'mirror' | 'sweep'
 
 export type FrontierExplainer = {
   id: ExplainerId
@@ -182,22 +182,22 @@ export const frontierExplainers: FrontierExplainer[] = [
 </svg>`,
   },
   {
-    id: 'copy',
-    eyebrow: 'Copy liquidity',
+    id: 'mirror',
+    eyebrow: 'Mirror liquidity',
     title: 'Back the book without managing orders.',
     summary:
-      'Your resting bids and asks are the base layer. Copy liquidity stacks on top of every bar in gold, adding depth across the book — and when a trade moves the price or a new maker shows up, it follows them instantly.',
+      'Your resting bids and asks are the base layer. Mirror liquidity stacks on top of every bar in gold, adding depth across the book — and when a trade moves the price or a new maker shows up, it follows them instantly.',
     caption:
-      'Green and red are resting depth; gold is copy liquidity stacked on top. Watch it follow a trade across the book, then copy a new maker the moment they quote.',
+      'Green and red are resting depth; gold is mirror liquidity stacked on top. Watch it follow a trade across the book, then mirror a new maker the moment they quote.',
     bullets: [
-      'Copy liquidity adds depth on top of every resting bar.',
-      'When a trade moves the price, your copy depth follows it across the book.',
-      'A new maker gets copied the instant they quote — no bot, no requoting.',
+      'Mirror liquidity adds depth on top of every resting bar.',
+      'When a trade moves the price, your mirror depth follows it across the book.',
+      'A new maker gets mirrored the instant they quote — no bot, no requoting.',
     ],
     svg: `
-<svg class="fx-visual fx-visual--copy" viewBox="0 0 760 440" role="img" aria-labelledby="fx-copy-title fx-copy-desc">
-  <title id="fx-copy-title">Copy liquidity on the depth book</title>
-  <desc id="fx-copy-desc">A valley-shaped order book with a one-column spread at the price. Discrete trades step the price; bids grow up to follow it in sync with the line; a fixed pool of gold copy liquidity (1:1 with each bar) flows to stay on the innermost orders. Loops continuously.</desc>
+<svg class="fx-visual fx-visual--mirror" viewBox="0 0 760 440" role="img" aria-labelledby="fx-mirror-title fx-mirror-desc">
+  <title id="fx-mirror-title">Mirror liquidity on the depth book</title>
+  <desc id="fx-mirror-desc">A valley-shaped order book with a one-column spread at the price. Discrete trades step the price; bids grow up to follow it in sync with the line; a fixed pool of gold mirror liquidity (1:1 with each bar) flows to stay on the innermost orders. Loops continuously.</desc>
   <defs>
     <linearGradient id="cl-bid" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#3ddc97" stop-opacity="1"/>
@@ -281,7 +281,7 @@ export const frontierExplainers: FrontierExplainer[] = [
       </rect>
   </g>
   
-    <g class="fx-cl-copy">
+    <g class="fx-cl-mirror">
       <rect x="342" y="200" width="20" height="80" rx="4" fill="url(#cl-gold)" stroke="rgba(240,185,11,0.45)">
         <animate attributeName="x" begin="1s" dur="9s" repeatCount="indefinite" keyTimes="0;0.1;0.26;0.42;0.58;0.66;0.74;0.82;1" values="342;342;342;342;342;342;342;342;342" calcMode="spline" keySplines="0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1"/>
         <animate attributeName="height" begin="1s" dur="9s" repeatCount="indefinite" keyTimes="0;0.1;0.26;0.42;0.58;0.66;0.74;0.82;1" values="80;80;80;80;80;80;80;80;80" calcMode="spline" keySplines="0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1;0.3 0 0.2 1"/>
@@ -333,7 +333,7 @@ export const frontierExplainers: FrontierExplainer[] = [
     <text x="70" y="392">37¢</text>
     <text x="700" y="392" text-anchor="end">48¢</text>
   </g>
-  <text x="385" y="420" text-anchor="middle" fill="#8a93a0" font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="13">when a trade consumes one side, the copy liquidity rebalances to the other</text>
+  <text x="385" y="420" text-anchor="middle" fill="#8a93a0" font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="13">when a trade consumes one side, the mirror liquidity rebalances to the other</text>
 </svg>
 `,
   },

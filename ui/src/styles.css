@@ -110,7 +110,7 @@ body {
 }
 
 .book-row-hl {
-  box-shadow: inset 2px 0 0 #f0b90b;
+  box-\73 hadow: inset 2px 0 0 #f0b90b;
 }
 .book-row-hl::after {
   content: "";
@@ -149,7 +149,7 @@ body {
     var(--bg-panel);
   border: 1px solid var(--border-soft);
   border-radius: var(--r-lg);
-  box-shadow:
+  box-\73 hadow:
     inset 0 1px 0 var(--edge-hi),
     0 1px 2px rgba(0, 0, 0, 0.35);
   min-height: 0;
@@ -199,7 +199,7 @@ body {
     linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 70%),
     var(--bg-panel);
   border-bottom: 1px solid var(--border);
-  box-shadow: inset 0 1px 0 var(--edge-hi);
+  box-\73 hadow: inset 0 1px 0 var(--edge-hi);
 }
 
 .hdr-left,
@@ -262,7 +262,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-panel-2);
-  box-shadow: inset 0 1px 0 var(--edge-hi);
+  box-\73 hadow: inset 0 1px 0 var(--edge-hi);
   white-space: nowrap;
 }
 
@@ -323,7 +323,7 @@ body {
 }
 .dot-bad {
   background: var(--red);
-  box-shadow: 0 0 6px rgba(246, 70, 93, 0.7);
+  box-\73 hadow: 0 0 6px rgba(246, 70, 93, 0.7);
 }
 .dot-warn {
   background: var(--accent);
@@ -331,13 +331,13 @@ body {
 
 @keyframes dot-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(46, 189, 133, 0.55);
+    box-\73 hadow: 0 0 0 0 rgba(46, 189, 133, 0.55);
   }
   70% {
-    box-shadow: 0 0 0 6px rgba(46, 189, 133, 0);
+    box-\73 hadow: 0 0 0 6px rgba(46, 189, 133, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(46, 189, 133, 0);
+    box-\73 hadow: 0 0 0 0 rgba(46, 189, 133, 0);
   }
 }
 
@@ -372,7 +372,7 @@ body {
   border-radius: 999px;
   padding: 5px 12px 5px 7px;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 var(--edge-hi);
+  box-\73 hadow: inset 0 1px 0 var(--edge-hi);
   transition: border-color 0.15s ease, color 0.15s ease;
 }
 
@@ -405,7 +405,7 @@ body {
     filter 0.13s ease,
     opacity 0.13s ease,
     transform 0.13s ease,
-    box-shadow 0.13s ease,
+    box-\73 hadow 0.13s ease,
     border-color 0.13s ease;
 }
 
@@ -427,11 +427,11 @@ body {
 .btn-accent {
   background: linear-gradient(180deg, #f7c61e, #e8ae06);
   color: #231a00;
-  box-shadow: 0 1px 6px rgba(240, 185, 11, 0.18);
+  box-\73 hadow: 0 1px 6px rgba(240, 185, 11, 0.18);
 }
 
 .btn-accent:hover:not(:disabled) {
-  box-shadow: 0 3px 12px rgba(240, 185, 11, 0.3);
+  box-\73 hadow: 0 3px 12px rgba(240, 185, 11, 0.3);
 }
 
 .btn-ghost {
@@ -449,21 +449,21 @@ body {
 .btn-buy {
   background: linear-gradient(180deg, #35cb91, #28a877);
   color: #03140c;
-  box-shadow: 0 1px 6px rgba(46, 189, 133, 0.15);
+  box-\73 hadow: 0 1px 6px rgba(46, 189, 133, 0.15);
 }
 
 .btn-buy:hover:not(:disabled) {
-  box-shadow: 0 3px 14px rgba(46, 189, 133, 0.28);
+  box-\73 hadow: 0 3px 14px rgba(46, 189, 133, 0.28);
 }
 
 .btn-sell {
   background: linear-gradient(180deg, #f95a6f, #e4374f);
   color: #1c0508;
-  box-shadow: 0 1px 6px rgba(246, 70, 93, 0.15);
+  box-\73 hadow: 0 1px 6px rgba(246, 70, 93, 0.15);
 }
 
 .btn-sell:hover:not(:disabled) {
-  box-shadow: 0 3px 14px rgba(246, 70, 93, 0.28);
+  box-\73 hadow: 0 3px 14px rgba(246, 70, 93, 0.28);
 }
 
 .btn-wide {
@@ -488,8 +488,8 @@ body {
   padding: 9px 11px;
   font-size: 15px;
   outline: none;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-\73 hadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: border-color 0.15s ease, box-\73 hadow 0.15s ease;
 }
 
 .input::placeholder {
@@ -502,7 +502,7 @@ body {
 
 .input:focus {
   border-color: rgba(240, 185, 11, 0.55);
-  box-shadow:
+  box-\73 hadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.3),
     0 0 0 3px var(--ring);
 }
@@ -639,7 +639,7 @@ body {
 
 .book-row:hover {
   background: rgba(255, 255, 255, 0.035);
-  box-shadow:
+  box-\73 hadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     inset 0 -1px 0 rgba(255, 255, 255, 0.07);
 }
@@ -672,12 +672,12 @@ body {
 /* depth fades toward the spread: asks brighten downward, bids upward */
 .bar-ask {
   background: linear-gradient(to left, rgba(246, 70, 93, 0.17), rgba(246, 70, 93, 0.03));
-  box-shadow: inset 2px 0 0 rgba(246, 70, 93, 0.35);
+  box-\73 hadow: inset 2px 0 0 rgba(246, 70, 93, 0.35);
 }
 
 .bar-bid {
   background: linear-gradient(to left, rgba(46, 189, 133, 0.16), rgba(46, 189, 133, 0.03));
-  box-shadow: inset 2px 0 0 rgba(46, 189, 133, 0.35);
+  box-\73 hadow: inset 2px 0 0 rgba(46, 189, 133, 0.35);
 }
 
 .book-mid {
@@ -819,20 +819,20 @@ body {
 @keyframes flash-up {
   0% {
     color: var(--green-hi);
-    text-shadow: 0 0 22px rgba(46, 189, 133, 0.6);
+    text-\73 hadow: 0 0 22px rgba(46, 189, 133, 0.6);
   }
   100% {
-    text-shadow: 0 0 0 rgba(46, 189, 133, 0);
+    text-\73 hadow: 0 0 0 rgba(46, 189, 133, 0);
   }
 }
 
 @keyframes flash-down {
   0% {
     color: var(--red-hi);
-    text-shadow: 0 0 22px rgba(246, 70, 93, 0.6);
+    text-\73 hadow: 0 0 22px rgba(246, 70, 93, 0.6);
   }
   100% {
-    text-shadow: 0 0 0 rgba(246, 70, 93, 0);
+    text-\73 hadow: 0 0 0 rgba(246, 70, 93, 0);
   }
 }
 
@@ -1075,7 +1075,7 @@ body {
   background: var(--green-dim);
   border-color: rgba(46, 189, 133, 0.45);
   color: var(--green);
-  box-shadow: inset 0 1px 0 rgba(46, 189, 133, 0.12);
+  box-\73 hadow: inset 0 1px 0 rgba(46, 189, 133, 0.12);
 }
 
 .seg-buy:hover {
@@ -1086,7 +1086,7 @@ body {
   background: var(--red-dim);
   border-color: rgba(246, 70, 93, 0.45);
   color: var(--red);
-  box-shadow: inset 0 1px 0 rgba(246, 70, 93, 0.12);
+  box-\73 hadow: inset 0 1px 0 rgba(246, 70, 93, 0.12);
 }
 
 .seg-sell:hover {
@@ -1100,7 +1100,7 @@ body {
   padding: 4px 12px;
   margin-bottom: 13px;
   font-size: 12px;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  box-\73 hadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 .qrow {
@@ -1172,7 +1172,7 @@ body {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0) 50%),
     var(--bg-panel-2);
-  box-shadow: inset 0 1px 0 var(--edge-hi);
+  box-\73 hadow: inset 0 1px 0 var(--edge-hi);
   transition: border-color 0.15s ease;
 }
 
@@ -1219,13 +1219,13 @@ body {
 .chip-bid {
   background: var(--green-dim);
   color: var(--green);
-  box-shadow: inset 0 0 0 1px rgba(46, 189, 133, 0.25);
+  box-\73 hadow: inset 0 0 0 1px rgba(46, 189, 133, 0.25);
 }
 
 .chip-ask {
   background: var(--red-dim);
   color: var(--red);
-  box-shadow: inset 0 0 0 1px rgba(246, 70, 93, 0.25);
+  box-\73 hadow: inset 0 0 0 1px rgba(246, 70, 93, 0.25);
 }
 
 .pos-grid {
@@ -1380,7 +1380,7 @@ body {
   border-radius: 10px;
   padding: 10px 14px 11px 12px;
   font-size: 12px;
-  box-shadow:
+  box-\73 hadow:
     inset 0 1px 0 var(--edge-hi),
     0 10px 28px rgba(0, 0, 0, 0.55);
   animation: toast-in 0.28s cubic-bezier(0.21, 1.02, 0.55, 1.1);
@@ -1613,7 +1613,7 @@ body {
   flex-direction: column;
   gap: 14px;
 }
-.dbx-side > .dbx-copy-pane {
+.dbx-side > .dbx-mirror-pane {
   margin-top: 0;
 }
 
@@ -1640,7 +1640,7 @@ body {
   height: 48px;
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 0 0 1px var(--border), 0 0 22px -8px var(--db-accent);
+  box-\73 hadow: 0 0 0 1px var(--border), 0 0 22px -8px var(--db-accent);
 }
 .dbx-mh-text {
   min-width: 0;
@@ -1775,7 +1775,7 @@ body {
   stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 6px rgba(35, 224, 200, 0.35));
+  filter: drop-\73 hadow(0 0 6px rgba(35, 224, 200, 0.35));
 }
 .dbx-dot {
   fill: var(--db-accent);
@@ -1866,12 +1866,12 @@ body {
 }
 .dbx-outcome-card.yes.on {
   border-color: var(--green);
-  box-shadow: inset 0 0 0 1px var(--green), 0 0 22px -12px var(--green);
+  box-\73 hadow: inset 0 0 0 1px var(--green), 0 0 22px -12px var(--green);
   background: linear-gradient(180deg, var(--green-dim), transparent 70%), var(--bg-panel);
 }
 .dbx-outcome-card.no.on {
   border-color: var(--red);
-  box-shadow: inset 0 0 0 1px var(--red), 0 0 22px -12px var(--red);
+  box-\73 hadow: inset 0 0 0 1px var(--red), 0 0 22px -12px var(--red);
   background: linear-gradient(180deg, var(--red-dim), transparent 70%), var(--bg-panel);
 }
 .dbx-outcome-l {
@@ -2339,7 +2339,7 @@ body {
 }
 .dbx-amount:focus-within {
   border-color: var(--db-accent);
-  box-shadow: 0 0 0 3px var(--db-accent-dim);
+  box-\73 hadow: 0 0 0 3px var(--db-accent-dim);
 }
 .dbx-amount-cur {
   font-size: 18px;
@@ -2472,7 +2472,7 @@ body {
 }
 .dbx-cta:hover:not(:disabled) {
   filter: brightness(1.08);
-  box-shadow: 0 6px 20px -8px var(--db-accent);
+  box-\73 hadow: 0 6px 20px -8px var(--db-accent);
 }
 .dbx-cta:disabled {
   opacity: 0.45;
@@ -2634,8 +2634,8 @@ body {
   .dbx-chance > .num {
     font-size: 26px;
   }
-  .dbx-copy-stats,
-  .dbx-copy-fields {
+  .dbx-mirror-stats,
+  .dbx-mirror-fields {
     grid-template-columns: 1fr;
   }
 }
@@ -2649,14 +2649,14 @@ body {
 }
 .btn-connect:hover:not(:disabled) {
   filter: brightness(1.08);
-  box-shadow: 0 4px 16px -8px var(--db-accent);
+  box-\73 hadow: 0 4px 16px -8px var(--db-accent);
 }
 .btn-faucet {
   font-weight: 600;
 }
 .wallet-chip.wallet-connected {
   border-color: var(--db-accent);
-  box-shadow: inset 0 0 0 1px var(--db-accent-dim);
+  box-\73 hadow: inset 0 0 0 1px var(--db-accent-dim);
 }
 .wallet-chip.wallet-demo {
   color: var(--text-mid);
@@ -2813,7 +2813,7 @@ body {
 /* ── depth-view order preview ───────────────────────────────────────── */
 .dbx-depth-col.hit .dbx-depth-bar {
   background: linear-gradient(180deg, var(--db-accent), rgba(35, 224, 200, 0.35)) !important;
-  box-shadow: 0 0 9px var(--db-accent);
+  box-\73 hadow: 0 0 9px var(--db-accent);
   outline: 1px solid var(--db-accent);
 }
 .dbx-depth-marker {
@@ -2827,7 +2827,7 @@ body {
     transparent 4px,
     transparent 8px
   );
-  box-shadow: 0 0 8px var(--db-violet);
+  box-\73 hadow: 0 0 8px var(--db-violet);
   margin: 0 2px;
 }
 .dbx-depth-order {
@@ -2940,7 +2940,7 @@ body {
 .dbx-bar2:hover {
   filter: brightness(1.3);
 }
-.dbx-bar-copy {
+.dbx-bar-mirror {
   position: absolute;
   left: 0;
   right: 0;
@@ -2955,7 +2955,7 @@ body {
       rgba(240, 185, 11, 0.22) 3px,
       rgba(240, 185, 11, 0.22) 7px
     );
-  box-shadow: inset 0 0 0 1px rgba(240, 185, 11, 0.22);
+  box-\73 hadow: inset 0 0 0 1px rgba(240, 185, 11, 0.22);
   mix-blend-mode: screen;
 }
 .dbx-mid-line {
@@ -2974,7 +2974,7 @@ body {
   border: 1px solid rgba(240, 185, 11, 0.7);
   border-radius: 5px;
   z-index: 0;
-  box-shadow: inset 0 0 20px rgba(240, 185, 11, 0.12);
+  box-\73 hadow: inset 0 0 20px rgba(240, 185, 11, 0.12);
 }
 .dbx-range-box-label {
   position: absolute;
@@ -3012,7 +3012,7 @@ body {
   text-align: center;
 }
 
-.dbx-copy-pane {
+.dbx-mirror-pane {
   margin-top: 10px;
   padding: 11px;
   border-radius: 10px;
@@ -3021,23 +3021,23 @@ body {
     linear-gradient(180deg, rgba(240, 185, 11, 0.06), rgba(240, 185, 11, 0.015)),
     var(--bg-input);
 }
-.dbx-copy-head,
-.dbx-copy-title {
+.dbx-mirror-head,
+.dbx-mirror-title {
   display: flex;
   align-items: center;
 }
-.dbx-copy-head {
+.dbx-mirror-head {
   justify-content: space-between;
   gap: 12px;
 }
-.dbx-copy-title {
+.dbx-mirror-title {
   gap: 7px;
   color: var(--accent);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.02em;
 }
-.dbx-copy-swatch {
+.dbx-mirror-swatch {
   width: 13px;
   height: 13px;
   border-radius: 4px;
@@ -3051,33 +3051,33 @@ body {
       rgba(240, 185, 11, 0.18) 7px
     );
 }
-.dbx-copy-stats {
+.dbx-mirror-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
   margin-top: 9px;
 }
-.dbx-copy-stat {
+.dbx-mirror-stat {
   min-width: 0;
   padding: 8px 9px;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.025);
 }
-.dbx-copy-stat span {
+.dbx-mirror-stat span {
   display: block;
   color: var(--text-dim);
   font-size: 10.5px;
   margin-bottom: 2px;
 }
-.dbx-copy-stat strong {
+.dbx-mirror-stat strong {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text);
   font-size: 12.5px;
 }
-.dbx-copy-modes {
+.dbx-mirror-modes {
   display: flex;
   gap: 6px;
   margin-top: 9px;
@@ -3085,7 +3085,7 @@ body {
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.18);
 }
-.dbx-copy-modes button {
+.dbx-mirror-modes button {
   flex: 1;
   min-height: 30px;
   border: none;
@@ -3096,20 +3096,20 @@ body {
   font-weight: 700;
   cursor: pointer;
 }
-.dbx-copy-modes button.on {
+.dbx-mirror-modes button.on {
   color: #1d1603;
   background: linear-gradient(180deg, #ffd34d, var(--accent));
 }
-.dbx-copy-fields {
+.dbx-mirror-fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
   margin-top: 9px;
 }
-.dbx-copy-fields .dbx-field {
+.dbx-mirror-fields .dbx-field {
   margin: 0;
 }
-.dbx-copy-preview {
+.dbx-mirror-preview {
   display: grid;
   gap: 6px;
   margin-top: 9px;
@@ -3118,31 +3118,31 @@ body {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.025);
 }
-.dbx-copy-preview-head,
-.dbx-copy-line,
+.dbx-mirror-preview-head,
+.dbx-mirror-line,
 .dbx-slip {
   display: flex;
   align-items: center;
 }
-.dbx-copy-preview-head,
-.dbx-copy-line {
+.dbx-mirror-preview-head,
+.dbx-mirror-line {
   justify-content: space-between;
   gap: 10px;
 }
-.dbx-copy-preview-head {
+.dbx-mirror-preview-head {
   color: var(--text);
   font-size: 11px;
   font-weight: 800;
 }
-.dbx-copy-line {
+.dbx-mirror-line {
   min-width: 0;
   color: var(--text-mid);
   font-size: 11px;
 }
-.dbx-copy-line.warn {
+.dbx-mirror-line.warn {
   color: var(--warn);
 }
-.dbx-copy-line strong {
+.dbx-mirror-line strong {
   min-width: 0;
   overflow: hidden;
   text-align: right;
@@ -3167,7 +3167,7 @@ body {
   background: rgba(0, 0, 0, 0.2);
   text-align: right;
 }
-.dbx-copy-cta {
+.dbx-mirror-cta {
   width: 100%;
   min-height: 36px;
   margin-top: 9px;
@@ -3178,16 +3178,16 @@ body {
   font-weight: 800;
   cursor: pointer;
 }
-.dbx-copy-cta.withdraw {
+.dbx-mirror-cta.withdraw {
   color: var(--accent);
   background: rgba(240, 185, 11, 0.08);
   border: 1px solid rgba(240, 185, 11, 0.34);
 }
-.dbx-copy-cta:disabled {
+.dbx-mirror-cta:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
-.dbx-copy-withdraw {
+.dbx-mirror-withdraw {
   display: grid;
   gap: 8px;
   margin-top: 9px;
@@ -3240,5 +3240,5 @@ body {
   height: 32px;
   border-radius: 2px;
   background: var(--accent);
-  box-shadow: 0 0 8px rgba(240, 185, 11, 0.75);
+  box-\73 hadow: 0 0 8px rgba(240, 185, 11, 0.75);
 }
