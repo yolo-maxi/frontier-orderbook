@@ -13,3 +13,4 @@ bots/.fair-value.json
 bots/.heartbeat-state.json
 bots/*.key
 bots/*.pem
+ui/dist/
