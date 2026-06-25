@@ -2968,13 +2968,20 @@ body {
 }
 .dbx-range-box {
   position: absolute;
-  top: 0;
   bottom: 0;
+  min-height: 6px;
+  box-sizing: border-box;
   background: rgba(240, 185, 11, 0.15);
   border: 1px solid rgba(240, 185, 11, 0.7);
   border-radius: 5px;
   z-index: 0;
   box-shadow: inset 0 0 20px rgba(240, 185, 11, 0.12);
+}
+.dbx-range-box.extends-left {
+  border-left-style: dashed;
+}
+.dbx-range-box.extends-right {
+  border-right-style: dashed;
 }
 .dbx-range-box-label {
   position: absolute;
@@ -3204,8 +3211,8 @@ body {
 }
 .dbx-range-grab {
   position: absolute;
-  top: 0;
   bottom: 0;
+  min-height: 6px;
   z-index: 4;
   pointer-events: none;
 }
@@ -3224,6 +3231,15 @@ body {
   width: 10px;
   cursor: ew-resize;
 }
+.dbx-box-edge.t {
+  top: -7px;
+  left: 8px;
+  right: 8px;
+  bottom: auto;
+  width: auto;
+  height: 14px;
+  cursor: ns-resize;
+}
 .dbx-box-edge.l {
   left: -5px;
 }
@@ -3241,4 +3257,9 @@ body {
   border-radius: 2px;
   background: var(--accent);
   box-shadow: 0 0 8px rgba(240, 185, 11, 0.75);
+}
+.dbx-range-top-handle::after {
+  width: 48px;
+  max-width: calc(100% - 10px);
+  height: 3px;
 }

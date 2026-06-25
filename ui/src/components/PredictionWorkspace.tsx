@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useApp } from "../state/app";
 import {
   baseDecimals,
@@ -32,6 +32,10 @@ export function PredictionWorkspace() {
   // range-order band (cents), shared so both the ticket inputs and dragging the
   // box on the depth ladder edit the same order
   const [band, setBand] = useState<{ lo: string; hi: string }>({ lo: "", hi: "" });
+  const [rangeSizeDrag, setRangeSizeDrag] = useState<{ shares: number; nonce: number } | null>(null);
+  const onDragRangeSize = useCallback((shares: number) => {
+    setRangeSizeDrag((prev) => ({ shares, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
 
   const [yes, no] = useMemo(
     () => buildPredictionBooks(summary, depth, noSummary, noDepth, baseDec),
@@ -57,6 +61,7 @@ export function PredictionWorkspace() {
           mirrorLiquidity={mirrorLiquidity}
           preview={orderPreview}
           onDragRange={(lo, hi) => setBand({ lo: String(lo), hi: String(hi) })}
+          onDragSize={onDragRangeSize}
         />
         <OrderBookCard outcome={outcome} onOutcome={setOutcome} yes={yes} no={no} />
         <ActivityFeed />
@@ -78,6 +83,7 @@ export function PredictionWorkspace() {
             onPreview={setOrderPreview}
             band={band}
             setBand={setBand}
+            draggedRangeSize={rangeSizeDrag}
           />
         </div>
         {mirrorBook && mirrorToken ? (
