@@ -1,12 +1,18 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { formatUnits } from "viem";
 import { baseDecimals, quoteDecimals } from "../../lib/config";
+import { alignTick, priceToTick, tickToPrice } from "../../lib/format";
 import { fmtCents, fmtPct, type Outcome, type OrderPreview, type PredictionBook, type PredictionLevel } from "../../lib/prediction";
 import { useApp } from "../../state/app";
 
 type MirrorLiquidityDepth = {
   reserve0: bigint;
   reserve1: bigint;
+};
+
+type DepthAxis = {
+  pMin: number;
+  half: number;
 };
 
 /**
@@ -46,6 +52,7 @@ export function DepthBars({
   const mirrorReserve0 = mirrorLiquidity?.reserve0 ?? 0n;
   const mirrorReserve1 = mirrorLiquidity?.reserve1 ?? 0n;
   const book = outcome === "YES" ? yes : no;
+  const tickSpacing = book.tickSpacing;
   const bids = book.bidDepth;
   const asks = book.askDepth;
   const all = [...bids, ...asks];
@@ -55,9 +62,10 @@ export function DepthBars({
 
   // ── drag the range box ──────────────────────────────────────────────
   const [dragging, setDragging] = useState(false);
+  const [frozenAxis, setFrozenAxis] = useState<DepthAxis | null>(null);
   const plotRef = useRef<HTMLDivElement>(null);
   const axisRef = useRef({ pMin: 0, half: 1 });
-  const frozen = useRef<{ pMin: number; half: number } | null>(null);
+  const frozen = useRef<DepthAxis | null>(null);
   const drag = useRef<null | {
     part: "lo" | "hi" | "move" | "size";
     startLo: number;
@@ -65,15 +73,26 @@ export function DepthBars({
     grab: number;
   }>(null);
 
-  // The price axis fits resting liquidity only. The preview range is clipped into
-  // this stable axis so widening an order does not squash the existing bars.
-  const liquiditySpans = all.map((l) => Math.abs(l.probability - mid));
-  const liveHalf = Math.max(0.006, ...liquiditySpans) * 1.16;
-  const half = dragging && frozen.current ? frozen.current.half : liveHalf;
-  const pMin = dragging && frozen.current ? frozen.current.pMin : mid - half;
+  // The price axis fits resting liquidity only. Once real book data arrives,
+  // freeze that axis so polling updates can change bar heights without moving
+  // the scale underneath the user's pointer.
+  const liveAxis = computeDepthAxis(mid, all);
+  const hasAxisData = book.prob !== null || all.length > 0;
+  useEffect(() => {
+    setFrozenAxis(null);
+    frozen.current = null;
+  }, [outcome]);
+  useEffect(() => {
+    if (hasAxisData && frozenAxis === null) setFrozenAxis(liveAxis);
+  }, [hasAxisData, frozenAxis, liveAxis.half, liveAxis.pMin]);
+  const displayAxis = frozenAxis ?? liveAxis;
+  const drifted = frozenAxis !== null && hasDepthDrift(frozenAxis, liveAxis, mid, all);
+  const half = dragging && frozen.current ? frozen.current.half : displayAxis.half;
+  const pMin = dragging && frozen.current ? frozen.current.pMin : displayAxis.pMin;
   const pMax = pMin + 2 * half;
   const xRaw = (p: number) => ((p - pMin) / (2 * half)) * 100;
   const x = (p: number) => Math.max(0, Math.min(100, xRaw(p)));
+  const axisMid = pMin + half;
   axisRef.current = { pMin, half };
   const maxSize = Math.max(1, ...all.map((l) => l.size));
   // A full-height range box represents this many shares. It scales with visible
@@ -114,6 +133,16 @@ export function DepthBars({
     const pct = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
     return axisRef.current.pMin + pct * 2 * axisRef.current.half;
   };
+  const tickBounds = () => ({
+    min: alignTick(priceToTick(0.01), tickSpacing, true),
+    max: alignTick(priceToTick(0.99), tickSpacing, false),
+  });
+  const snapTick = (probability: number, up: boolean) => {
+    const { min, max } = tickBounds();
+    const clamped = Math.max(0.01, Math.min(0.99, probability));
+    return Math.max(min, Math.min(max, alignTick(priceToTick(clamped), tickSpacing, up)));
+  };
+  const tickToCents = (tick: number) => Number((tickToPrice(tick) * 100).toFixed(4));
   const sizeAt = (clientY: number) => {
     const r = plotRef.current?.getBoundingClientRect();
     if (!r || r.height === 0) return pv?.shares ?? RANGE_SIZE_MIN_SHARES;
@@ -160,16 +189,19 @@ export function DepthBars({
       nhi = clamp(d.startHi + delta);
     }
     if (nlo > nhi) [nlo, nhi] = [nhi, nlo];
-    let loCents = Math.round(nlo * 100);
-    let hiCents = Math.round(nhi * 100);
-    if (loCents >= hiCents) {
+    let loTick = snapTick(nlo, false);
+    let hiTick = snapTick(nhi, true);
+    if (loTick > hiTick) [loTick, hiTick] = [hiTick, loTick];
+    if (loTick >= hiTick) {
+      const { min, max } = tickBounds();
       if (d.part === "hi") {
-        hiCents = Math.min(99, loCents + 1);
+        hiTick = Math.min(max, loTick + tickSpacing);
       } else {
-        loCents = Math.max(1, hiCents - 1);
+        loTick = Math.max(min, hiTick - tickSpacing);
       }
+      if (loTick >= hiTick) loTick = Math.max(min, hiTick - tickSpacing);
     }
-    onDragRange(loCents, hiCents);
+    onDragRange(tickToCents(loTick), tickToCents(hiTick));
   };
   const onUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     drag.current = null;
@@ -197,6 +229,19 @@ export function DepthBars({
           <span className="dim">median</span>
           <strong className={`num ${outcome === "YES" ? "yes-tone" : "no-tone"}`}>{fmtPct(mid)}</strong>
         </div>
+        {drifted && (
+          <button
+            className="dbx-depth-refresh"
+            type="button"
+            onClick={() => {
+              setFrozenAxis(liveAxis);
+              frozen.current = null;
+              axisRef.current = liveAxis;
+            }}
+          >
+            Recenter
+          </button>
+        )}
       </div>
 
       <div className="dbx-depth-plot2" ref={plotRef}>
@@ -261,7 +306,7 @@ export function DepthBars({
 
       <div className="dbx-depth-axis2 num">
         <span>{fmtCents(pMin, 0)}</span>
-        <span className="dbx-axis-mid">{fmtCents(mid)}</span>
+        <span className="dbx-axis-mid">{fmtCents(axisMid, 0)}</span>
         <span>{fmtCents(pMax, 0)}</span>
       </div>
 
@@ -341,4 +386,27 @@ function allocateMirrorFill(levels: PredictionLevel[], budget: number): number[]
     remaining -= used;
     return used / level.size;
   });
+}
+
+function computeDepthAxis(mid: number, levels: PredictionLevel[]): DepthAxis {
+  const liquiditySpans = levels.map((l) => Math.abs(l.probability - mid));
+  const half = Math.max(0.006, ...liquiditySpans) * 1.16;
+  return { pMin: mid - half, half };
+}
+
+function hasDepthDrift(frozen: DepthAxis, live: DepthAxis, mid: number, levels: PredictionLevel[]): boolean {
+  const axisWidth = 2 * frozen.half;
+  if (!(axisWidth > 0)) return false;
+  const pct = (p: number) => ((p - frozen.pMin) / axisWidth) * 100;
+  const midPct = pct(mid);
+  if (midPct < 20 || midPct > 80) return true;
+  if (levels.some((l) => {
+    const x = pct(l.probability);
+    return x <= 2 || x >= 98;
+  })) {
+    return true;
+  }
+  const liveCenter = live.pMin + live.half;
+  const frozenCenter = frozen.pMin + frozen.half;
+  return Math.abs(liveCenter - frozenCenter) / axisWidth > 0.2 || live.half > frozen.half * 1.25;
 }

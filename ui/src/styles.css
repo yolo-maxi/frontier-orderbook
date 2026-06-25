@@ -2665,12 +2665,14 @@ body {
 /* ── liquidity depth bars (replaces YES/NO cards) ───────────────────── */
 .dbx-depth {
   padding: 13px 16px 10px;
+  position: relative;
 }
 .dbx-depth-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+  gap: 10px;
 }
 .dbx-depth-toggle {
   display: flex;
@@ -2708,6 +2710,7 @@ body {
   flex-direction: column;
   align-items: flex-end;
   gap: 1px;
+  margin-left: auto;
 }
 .dbx-depth-median .dim {
   font-size: 10px;
@@ -2724,6 +2727,20 @@ body {
 }
 .dbx-depth-median strong.no-tone {
   color: var(--red-hi);
+}
+.dbx-depth-refresh {
+  border: 1px solid rgba(240, 185, 11, 0.42);
+  background: rgba(240, 185, 11, 0.1);
+  color: var(--db-accent);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dbx-depth-refresh:hover {
+  border-color: rgba(240, 185, 11, 0.72);
+  background: rgba(240, 185, 11, 0.16);
 }
 .dbx-depth-plot {
   height: 150px;

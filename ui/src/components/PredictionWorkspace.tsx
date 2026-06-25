@@ -9,6 +9,7 @@ import {
   quoteSymbol,
   yesBookAddr,
   yesTokenAddr,
+  deploymentTickSpacing,
 } from "../lib/config";
 import { fmtAmount } from "../lib/format";
 import { buildPredictionBooks, exposureFromPositions, fmtCents, type Outcome, type OrderPreview } from "../lib/prediction";
@@ -26,6 +27,7 @@ export function PredictionWorkspace() {
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
   const quoteSym = quoteSymbol(cfg);
+  const defaultTickSpacing = deploymentTickSpacing(cfg);
   const question = marketQuestion(cfg);
   const [outcome, setOutcome] = useState<Outcome>("YES");
   const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
@@ -38,8 +40,8 @@ export function PredictionWorkspace() {
   }, []);
 
   const [yes, no] = useMemo(
-    () => buildPredictionBooks(summary, depth, noSummary, noDepth, baseDec),
-    [summary, depth, noSummary, noDepth, baseDec],
+    () => buildPredictionBooks(summary, depth, noSummary, noDepth, baseDec, defaultTickSpacing),
+    [summary, depth, noSummary, noDepth, baseDec, defaultTickSpacing],
   );
   const exposure = useMemo(() => exposureFromPositions(positions, baseDec), [positions, baseDec]);
   const selected = outcome === "YES" ? yes : no;
