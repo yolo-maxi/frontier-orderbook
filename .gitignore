@@ -4,3 +4,5 @@ prototype/broadcast/
 
 # Node deps (UI + bots) — never ship in the repo
 node_modules/
+landing/dist/
+website/node_modules
