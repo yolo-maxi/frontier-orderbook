@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useApp } from "../../state/app";
 import { lensAbi } from "../../abi/lens";
 import { erc20Abi } from "../../abi/erc20";
@@ -36,6 +36,7 @@ export function MarketTicket({
   onPreview,
   band,
   setBand,
+  draggedRangeSize,
 }: {
   outcome: Outcome;
   onOutcome: (o: Outcome) => void;
@@ -44,6 +45,7 @@ export function MarketTicket({
   onPreview?: (p: OrderPreview | null) => void;
   band: { lo: string; hi: string };
   setBand: Dispatch<SetStateAction<{ lo: string; hi: string }>>;
+  draggedRangeSize?: { shares: number; nonce: number } | null;
 }) {
   const { cfg, client, wallet, addr, balances, sendTx, busy } = useApp();
   const baseDec = baseDecimals(cfg);
@@ -58,6 +60,7 @@ export function MarketTicket({
   const [quoteErr, setQuoteErr] = useState<string | null>(null);
   const [allowance, setAllowance] = useState<bigint | null>(null);
   const [bookAllowance, setBookAllowance] = useState<bigint | null>(null);
+  const appliedRangeSizeNonce = useRef<number | null>(null);
 
   const isYes = outcome === "YES";
   const selected = isYes ? yes : no;
@@ -73,6 +76,13 @@ export function MarketTicket({
   const inDec = side === "buy" ? quoteDec : baseDec;
   const amountIn = parseAmount(amountStr, inDec);
   const shareBalance = isYes ? balances.weth : balances.no;
+
+  useEffect(() => {
+    if (!draggedRangeSize || appliedRangeSizeNonce.current === draggedRangeSize.nonce) return;
+    appliedRangeSizeNonce.current = draggedRangeSize.nonce;
+    if (mode !== "range" || !Number.isFinite(draggedRangeSize.shares)) return;
+    setAmountStr(formatNumberInput(draggedRangeSize.shares, Math.min(4, Math.max(0, baseDec))));
+  }, [draggedRangeSize, mode, baseDec]);
 
   // ---- live quote against the SELECTED outcome book
   useEffect(() => {
