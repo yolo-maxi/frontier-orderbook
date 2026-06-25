@@ -24,7 +24,9 @@ contract DeployFrontierPM is Script {
     uint256 internal constant CHAIN_ID = 84532;
     uint256 internal constant INITIAL_MINT = 1_000_000_000 ether;
     int24 internal constant TICK_SPACING = 60;
-    int24 internal constant START_TICK = 0;
+    // Center the market near $0.50 (a 50% implied probability) rather than par:
+    // price = 1.0001^tick, so tick = ln(0.5)/ln(1.0001) ~= -6931; aligned to spacing 60 => -6900 (~$0.502).
+    int24 internal constant START_TICK = -6900;
     uint16 internal constant MAKER_FEE_BPS = 0;
     uint16 internal constant TAKER_FEE_BPS = 30;
 
@@ -103,10 +105,12 @@ contract DeployFrontierPM is Script {
         d.yes.approve(address(d.router), type(uint256).max);
         d.usdc.approve(address(d.router), type(uint256).max);
 
-        d.book.deposit(60, 660, NEAR_LIQUIDITY);
-        d.book.deposit(660, 1260, FAR_LIQUIDITY);
-        d.book.depositBid(-600, 0, NEAR_LIQUIDITY);
-        d.book.depositBid(-1200, -600, FAR_LIQUIDITY);
+        // Seed maker depth bracketing the start tick (asks above, bids below) so the
+        // book opens centered on START_TICK (~$0.50) instead of at an absolute tick 0.
+        d.book.deposit(START_TICK + 60, START_TICK + 660, NEAR_LIQUIDITY);
+        d.book.deposit(START_TICK + 660, START_TICK + 1260, FAR_LIQUIDITY);
+        d.book.depositBid(START_TICK - 600, START_TICK, NEAR_LIQUIDITY);
+        d.book.depositBid(START_TICK - 1200, START_TICK - 600, FAR_LIQUIDITY);
 
         d.book.depositMirror(INITIAL_MIRROR_0, INITIAL_MIRROR_1, 0);
 
