@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { loadConfig, type DeploymentConfig } from "./lib/config";
+import { startPresenceHeartbeat } from "./lib/heartbeat";
 import { AppProvider, useApp } from "./state/app";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
@@ -14,6 +15,8 @@ type ConfigState =
 
 export default function App() {
   const [state, setState] = useState<ConfigState>({ phase: "loading" });
+
+  useEffect(() => startPresenceHeartbeat(), []);
 
   useEffect(() => {
     let cancelled = false;
