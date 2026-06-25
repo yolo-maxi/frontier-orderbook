@@ -23,6 +23,7 @@ export interface DeploymentConfig {
   name: string;
   chainId: number;
   rpcUrl: string;
+  tickSpacing?: number;
   faucetKey?: string;
   contracts: DeploymentContracts;
   tokens?: DeploymentTokens;
@@ -51,6 +52,8 @@ export const baseSymbol = (cfg: DeploymentConfig) => cfg.tokens?.base ?? "YES";
 export const quoteSymbol = (cfg: DeploymentConfig) => cfg.tokens?.quote ?? "USDC";
 export const baseDecimals = (cfg: DeploymentConfig) => cfg.tokens?.baseDecimals ?? 6;
 export const quoteDecimals = (cfg: DeploymentConfig) => cfg.tokens?.quoteDecimals ?? 6;
+export const deploymentTickSpacing = (cfg: DeploymentConfig) =>
+  Number.isFinite(cfg.tickSpacing) && (cfg.tickSpacing ?? 0) > 0 ? Math.trunc(cfg.tickSpacing!) : 1;
 
 const nonZero = (a: string | undefined): a is `0x${string}` => !!a && !/^0x0*$/.test(a);
 

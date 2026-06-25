@@ -14,6 +14,8 @@ export interface PredictionLevel {
 export interface PredictionBook {
   outcome: Outcome;
   source: "live" | "synthetic";
+  /** Book tick spacing; every resting order endpoint must align to this grid. */
+  tickSpacing: number;
   /** True when the book has at least one resting order on either side. */
   hasMarket: boolean;
   bestBid: number | null;
@@ -80,6 +82,7 @@ function bookFromSide(
   summary: BookSummary | null,
   depth: DepthLevel[],
   baseDecimals: number,
+  defaultTickSpacing: number,
 ): PredictionBook {
   const askPx = summary?.hasAsk ? tickToPrice(summary.bestAsk) : null;
   const bidPx = summary?.hasBid ? tickToPrice(summary.bestBid) : null;
@@ -94,6 +97,7 @@ function bookFromSide(
   return {
     outcome,
     source: "live",
+    tickSpacing: summary?.tickSpacing && summary.tickSpacing > 0 ? summary.tickSpacing : defaultTickSpacing,
     hasMarket,
     bestBid,
     bestAsk,
@@ -116,9 +120,10 @@ export function buildPredictionBooks(
   noSummary: BookSummary | null,
   noDepth: DepthLevel[],
   baseDecimals = 6,
+  defaultTickSpacing = 1,
 ): [PredictionBook, PredictionBook] {
-  const yes = bookFromSide("YES", yesSummary, yesDepth, baseDecimals);
-  const live = noSummary ? bookFromSide("NO", noSummary, noDepth, baseDecimals) : null;
+  const yes = bookFromSide("YES", yesSummary, yesDepth, baseDecimals, defaultTickSpacing);
+  const live = noSummary ? bookFromSide("NO", noSummary, noDepth, baseDecimals, defaultTickSpacing) : null;
   // Use the live NO book when it has a usable in-band market; otherwise (no NO
   // book, or its frontier is parked out of band) derive NO ≈ 1 − YES so the UI
   // always shows a sensible complementary price and the two sum to ~100¢.
@@ -131,6 +136,7 @@ export function buildPredictionBooks(
   const no: PredictionBook = {
     outcome: "NO",
     source: "synthetic",
+    tickSpacing: live?.tickSpacing ?? yes.tickSpacing,
     hasMarket: yes.hasMarket,
     bestBid: noBid,
     bestAsk: noAsk,

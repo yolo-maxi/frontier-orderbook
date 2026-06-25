@@ -64,6 +64,7 @@ export function MarketTicket({
 
   const isYes = outcome === "YES";
   const selected = isYes ? yes : no;
+  const tickSpacing = selected.tickSpacing;
   const book = isYes ? yesBookAddr(cfg) : noBookAddr(cfg);
   const outcomeToken = isYes ? yesTokenAddr(cfg) : noTokenAddr(cfg);
   const collateral = cfg.contracts.usdc;
@@ -192,17 +193,34 @@ export function MarketTicket({
   const limitPlan = useMemo(() => {
     if (mode !== "limit" || !selected || limitProb === null) return null;
     if (amountShares === null || amountShares === 0n) return null;
-    const spacing = 1;
+    const spacing = tickSpacing;
     const tick = alignTick(priceToTick(limitProb), spacing, false);
+    const snappedProb = tickToPrice(tick);
     const cur = selectedCurTick(selected);
     let error: string | null = null;
     if (side === "buy") {
       if (cur !== null && tick + spacing > cur) error = "Bid is above the market — lower the price or use Market.";
-      return { tick, spacing, fn: "depositBid" as const, escrow: limitProb * Number(amountShares) / 10 ** baseDec, error };
+      return {
+        tick,
+        spacing,
+        fn: "depositBid" as const,
+        prob: snappedProb,
+        cents: snappedProb * 100,
+        escrow: snappedProb * Number(amountShares) / 10 ** baseDec,
+        error,
+      };
     }
     if (cur !== null && tick <= cur) error = "Ask is below the market — raise the price or use Market.";
-    return { tick, spacing, fn: "deposit" as const, escrow: Number(amountShares) / 10 ** baseDec, error };
-  }, [mode, selected, limitProb, amountShares?.toString(), side, baseDec]); // eslint-disable-line react-hooks/exhaustive-deps
+    return {
+      tick,
+      spacing,
+      fn: "deposit" as const,
+      prob: snappedProb,
+      cents: snappedProb * 100,
+      escrow: Number(amountShares) / 10 ** baseDec,
+      error,
+    };
+  }, [mode, selected, limitProb, amountShares?.toString(), side, baseDec, tickSpacing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- range order: rest liquidity across a [from, to] price band (Frontier's
   // concentrated-liquidity primitive — deposit/depositBid take a tick range).
@@ -229,9 +247,11 @@ export function MarketTicket({
     });
     if (!(rangeLo >= 1 && rangeHi <= 99)) return bad("Use prices between 1¢ and 99¢.");
     if (!(rangeLo < rangeHi)) return bad("Set a 'from' price below the 'to' price.");
-    const loTick = alignTick(priceToTick(loProb), 1, false);
-    const hiTick = Math.max(loTick + 1, alignTick(priceToTick(hiProb), 1, true));
-    const levels = Math.max(1, hiTick - loTick);
+    const loTick = alignTick(priceToTick(loProb), tickSpacing, false);
+    const hiTick = Math.max(loTick + tickSpacing, alignTick(priceToTick(hiProb), tickSpacing, true));
+    const snappedLoProb = tickToPrice(loTick);
+    const snappedHiProb = tickToPrice(hiTick);
+    const levels = Math.max(1, Math.round((hiTick - loTick) / tickSpacing));
     const liqPerLevel = amountShares / BigInt(levels);
     const cur = selectedCurTick(selected);
     let error: string | null = null;
@@ -240,10 +260,22 @@ export function MarketTicket({
     if (side === "sell" && cur !== null && loTick <= cur) error = error ?? "A sell band must sit above the market.";
     const escrow =
       side === "buy"
-        ? ((loProb + hiProb) / 2) * (Number(amountShares) / 10 ** baseDec)
+        ? ((snappedLoProb + snappedHiProb) / 2) * (Number(amountShares) / 10 ** baseDec)
         : Number(amountShares) / 10 ** baseDec;
-    return { loCents: rangeLo, hiCents: rangeHi, loTick, hiTick, levels, liqPerLevel, fn, escrow, error, loProb, hiProb };
-  }, [mode, rangeLo, rangeHi, amountShares?.toString(), side, selected, baseDec]); // eslint-disable-line react-hooks/exhaustive-deps
+    return {
+      loCents: snappedLoProb * 100,
+      hiCents: snappedHiProb * 100,
+      loTick,
+      hiTick,
+      levels,
+      liqPerLevel,
+      fn,
+      escrow,
+      error,
+      loProb: snappedLoProb,
+      hiProb: snappedHiProb,
+    };
+  }, [mode, rangeLo, rangeHi, amountShares?.toString(), side, selected, baseDec, tickSpacing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // sensible defaults when entering a resting-order mode (and flip the band to the
   // correct side of the market when you toggle buy/sell)
@@ -280,9 +312,9 @@ export function MarketTicket({
         outcome,
         mode: "limit",
         side,
-        fromProb: limitProb,
-        toProb: limitProb,
-        avgProb: limitProb,
+        fromProb: limitPlan.prob,
+        toProb: limitPlan.prob,
+        avgProb: limitPlan.prob,
         shares: Number(amountShares) / 10 ** baseDec,
         cost: limitPlan.escrow,
       });
@@ -371,7 +403,7 @@ export function MarketTicket({
 
   const onLimit = async () => {
     if (!book || !limitPlan || limitPlan.error !== null || amountShares === null) return;
-    const label = `Limit ${side} ${outcome} @ ${limitCents}¢`;
+    const label = `Limit ${side} ${outcome} @ ${formatCentsInput(limitPlan.cents)}¢`;
     const ok = await sendTx(label, () =>
       wallet.writeContract({
         address: book,
@@ -589,6 +621,7 @@ export function MarketTicket({
         ) : mode === "limit" ? (
           <>
             <Row label="Rests at" value={limitProb !== null ? fmtCents(limitProb) : "—"} />
+            <Row label="Snapped to" value={limitPlan ? fmtCents(limitPlan.prob, 2) : "—"} />
             <Row
               label={side === "buy" ? "You escrow" : "You provide"}
               value={limitPlan ? (side === "buy" ? fmtUsd(limitPlan.escrow) : `${limitPlan.escrow.toFixed(2)} sh`) : "—"}
@@ -599,13 +632,13 @@ export function MarketTicket({
           <>
             <Row
               label="Band"
-              value={rangePlan ? `${fmtCents(rangePlan.loProb)} – ${fmtCents(rangePlan.hiProb)}` : "—"}
+              value={rangePlan ? `${fmtCents(rangePlan.loProb, 2)} – ${fmtCents(rangePlan.hiProb, 2)}` : "—"}
             />
             <Row
               label={side === "buy" ? "You escrow" : "You provide"}
               value={rangePlan ? (side === "buy" ? fmtUsd(rangePlan.escrow) : `${rangePlan.escrow.toFixed(2)} sh`) : "—"}
             />
-            <Row label="Spread over" value={rangePlan && rangePlan.levels ? `${rangePlan.levels} ticks` : "—"} />
+            <Row label="Spread over" value={rangePlan && rangePlan.levels ? `${rangePlan.levels} levels` : "—"} />
           </>
         )}
       </div>
@@ -723,14 +756,14 @@ function cleanCentsDraft(raw: string): string {
   const dot = filtered.indexOf(".");
   if (dot === -1) return filtered;
   const whole = filtered.slice(0, dot).replace(/\./g, "");
-  const decimals = filtered.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+  const decimals = filtered.slice(dot + 1).replace(/\./g, "").slice(0, 4);
   return `${whole}.${decimals}`;
 }
 
 function parseCentsDraft(value: string): number | null {
   const t = value.trim();
   if (!t || t === ".") return null;
-  if (!/^\d+(?:\.\d{0,2})?$/.test(t)) return null;
+  if (!/^\d+(?:\.\d{0,4})?$/.test(t)) return null;
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
 }
@@ -742,7 +775,7 @@ function finalizeCentsDraft(value: string): string {
 }
 
 function formatCentsInput(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+  return Number.isInteger(value) ? String(value) : value.toFixed(4).replace(/\.?0+$/, "");
 }
 
 function defaultRangeBand(midCents: number, side: Side): { lo: string; hi: string } {
