@@ -9,7 +9,7 @@ periphery around it, and a factory that makes markets ephemeral.
 |---|---|
 | `FrontierBookBase` | Shared storage layout, frontier ledgers, and curve virtuals — everything both halves of the book need to agree on |
 | `UniformFrontierBook` | The hot half: deposits, endpoint-telescoped sweeps, claims, uniform ask ladders (no shaped orders, no internal-balance recycling), hooks + permission gates. The base that `GeometricFrontierBook` extends |
-| `UniformMakerOps` | The cold half for the uniform/linear test book: requotes, cancels, position transfers, and copy-liquidity deposits/withdrawals — executed via delegatecall against the book's storage |
+| `UniformMakerOps` | The cold half for the uniform/linear test book: requotes, cancels, position transfers, and mirror-liquidity deposits/withdrawals — executed via delegatecall against the book's storage |
 | `GeometricFrontierBook` | The production book: the `1.0001^tick` curve as a mixin over `UniformFrontierBook` (`GeometricMakerOps` is its cold half); uniform runs telescope to one pow per endpoint |
 | `FrontierGeoBookFactory` | The deploy-day (and test) geometric factory: creates geometric books for any pair at any tick spacing through `GeometricBookDeployer` / `GeometricOpsDeployer`; many books per pair can run in parallel; tracks the first/default book per pair for router path lookups; binds the shared permission registry and optional hooks |
 | `PermissionRegistry` | The delegatable-permissions registry (a standalone draft ERC) |

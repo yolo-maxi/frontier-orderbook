@@ -1,23 +1,23 @@
-# Copy Liquidity Port
+# Mirror Liquidity Port
 
 ## Decision
 
-Chosen path: **B, adapt the zap router functions to main's existing `UniformFrontierBook` shadow implementation.**
+Chosen path: **B, adapt the zap router functions to main's existing `UniformFrontierBook` mirror implementation.**
 
-Main already had the core copy-liquidity accounting surface: `shadowReserves()`, `depositShadow()`, `withdrawShadow()`, `shadowSharesOf()`, and shadow-aware taker sweeps. The experiment branch's zap path was typed against `RollingFrontierBook`, which is not present on main and came with unrelated/destructive changes such as deleting the sqrt liquidity files and rewriting lens code. The clean port is therefore to reuse main's book/accounting implementation and add only the missing recipient-crediting deposit hook plus the router zap surface.
+Main already had the core mirror-liquidity accounting surface: `mirrorReserves()`, `depositMirror()`, `withdrawMirror()`, `mirrorSharesOf()`, and mirror-aware taker sweeps. The experiment branch's zap path was typed against `RollingFrontierBook`, which is not present on main and came with unrelated/destructive changes such as deleting the sqrt liquidity files and rewriting lens code. The clean port is therefore to reuse main's book/accounting implementation and add only the missing recipient-crediting deposit hook plus the router zap surface.
 
 ## Files Changed
 
 - `src/UniformFrontierBook.sol`
-  - Added `depositShadowFor(...)` delegatecall forwarder.
+  - Added `depositMirrorFor(...)` delegatecall forwarder.
   - Removed unused named return vars on cancel forwarders and made `rateAt` `pure` to clear compiler warnings.
 - `src/UniformMakerOps.sol`
-  - Refactored direct shadow deposits through `_depositShadow(...)`.
-  - Added `depositShadowFor(recipient, ...)`, where the caller pays and the recipient receives shares.
+  - Refactored direct mirror deposits through `_depositMirror(...)`.
+  - Added `depositMirrorFor(recipient, ...)`, where the caller pays and the recipient receives shares.
 - `src/periphery/FrontierRouter.sol`
-  - Added `ZapResult`, `CopyLiquidityZap`, `previewZapDepositShadow(...)`, and `zapDepositShadow(...)`.
+  - Added `ZapResult`, `MirrorLiquidityZap`, `previewZapDepositMirror(...)`, and `zapDepositMirror(...)`.
   - Added held-token buy/sell helpers so zaps can rebalance already-pulled funds.
-  - Added shadow-aware quote/prep helpers that account for taker fees and shadow mirror fills before previewing shares.
+  - Added mirror-aware quote/prep helpers that account for taker fees and mirror-liquidity fills before previewing shares.
 - `test/FrontierZap.t.sol`
   - Added unit, fuzz, simulation, and invariant coverage for the copied liquidity zap path.
 - `foundry.toml`
@@ -27,17 +27,17 @@ Main already had the core copy-liquidity accounting surface: `shadowReserves()`,
 
 ## Correctness Notes
 
-- `previewZapDepositShadow(...)` and `zapDepositShadow(...)` share the same preparation path; successful execution is asserted to match preview exactly.
-- Zaps rebalance only the heavy side, then call `depositShadowFor(...)`; unused dust is refunded to the caller.
-- Empty first shadow pools still require both assets. One-sided first deposits revert instead of minting a ratio from a swap.
+- `previewZapDepositMirror(...)` and `zapDepositMirror(...)` share the same preparation path; successful execution is asserted to match preview exactly.
+- Zaps rebalance only the heavy side, then call `depositMirrorFor(...)`; unused dust is refunded to the caller.
+- Empty first mirror pools still require both assets. One-sided first deposits revert instead of minting a ratio from a swap.
 - Zero amount inputs, insufficient swap output, insufficient shares, and zero recipient execution are guarded.
-- Shadow quote simulation mirrors the book's real-plus-shadow sweep behavior and includes taker fee and shadow fee effects before calculating shares.
+- Mirror quote simulation mirrors the book's real-plus-mirror sweep behavior and includes taker fee and mirror fee effects before calculating shares.
 - Tests assert router dust is zero after zaps, reserves are solvent after swaps/withdrawals, no free shares are minted on max-uint preview, and final multi-actor withdrawal drains reserves and total shares to zero.
 
 ## Test Coverage
 
 - Unit coverage:
-  - `depositShadowFor` credits recipient and withdraws correctly.
+  - `depositMirrorFor` credits recipient and withdraws correctly.
   - Balanced zap with no swap.
   - Quote-heavy zap and outcome-heavy zap rebalance through the book.
   - 30 bps taker-fee zaps in both directions, with exact preview/execution parity, token conservation, fee charging, router dust checks, and reserve solvency.
@@ -50,10 +50,10 @@ Main already had the core copy-liquidity accounting surface: `shadowReserves()`,
   - `testFuzz_PreviewMatchesActual` verifies preview/result equality across balanced and one-sided inputs.
   - `testFuzz_TakerFeePreviewMatchesActual` verifies exact preview/result equality and conservation with 30 bps taker fees on one-sided inputs.
 - Simulation coverage:
-  - Multi-actor flow: seed copy liquidity, two users zap from opposite sides, takers sweep, makers quote, users and seed LP withdraw, final reserves and shares are zero.
+  - Multi-actor flow: seed mirror liquidity, two users zap from opposite sides, takers sweep, makers quote, users and seed LP withdraw, final reserves and shares are zero.
 - Invariant coverage:
-  - Shadow reserves remain backed by book token balances.
-  - Total shadow shares equal seeded LP shares plus tracked handler shares.
+  - Mirror reserves remain backed by book token balances.
+  - Total mirror shares equal seeded LP shares plus tracked handler shares.
   - Active/bid liquidity reads across the seeded range do not underflow after handler actions.
 
 ## Gates
@@ -88,11 +88,11 @@ Ran 1 test suite in 2.60s (2.59s CPU time): 13 tests passed, 0 failed, 0 skipped
 2 passed
 ```
 
-`forge test --match-contract CopyLiquidityInvariant -vv`
+`forge test --match-contract MirrorLiquidityInvariant -vv`
 
 ```text
-[PASS] invariant_shadowAggregatesDoNotUnderflow() (runs: 10000, calls: 10000, reverts: 0)
-[PASS] invariant_shadowReservesAreSolvent() (runs: 10000, calls: 10000, reverts: 0)
+[PASS] invariant_mirrorAggregatesDoNotUnderflow() (runs: 10000, calls: 10000, reverts: 0)
+[PASS] invariant_mirrorReservesAreSolvent() (runs: 10000, calls: 10000, reverts: 0)
 ```
 
 `forge test --gas-report`
@@ -104,10 +104,10 @@ Ran 41 test suites in 44.03s (127.51s CPU time): 255 tests passed, 0 failed, 2 s
 Focused zap gas from `forge test --match-contract Zap --gas-report`:
 
 ```text
-FrontierRouter.previewZapDepositShadow: min 991, avg 632259, median 704011, max 744041, calls 264
-FrontierRouter.zapDepositShadow: min 138012, avg 924207, median 1006879, max 1046076, calls 266
-UniformFrontierBook.depositShadowFor: 187529
-UniformMakerOps.depositShadowFor: avg 38333, max 161793
+FrontierRouter.previewZapDepositMirror: min 991, avg 632259, median 704011, max 744041, calls 264
+FrontierRouter.zapDepositMirror: min 138012, avg 924207, median 1006879, max 1046076, calls 266
+UniformFrontierBook.depositMirrorFor: 187529
+UniformMakerOps.depositMirrorFor: avg 38333, max 161793
 ```
 
 `forge build --sizes`

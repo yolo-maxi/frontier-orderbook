@@ -4,7 +4,7 @@ import { baseDecimals, quoteDecimals } from "../../lib/config";
 import { fmtCents, fmtPct, type Outcome, type OrderPreview, type PredictionBook, type PredictionLevel } from "../../lib/prediction";
 import { useApp } from "../../state/app";
 
-type CopyLiquidityDepth = {
+type MirrorLiquidityDepth = {
   reserve0: bigint;
   reserve1: bigint;
 };
@@ -21,7 +21,7 @@ export function DepthBars({
   onOutcome,
   yes,
   no,
-  copyLiquidity,
+  mirrorLiquidity,
   preview,
   onDragRange,
 }: {
@@ -29,16 +29,16 @@ export function DepthBars({
   onOutcome: (o: Outcome) => void;
   yes: PredictionBook;
   no: PredictionBook;
-  copyLiquidity?: CopyLiquidityDepth | null;
+  mirrorLiquidity?: MirrorLiquidityDepth | null;
   preview?: OrderPreview | null;
   onDragRange?: (loCents: number, hiCents: number) => void;
 }) {
   const { cfg } = useApp();
   const baseDec = baseDecimals(cfg);
   const quoteDec = quoteDecimals(cfg);
-  const seedCopy = new URLSearchParams(window.location.search).get("seedCopy") === "1";
-  const copyReserve0 = copyLiquidity?.reserve0 ?? 0n;
-  const copyReserve1 = copyLiquidity?.reserve1 ?? 0n;
+  const seedMirror = new URLSearchParams(window.location.search).get("seedMirror") === "1";
+  const mirrorReserve0 = mirrorLiquidity?.reserve0 ?? 0n;
+  const mirrorReserve1 = mirrorLiquidity?.reserve1 ?? 0n;
   const book = outcome === "YES" ? yes : no;
   const bids = book.bidDepth;
   const asks = book.askDepth;
@@ -69,12 +69,12 @@ export function DepthBars({
   axisRef.current = { pMin, half };
   const maxSize = Math.max(1, ...all.map((l) => l.size));
   const barW = Math.max(1.6, Math.min(4.5, 64 / Math.max(8, all.length)));
-  const seededAskCopy = seedCopy && copyReserve0 === 0n ? maxSize * 1.6 : 0;
-  const seededBidCopy = seedCopy && copyReserve1 === 0n ? maxSize * Math.max(0.3, mid) * 1.6 : 0;
-  const askCopyFill = allocateCopyFill(asks, Number(formatUnits(copyReserve0, baseDec)) + seededAskCopy);
-  const bidCopyShares =
-    mid > 0 ? (Number(formatUnits(copyReserve1, quoteDec)) + seededBidCopy) / Math.max(0.01, mid) : 0;
-  const bidCopyFill = allocateCopyFill(bids, bidCopyShares);
+  const seededAskMirror = seedMirror && mirrorReserve0 === 0n ? maxSize * 1.6 : 0;
+  const seededBidMirror = seedMirror && mirrorReserve1 === 0n ? maxSize * Math.max(0.3, mid) * 1.6 : 0;
+  const askMirrorFill = allocateMirrorFill(asks, Number(formatUnits(mirrorReserve0, baseDec)) + seededAskMirror);
+  const bidMirrorShares =
+    mid > 0 ? (Number(formatUnits(mirrorReserve1, quoteDec)) + seededBidMirror) / Math.max(0.01, mid) : 0;
+  const bidMirrorFill = allocateMirrorFill(bids, bidMirrorShares);
 
   const lo = pv ? Math.min(pv.fromProb, pv.toProb) : 0;
   const hi = pv ? Math.max(pv.fromProb, pv.toProb) : 0;
@@ -192,7 +192,7 @@ export function DepthBars({
                 x={x(l.probability)}
                 w={barW}
                 h={(l.size / maxSize) * 100}
-                copyFill={bidCopyFill[i] ?? 0}
+                mirrorFill={bidMirrorFill[i] ?? 0}
                 side="bid"
               />
             ))}
@@ -203,7 +203,7 @@ export function DepthBars({
                 x={x(l.probability)}
                 w={barW}
                 h={(l.size / maxSize) * 100}
-                copyFill={askCopyFill[i] ?? 0}
+                mirrorFill={askMirrorFill[i] ?? 0}
                 side="ask"
               />
             ))}
@@ -259,14 +259,14 @@ function Bar({
   x,
   w,
   h,
-  copyFill,
+  mirrorFill,
   side,
 }: {
   level: PredictionLevel;
   x: number;
   w: number;
   h: number;
-  copyFill: number;
+  mirrorFill: number;
   side: "bid" | "ask";
 }) {
   return (
@@ -275,7 +275,7 @@ function Bar({
       title={`${fmtCents(level.probability, 1)} · ${level.size.toLocaleString("en-US", { maximumFractionDigits: 1 })} sh`}
       style={{ left: `${x - w / 2}%`, width: `${w}%`, height: `${Math.max(3, h)}%` }}
     >
-      {copyFill > 0 && <span className="dbx-bar-copy" style={{ height: `${Math.max(7, copyFill * 100)}%` }} />}
+      {mirrorFill > 0 && <span className="dbx-bar-mirror" style={{ height: `${Math.max(7, mirrorFill * 100)}%` }} />}
     </div>
   );
 }
@@ -284,7 +284,7 @@ function fmtUsdShort(n: number): string {
   return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
-function allocateCopyFill(levels: PredictionLevel[], budget: number): number[] {
+function allocateMirrorFill(levels: PredictionLevel[], budget: number): number[] {
   if (!Number.isFinite(budget) || budget <= 0) return levels.map(() => 0);
   let remaining = budget;
   return levels.map((level) => {

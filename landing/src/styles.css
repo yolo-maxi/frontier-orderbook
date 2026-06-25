@@ -819,7 +819,7 @@ p {
 }
 
 .fx-sheen,
-.fx-copy-glint {
+.fx-mirror-glint {
   fill: url("#fx-range-sheen");
   opacity: 0;
   transform: translateX(-120px);
@@ -827,8 +827,8 @@ p {
 
 .explainer-card.is-visible .fx-sheen,
 .explainer-card.is-replaying .fx-sheen,
-.explainer-card.is-visible .fx-copy-glint,
-.explainer-card.is-replaying .fx-copy-glint {
+.explainer-card.is-visible .fx-mirror-glint,
+.explainer-card.is-replaying .fx-mirror-glint {
   animation: sheen 2300ms ease 1200ms infinite;
 }
 
@@ -849,45 +849,45 @@ p {
   fill: rgba(46, 189, 133, 0.42);
 }
 
-.fx-copy-bar {
-  fill: url("#fx-copy-hatch");
+.fx-mirror-bar {
+  fill: url("#fx-mirror-hatch");
   stroke: rgba(240, 185, 11, 0.86);
   transform-box: fill-box;
   transform-origin: left center;
   transform: scaleX(0);
 }
 
-.explainer-card.is-visible .fx-copy-bar,
-.explainer-card.is-replaying .fx-copy-bar {
+.explainer-card.is-visible .fx-mirror-bar,
+.explainer-card.is-replaying .fx-mirror-bar {
   animation: growBar 780ms ease forwards;
 }
 
-.fx-copy-bar-1 {
+.fx-mirror-bar-1 {
   animation-delay: 420ms;
 }
 
-.fx-copy-bar-2 {
+.fx-mirror-bar-2 {
   animation-delay: 530ms;
 }
 
-.fx-copy-bar-3 {
+.fx-mirror-bar-3 {
   animation-delay: 640ms;
 }
 
-.fx-copy-bar-4 {
+.fx-mirror-bar-4 {
   animation-delay: 750ms;
 }
 
-.fx-copy-bar-5 {
+.fx-mirror-bar-5 {
   animation-delay: 860ms;
 }
 
-.fx-copy-bar-6 {
+.fx-mirror-bar-6 {
   animation-delay: 970ms;
 }
 
-.fx-copy-glint {
-  fill: url("#fx-copy-glint");
+.fx-mirror-glint {
+  fill: url("#fx-mirror-glint");
 }
 
 .fx-reserve-fill {

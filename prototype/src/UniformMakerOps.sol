@@ -43,40 +43,40 @@ contract UniformMakerOps is FrontierBookBase {
         emit PositionTransferred(positionId, msg.sender, to);
     }
 
-    /// @notice Add funds to the pooled copy inventory at the pool's
+    /// @notice Add funds to the pooled mirror inventory at the pool's
     /// current reserve ratio. The first depositor sets the ratio; later
     /// deposits are pro-rata and oracle-free.
-    function depositShadow(uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
+    function depositMirror(uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
         external
         returns (uint256 shares, uint256 amount0, uint256 amount1)
     {
-        return _depositShadow(msg.sender, amount0Max, amount1Max, minSharesOut);
+        return _depositMirror(msg.sender, amount0Max, amount1Max, minSharesOut);
     }
 
-    /// @notice Add copy liquidity paid by the caller and credit the minted
+    /// @notice Add mirror liquidity paid by the caller and credit the minted
     /// shares to `recipient`. Used by router zaps after rebalancing.
-    function depositShadowFor(address recipient, uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
+    function depositMirrorFor(address recipient, uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
         external
         returns (uint256 shares, uint256 amount0, uint256 amount1)
     {
         if (recipient == address(0)) revert ZeroOwner();
-        return _depositShadow(recipient, amount0Max, amount1Max, minSharesOut);
+        return _depositMirror(recipient, amount0Max, amount1Max, minSharesOut);
     }
 
-    function _depositShadow(address recipient, uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
+    function _depositMirror(address recipient, uint256 amount0Max, uint256 amount1Max, uint256 minSharesOut)
         internal
         returns (uint256 shares, uint256 amount0, uint256 amount1)
     {
         if (amount0Max == 0 && amount1Max == 0) revert ZeroAmounts();
-        uint256 total = shadowTotalShares;
+        uint256 total = mirrorTotalShares;
         if (total == 0) {
             if (amount0Max == 0 || amount1Max == 0) revert ImbalancedFirstDeposit();
             amount0 = amount0Max;
             amount1 = amount1Max;
             shares = amount0 + amount1;
         } else {
-            uint256 r0 = shadowReserve0;
-            uint256 r1 = shadowReserve1;
+            uint256 r0 = mirrorReserve0;
+            uint256 r1 = mirrorReserve1;
             if (r0 == 0 && r1 == 0) revert EmptyPool();
             uint256 s0 = r0 == 0 ? type(uint256).max : (amount0Max * total) / r0;
             uint256 s1 = r1 == 0 ? type(uint256).max : (amount1Max * total) / r1;
@@ -86,36 +86,36 @@ contract UniformMakerOps is FrontierBookBase {
         }
         if (shares < minSharesOut || shares == 0) revert InsufficientShares();
 
-        shadowTotalShares = total + shares;
-        shadowShares[recipient] += shares;
-        shadowReserve0 += amount0;
-        shadowReserve1 += amount1;
+        mirrorTotalShares = total + shares;
+        mirrorShares[recipient] += shares;
+        mirrorReserve0 += amount0;
+        mirrorReserve1 += amount1;
 
         _transferInExact(token0, msg.sender, amount0);
         _transferInExact(token1, msg.sender, amount1);
-        emit ShadowDeposit(recipient, amount0, amount1, shares);
+        emit MirrorDeposit(recipient, amount0, amount1, shares);
     }
 
-    /// @notice Burn copy shares for a pro-rata slice of both reserves.
-    function withdrawShadow(uint256 shares, uint256 minAmount0Out, uint256 minAmount1Out)
+    /// @notice Burn mirror shares for a pro-rata slice of both reserves.
+    function withdrawMirror(uint256 shares, uint256 minAmount0Out, uint256 minAmount1Out)
         external
         returns (uint256 amount0, uint256 amount1)
     {
         if (shares == 0) revert ZeroShares();
-        uint256 total = shadowTotalShares;
-        if (total == 0 || shadowShares[msg.sender] < shares) revert InsufficientShares();
-        amount0 = (shares * shadowReserve0) / total;
-        amount1 = (shares * shadowReserve1) / total;
+        uint256 total = mirrorTotalShares;
+        if (total == 0 || mirrorShares[msg.sender] < shares) revert InsufficientShares();
+        amount0 = (shares * mirrorReserve0) / total;
+        amount1 = (shares * mirrorReserve1) / total;
         if (amount0 < minAmount0Out || amount1 < minAmount1Out) revert InsufficientAmounts();
 
-        shadowShares[msg.sender] -= shares;
-        shadowTotalShares = total - shares;
-        shadowReserve0 -= amount0;
-        shadowReserve1 -= amount1;
+        mirrorShares[msg.sender] -= shares;
+        mirrorTotalShares = total - shares;
+        mirrorReserve0 -= amount0;
+        mirrorReserve1 -= amount1;
 
         if (amount0 > 0 && !token0.transfer(msg.sender, amount0)) revert TransferOutFailed();
         if (amount1 > 0 && !token1.transfer(msg.sender, amount1)) revert TransferOutFailed();
-        emit ShadowWithdraw(msg.sender, amount0, amount1, shares);
+        emit MirrorWithdraw(msg.sender, amount0, amount1, shares);
     }
 
     /// @notice O(1) re-price (and optionally re-size) of a completely UNFILLED

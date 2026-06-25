@@ -6,7 +6,7 @@ import {MockERC20} from "../src/MockERC20.sol";
 import {UniformFrontierBook} from "../src/UniformFrontierBook.sol";
 import {newBookWithFees} from "./utils/BookFab.sol";
 
-contract FrontierShadowTest is Test {
+contract FrontierMirrorTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
     UniformFrontierBook internal book;
@@ -18,14 +18,14 @@ contract FrontierShadowTest is Test {
     address internal feeRecipient = makeAddr("feeRecipient");
 
     uint128 internal constant L = 1e18;
-    uint256 internal constant SHADOW_FEE_BPS = 30;
+    uint256 internal constant MIRROR_FEE_BPS = 30;
     uint256 internal constant BPS = 10_000;
 
     function setUp() public {
         t0 = new MockERC20("T0", "T0");
         t1 = new MockERC20("T1", "T1");
-        // Fee recipient set, maker/taker bps = 0: isolates the copy fee so the
-        // economic assertions read cleanly. The copy fee routes to the
+        // Fee recipient set, maker/taker bps = 0: isolates the mirror fee so the
+        // economic assertions read cleanly. The mirror fee routes to the
         // protocol (feeRecipient), never back into the pool.
         book = newBookWithFees(address(t0), address(t1), 1, 100, address(0), address(0), feeRecipient, 0, 0);
 
@@ -60,31 +60,31 @@ contract FrontierShadowTest is Test {
         return acc / 1e18;
     }
 
-    function _shadowFee(uint256 amount) internal pure returns (uint256) {
-        return (amount * SHADOW_FEE_BPS) / BPS;
+    function _mirrorFee(uint256 amount) internal pure returns (uint256) {
+        return (amount * MIRROR_FEE_BPS) / BPS;
     }
 
-    function _seedShadow() internal returns (uint256 shares) {
+    function _seedMirror() internal returns (uint256 shares) {
         vm.prank(lp);
-        (shares,,) = book.depositShadow(10 * uint256(L), 10_000 * uint256(L), 0);
+        (shares,,) = book.depositMirror(10 * uint256(L), 10_000 * uint256(L), 0);
     }
 
-    function testShadowDepositWithdrawIsProRata() public {
+    function testMirrorDepositWithdrawIsProRata() public {
         vm.prank(lp);
-        (uint256 shares,,) = book.depositShadow(100 ether, 500 ether, 0);
+        (uint256 shares,,) = book.depositMirror(100 ether, 500 ether, 0);
         assertEq(shares, 600 ether, "first shares");
 
         vm.prank(lp2);
-        (uint256 shares2, uint256 used0, uint256 used1) = book.depositShadow(100 ether, 1000 ether, 0);
+        (uint256 shares2, uint256 used0, uint256 used1) = book.depositMirror(100 ether, 1000 ether, 0);
         assertEq(shares2, 600 ether, "second shares at pool ratio");
         assertEq(used0, 100 ether, "amount0 clipped");
         assertEq(used1, 500 ether, "amount1 clipped");
-        assertEq(book.shadowSharesOf(lp2), 600 ether, "shares stored");
+        assertEq(book.mirrorSharesOf(lp2), 600 ether, "shares stored");
 
         uint256 before0 = t0.balanceOf(lp2);
         uint256 before1 = t1.balanceOf(lp2);
         vm.prank(lp2);
-        (uint256 out0, uint256 out1) = book.withdrawShadow(shares2, 0, 0);
+        (uint256 out0, uint256 out1) = book.withdrawMirror(shares2, 0, 0);
 
         assertEq(out0, 100 ether, "withdraw amount0");
         assertEq(out1, 500 ether, "withdraw amount1");
@@ -92,62 +92,62 @@ contract FrontierShadowTest is Test {
         assertEq(t1.balanceOf(lp2) - before1, out1, "token1 returned");
     }
 
-    function testShadowAskMirrorsRealFillAndLeavesMakerClaimUnchanged() public {
-        _seedShadow();
+    function testMirrorAskMirrorsRealFillAndLeavesMakerClaimUnchanged() public {
+        _seedMirror();
         vm.prank(maker);
         uint256 id = book.deposit(101, 103, L);
 
-        // Shadow mirrors the real token1 input 1:1 at book price (no premium);
+        // Mirror liquidity matches the real token1 input 1:1 at book price (no premium);
         // its fee is taken from that token1 and routed to the protocol, so the
         // taker pays exactly 2x the real input and the pool keeps input - fee.
         uint256 realPaid = _ceilSpan1(101, 103, L);
-        uint256 shadowFee = _shadowFee(realPaid);
+        uint256 mirrorFee = _mirrorFee(realPaid);
         vm.prank(taker);
         (int24 reached, uint256 paid, uint256 received) =
             book.sweepWithLimits(103, type(uint256).max, type(uint256).max, 0, block.timestamp);
 
         assertEq(reached, 103, "reached target");
-        assertEq(paid, 2 * realPaid, "real plus shadow input, no premium");
-        assertEq(received, 4 * uint256(L), "real output doubled by shadow");
+        assertEq(paid, 2 * realPaid, "real plus mirror input, no premium");
+        assertEq(received, 4 * uint256(L), "real output doubled by mirror");
         assertEq(book.claimable(id), _floorSpan1(101, 103, L), "maker claim is real-only");
-        assertEq(t1.balanceOf(feeRecipient), shadowFee, "copy fee routed to protocol");
+        assertEq(t1.balanceOf(feeRecipient), mirrorFee, "mirror fee routed to protocol");
 
-        (uint256 r0, uint256 r1,) = book.shadowReserves();
-        assertEq(r0, 8 * uint256(L), "shadow sold token0");
-        assertEq(r1, 10_000 * uint256(L) + realPaid - shadowFee, "shadow keeps input net of fee");
+        (uint256 r0, uint256 r1,) = book.mirrorReserves();
+        assertEq(r0, 8 * uint256(L), "mirror sold token0");
+        assertEq(r1, 10_000 * uint256(L) + realPaid - mirrorFee, "mirror keeps input net of fee");
     }
 
-    function testShadowBidMirrorsRealFillAndBouncesInventory() public {
-        _seedShadow();
+    function testMirrorBidMirrorsRealFillAndBouncesInventory() public {
+        _seedMirror();
         vm.prank(maker);
         uint256 id = book.depositBid(97, 100, L);
 
         uint256 realOut = _floorSpan1(97, 100, L);
-        uint256 shadowFee = _shadowFee(realOut);
+        uint256 mirrorFee = _mirrorFee(realOut);
         vm.prank(taker);
         (int24 reached, uint256 paid, uint256 received) =
             book.sweepWithLimits(97, type(uint256).max, type(uint256).max, 0, block.timestamp);
 
         assertEq(reached, 97, "reached target");
-        assertEq(paid, 6 * uint256(L), "real input doubled by shadow");
-        assertEq(received, 2 * realOut - shadowFee, "shadow output net of fee");
+        assertEq(paid, 6 * uint256(L), "real input doubled by mirror");
+        assertEq(received, 2 * realOut - mirrorFee, "mirror output net of fee");
         assertEq(book.bidClaimable(id), 3 * uint256(L), "maker claim is real-only");
-        assertEq(t1.balanceOf(feeRecipient), shadowFee, "copy fee routed to protocol");
+        assertEq(t1.balanceOf(feeRecipient), mirrorFee, "mirror fee routed to protocol");
 
         // Pool pays the full token1 leg; the fee is carved out of the taker's
         // output and sent to the protocol, not retained by the pool.
-        (uint256 r0, uint256 r1,) = book.shadowReserves();
-        assertEq(r0, 13 * uint256(L), "shadow bought token0");
-        assertEq(r1, 10_000 * uint256(L) - realOut, "shadow paid full token1 leg");
+        (uint256 r0, uint256 r1,) = book.mirrorReserves();
+        assertEq(r0, 13 * uint256(L), "mirror bought token0");
+        assertEq(r1, 10_000 * uint256(L) - realOut, "mirror paid full token1 leg");
     }
 
-    function testFiniteBudgetSplitsBetweenRealAndShadow() public {
-        _seedShadow();
+    function testFiniteBudgetSplitsBetweenRealAndMirror() public {
+        _seedMirror();
         vm.prank(maker);
         book.deposit(101, 103, L);
 
         // No premium on the taker: budget splits evenly between the real level
-        // and its shadow mirror. The copy fee is paid by the pool, not added
+        // and its mirror-liquidity leg. The mirror fee is paid by the pool, not added
         // to the taker's spend.
         uint256 oneLevel = _ceilSpan1(101, 102, L);
         uint256 maxPay = 2 * oneLevel;
@@ -156,20 +156,20 @@ contract FrontierShadowTest is Test {
             book.sweepWithLimits(103, type(uint256).max, maxPay, 0, block.timestamp);
 
         assertEq(reached, 102, "real fill parks after one level");
-        assertEq(paid, maxPay, "budget spent on one real and one shadow level");
-        assertEq(received, 2 * uint256(L), "one real level plus one shadow level");
-        assertEq(t1.balanceOf(feeRecipient), _shadowFee(oneLevel), "copy fee routed to protocol");
+        assertEq(paid, maxPay, "budget spent on one real and one mirror level");
+        assertEq(received, 2 * uint256(L), "one real level plus one mirror level");
+        assertEq(t1.balanceOf(feeRecipient), _mirrorFee(oneLevel), "mirror fee routed to protocol");
     }
 
-    /// @notice With no fee recipient the copy fee is zero: the pool mirrors at
+    /// @notice With no fee recipient the mirror fee is zero: the pool mirrors at
     /// pure book price and never attempts a transfer to address(0).
-    function testShadowFeelessWhenNoRecipient() public {
+    function testMirrorFeelessWhenNoRecipient() public {
         UniformFrontierBook freeBook =
             newBookWithFees(address(t0), address(t1), 1, 100, address(0), address(0), address(0), 0, 0);
         vm.startPrank(lp);
         t0.approve(address(freeBook), type(uint256).max);
         t1.approve(address(freeBook), type(uint256).max);
-        freeBook.depositShadow(10 * uint256(L), 10_000 * uint256(L), 0);
+        freeBook.depositMirror(10 * uint256(L), 10_000 * uint256(L), 0);
         vm.stopPrank();
         vm.prank(maker);
         t0.approve(address(freeBook), type(uint256).max);
@@ -185,7 +185,7 @@ contract FrontierShadowTest is Test {
 
         assertEq(paid, 2 * realPaid, "no premium");
         assertEq(received, 4 * uint256(L), "full mirror");
-        (, uint256 r1,) = freeBook.shadowReserves();
+        (, uint256 r1,) = freeBook.mirrorReserves();
         assertEq(r1, 10_000 * uint256(L) + realPaid, "pool keeps full input, no fee carved");
     }
 
@@ -230,9 +230,9 @@ contract FrontierShadowTest is Test {
         console2.log("real-only preseeded sweep gas:", realOnlyGas);
     }
 
-    function testGasShadowSweep50Levels() public {
+    function testGasMirrorSweep50Levels() public {
         vm.prank(lp);
-        book.depositShadow(100 * uint256(L), 100_000 * uint256(L), 0);
+        book.depositMirror(100 * uint256(L), 100_000 * uint256(L), 0);
         vm.prank(maker);
         book.deposit(101, 151, L);
 
@@ -241,12 +241,12 @@ contract FrontierShadowTest is Test {
         uint256 gasBefore = gasleft();
         (int24 reached,, uint256 received) =
             book.sweepWithLimits(151, type(uint256).max, type(uint256).max, 0, block.timestamp);
-        uint256 shadowGas = gasBefore - gasleft();
+        uint256 mirrorGas = gasBefore - gasleft();
 
-        assertEq(reached, 151, "shadow reached");
-        assertEq(received, 100 * uint256(L), "shadow received");
-        console2.log("shadow sweep gas:", shadowGas);
-        console2.log("shadow received:", received);
+        assertEq(reached, 151, "mirror reached");
+        assertEq(received, 100 * uint256(L), "mirror received");
+        console2.log("mirror sweep gas:", mirrorGas);
+        console2.log("mirror received:", received);
     }
 
     function testGasRealOnlyDownSweep50Levels() public {
@@ -283,9 +283,9 @@ contract FrontierShadowTest is Test {
         console2.log("real-only preseeded down sweep gas:", realOnlyGas);
     }
 
-    function testGasShadowDownSweep50Levels() public {
+    function testGasMirrorDownSweep50Levels() public {
         vm.prank(lp);
-        book.depositShadow(100 * uint256(L), 100_000 * uint256(L), 0);
+        book.depositMirror(100 * uint256(L), 100_000 * uint256(L), 0);
         vm.prank(maker);
         book.depositBid(50, 100, L);
 
@@ -294,35 +294,35 @@ contract FrontierShadowTest is Test {
         uint256 gasBefore = gasleft();
         (int24 reached,, uint256 received) =
             book.sweepWithLimits(50, type(uint256).max, type(uint256).max, 0, block.timestamp);
-        uint256 shadowGas = gasBefore - gasleft();
+        uint256 mirrorGas = gasBefore - gasleft();
 
-        assertEq(reached, 50, "shadow reached");
-        assertGt(received, _floorSpan1(50, 100, L), "shadow output includes mirror");
-        console2.log("shadow down sweep gas:", shadowGas);
-        console2.log("shadow down received:", received);
+        assertEq(reached, 50, "mirror reached");
+        assertGt(received, _floorSpan1(50, 100, L), "mirror output includes mirror");
+        console2.log("mirror down sweep gas:", mirrorGas);
+        console2.log("mirror down received:", received);
     }
 
-    function testShadowPoolGas() public {
+    function testMirrorPoolGas() public {
         _cool(address(book));
         vm.prank(lp);
         uint256 gasBefore = gasleft();
-        (uint256 shares,,) = book.depositShadow(100 * uint256(L), 100_000 * uint256(L), 0);
+        (uint256 shares,,) = book.depositMirror(100 * uint256(L), 100_000 * uint256(L), 0);
         uint256 firstDepositGas = gasBefore - gasleft();
 
         _cool(address(book));
         vm.prank(lp2);
         gasBefore = gasleft();
-        book.depositShadow(100 * uint256(L), 100_000 * uint256(L), 0);
+        book.depositMirror(100 * uint256(L), 100_000 * uint256(L), 0);
         uint256 secondDepositGas = gasBefore - gasleft();
 
         _cool(address(book));
         vm.prank(lp);
         gasBefore = gasleft();
-        book.withdrawShadow(shares / 2, 0, 0);
+        book.withdrawMirror(shares / 2, 0, 0);
         uint256 withdrawGas = gasBefore - gasleft();
 
-        console2.log("shadow first deposit gas:", firstDepositGas);
-        console2.log("shadow pro-rata deposit gas:", secondDepositGas);
-        console2.log("shadow withdraw gas:", withdrawGas);
+        console2.log("mirror first deposit gas:", firstDepositGas);
+        console2.log("mirror pro-rata deposit gas:", secondDepositGas);
+        console2.log("mirror withdraw gas:", withdrawGas);
     }
 }

@@ -67,8 +67,8 @@ carries the same ≥1 unit so the sweep bitmap sees it.
 - **Transferable positions**: ownership moves; claims and refunds follow.
 - **Taker protections**: `sweepWithLimits(target, maxSteps, maxPay, minOut,
   deadline)` in both directions, resumable parking on any budget.
-- **Copy-liquidity accounting**: `depositShadow` / `withdrawShadow` manage
-  a pooled shadow inventory with `shadowReserves` and `shadowSharesOf`
+- **Mirror-liquidity accounting**: `depositMirror` / `withdrawMirror` manage
+  a pooled mirror inventory with `mirrorReserves` and `mirrorSharesOf`
   views. It mirrors real fills without posting independent price levels.
 - **Per-book fees**: maker claim fees and taker input fees are immutable,
   capped at 1,000 bps, and default to zero in the deploy script.

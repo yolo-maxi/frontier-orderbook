@@ -36,9 +36,63 @@ export const bookAbi = [
         "name": "_makerOps",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "_feeRecipient",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_makerFeeBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "_takerFeeBps",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "FEE_BPS_DENOMINATOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_FEE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIRROR_FEE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -118,6 +172,25 @@ export const bookAbi = [
   },
   {
     "type": "function",
+    "name": "bidFrontierOf",
+    "inputs": [
+      {
+        "name": "positionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "bidLiquidity",
     "inputs": [
       {
@@ -166,12 +239,12 @@ export const bookAbi = [
     ],
     "outputs": [
       {
-        "name": "proceeds1",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "principal0",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -190,12 +263,12 @@ export const bookAbi = [
     ],
     "outputs": [
       {
-        "name": "proceeds0",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "refund1",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -219,12 +292,12 @@ export const bookAbi = [
     ],
     "outputs": [
       {
-        "name": "proceeds0",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "refund1",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -248,12 +321,12 @@ export const bookAbi = [
     ],
     "outputs": [
       {
-        "name": "proceeds1",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "principal0",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -266,6 +339,30 @@ export const bookAbi = [
     "inputs": [
       {
         "name": "positionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "proceeds1",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "claimAuto",
+    "inputs": [
+      {
+        "name": "positionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minProceeds",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -300,10 +397,15 @@ export const bookAbi = [
   },
   {
     "type": "function",
-    "name": "claimBidInternal",
+    "name": "claimBidAuto",
     "inputs": [
       {
         "name": "positionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minProceeds",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -335,25 +437,6 @@ export const bookAbi = [
     "outputs": [
       {
         "name": "proceeds0",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "claimInternal",
-    "inputs": [
-      {
-        "name": "positionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "proceeds1",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -476,37 +559,99 @@ export const bookAbi = [
   },
   {
     "type": "function",
-    "name": "depositShaped",
+    "name": "depositMirror",
     "inputs": [
       {
-        "name": "lower",
-        "type": "int24",
-        "internalType": "int24"
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       },
       {
-        "name": "upper",
-        "type": "int24",
-        "internalType": "int24"
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       },
       {
-        "name": "liquidity",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "slope",
-        "type": "int128",
-        "internalType": "int128"
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "positionId",
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "depositMirrorFor",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "feeRecipient",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -542,19 +687,32 @@ export const bookAbi = [
   },
   {
     "type": "function",
-    "name": "frontierSlope",
+    "name": "frontierOf",
     "inputs": [
+      {
+        "name": "positionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
       {
         "name": "",
         "type": "int24",
         "internalType": "int24"
       }
     ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "geoD",
+    "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "int256",
-        "internalType": "int256"
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -568,44 +726,6 @@ export const bookAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract IFrontierHooks"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "internalBalance0",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "internalBalance1",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -636,6 +756,19 @@ export const bookAbi = [
   },
   {
     "type": "function",
+    "name": "makerFeeBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "makerOps",
     "inputs": [],
     "outputs": [
@@ -643,6 +776,48 @@ export const bookAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "mirrorReserves",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "reserve0",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "reserve1",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "mirrorSharesOf",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -658,25 +833,6 @@ export const bookAbi = [
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "multicall",
-    "inputs": [
-      {
-        "name": "data",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "results",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
-      }
-    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -710,7 +866,7 @@ export const bookAbi = [
     "name": "positions",
     "inputs": [
       {
-        "name": "",
+        "name": "positionId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -735,11 +891,6 @@ export const bookAbi = [
         "name": "liquidity",
         "type": "uint128",
         "internalType": "uint128"
-      },
-      {
-        "name": "slope",
-        "type": "int128",
-        "internalType": "int128"
       },
       {
         "name": "depositClock",
@@ -781,80 +932,7 @@ export const bookAbi = [
         "internalType": "uint256"
       }
     ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "recycleAskIntoBid",
-    "inputs": [
-      {
-        "name": "askId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "lower",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "upper",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "liquidity",
-        "type": "uint128",
-        "internalType": "uint128"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "newPositionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "recycleBidIntoAsk",
-    "inputs": [
-      {
-        "name": "bidId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "lower",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "upper",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "liquidity",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "slope",
-        "type": "int128",
-        "internalType": "int128"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "newPositionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -907,39 +985,6 @@ export const bookAbi = [
         "name": "",
         "type": "uint128",
         "internalType": "uint128"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "requoteShaped",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "",
-        "type": "int128",
-        "internalType": "int128"
       }
     ],
     "outputs": [],
@@ -1017,6 +1062,19 @@ export const bookAbi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "takerFeeBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1115,20 +1173,36 @@ export const bookAbi = [
   },
   {
     "type": "function",
-    "name": "withdrawInternal",
+    "name": "withdrawMirror",
     "inputs": [
       {
-        "name": "amount0",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "amount1",
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
-    "outputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -1214,56 +1288,6 @@ export const bookAbi = [
   },
   {
     "type": "event",
-    "name": "InternalCredit",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount0",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "InternalWithdraw",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount0",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "IntervalFilled",
     "inputs": [
       {
@@ -1289,6 +1313,136 @@ export const bookAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MakerFee",
+    "inputs": [
+      {
+        "name": "positionId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "grossProceeds",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "netProceeds",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MirrorDeposit",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MirrorFee",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MirrorWithdraw",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1372,12 +1526,6 @@ export const bookAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "slopePerLevel",
-        "type": "int256",
-        "indexed": false,
-        "internalType": "int256"
-      },
-      {
         "name": "clock",
         "type": "uint64",
         "indexed": false,
@@ -1387,162 +1535,196 @@ export const bookAbi = [
     "anonymous": false
   },
   {
-    "type": "function",
-    "name": "depositShadow",
+    "type": "event",
+    "name": "TakerFee",
     "inputs": [
       {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "shares",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount0",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "depositShadowFor",
-    "inputs": [
-      {
-        "name": "",
+        "name": "payer",
         "type": "address",
+        "indexed": true,
         "internalType": "address"
       },
       {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "shares",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount0",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "shadowReserves",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "reserve0",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "reserve1",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "totalShares",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "shadowSharesOf",
-    "inputs": [
-      {
-        "name": "user",
+        "name": "token",
         "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "grossInput",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalPaid",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": false,
         "internalType": "address"
       }
     ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
+    "anonymous": false
   },
   {
-    "type": "function",
-    "name": "withdrawShadow",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "amount0",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount1",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
+    "type": "error",
+    "name": "BadSpacing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadTarget",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BelowMinProceeds",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EmptyRange",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Expired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FeeRecipientRequired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FeeTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FeeTransferFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FillPayoutFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "HookRejected",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientOutput",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MirrorFeeTransferFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NegativeActive",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NegativeRun",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NonExactTransfer",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotABid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotALiveAsk",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotALiveBid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotFilled",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotLive",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NothingToClaim",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RangeNotAbovePrice",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RangeNotBelowPrice",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TransferInFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TransferOutFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Unaligned",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnalignedTarget",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UseBidMethods",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroLiquidity",
+    "inputs": []
   }
 ] as const;

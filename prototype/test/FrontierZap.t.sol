@@ -17,10 +17,10 @@ abstract contract FrontierZapBaseTest is Test {
     FrontierRouter internal router;
     address internal feeRecipient = makeAddr("feeRecipient");
 
-    address internal lp = makeAddr("copy-lp");
-    address internal lp2 = makeAddr("copy-lp-2");
-    address internal user = makeAddr("copy-user");
-    address internal user2 = makeAddr("copy-user-2");
+    address internal lp = makeAddr("mirror-lp");
+    address internal lp2 = makeAddr("mirror-lp-2");
+    address internal user = makeAddr("mirror-user");
+    address internal user2 = makeAddr("mirror-user-2");
     address internal maker = makeAddr("maker");
     address internal taker = makeAddr("taker");
 
@@ -66,7 +66,7 @@ abstract contract FrontierZapBaseTest is Test {
 
     function _seedPool(uint256 amount0, uint256 amount1) internal {
         vm.prank(lp);
-        book.depositShadow(amount0, amount1, 0);
+        book.depositMirror(amount0, amount1, 0);
     }
 
     function _seedMarket() internal {
@@ -90,7 +90,7 @@ abstract contract FrontierZapBaseTest is Test {
     }
 
     function _assertReserveSolvent() internal view {
-        (uint256 r0, uint256 r1,) = book.shadowReserves();
+        (uint256 r0, uint256 r1,) = book.mirrorReserves();
         assertGe(t0.balanceOf(address(book)), r0, "reserve0 solvent");
         assertGe(t1.balanceOf(address(book)), r1, "reserve1 solvent");
     }
@@ -106,7 +106,7 @@ abstract contract FrontierZapBaseTest is Test {
     }
 
     function _assertFeeZapExact(uint256 amount0, uint256 amount1, address actor) internal {
-        FrontierRouter.ZapResult memory preview = router.previewZapDepositShadow(book, amount0, amount1);
+        FrontierRouter.ZapResult memory preview = router.previewZapDepositMirror(book, amount0, amount1);
         assertGt(preview.swapIn, 0, "fee test exercises swap input");
         assertGt(preview.swapOut, 0, "fee test exercises swap output");
         assertGt(preview.shares, 0, "fee test mints shares");
@@ -114,14 +114,14 @@ abstract contract FrontierZapBaseTest is Test {
         uint256 tracked0Before = _trackedBalance(t0, actor);
         uint256 tracked1Before = _trackedBalance(t1, actor);
         uint256 feesBefore = t0.balanceOf(feeRecipient) + t1.balanceOf(feeRecipient);
-        uint256 sharesBefore = book.shadowSharesOf(actor);
+        uint256 sharesBefore = book.mirrorSharesOf(actor);
 
         vm.prank(actor);
         FrontierRouter.ZapResult memory z =
-            router.zapDepositShadow(book, amount0, amount1, preview.swapOut, preview.shares, actor, block.timestamp);
+            router.zapDepositMirror(book, amount0, amount1, preview.swapOut, preview.shares, actor, block.timestamp);
 
         _assertZapEq(preview, z);
-        assertEq(book.shadowSharesOf(actor) - sharesBefore, z.shares, "shares paid for");
+        assertEq(book.mirrorSharesOf(actor) - sharesBefore, z.shares, "shares paid for");
         assertGt(z.amount0Deposited + z.amount1Deposited, 0, "nonzero deposit backs shares");
 
         uint256 held0 = amount0;
@@ -145,22 +145,22 @@ abstract contract FrontierZapBaseTest is Test {
         _assertReserveSolvent();
     }
 
-    function testDepositShadowForCreditsRecipientAndWithdraws() public {
+    function testDepositMirrorForCreditsRecipientAndWithdraws() public {
         vm.prank(lp);
-        (uint256 shares, uint256 used0, uint256 used1) = book.depositShadowFor(user, 10 ether, 20 ether, 0);
+        (uint256 shares, uint256 used0, uint256 used1) = book.depositMirrorFor(user, 10 ether, 20 ether, 0);
 
         assertEq(used0, 10 ether, "used token0");
         assertEq(used1, 20 ether, "used token1");
-        assertEq(book.shadowSharesOf(user), shares, "recipient shares");
-        assertEq(book.shadowSharesOf(lp), 0, "payer not credited");
+        assertEq(book.mirrorSharesOf(user), shares, "recipient shares");
+        assertEq(book.mirrorSharesOf(lp), 0, "payer not credited");
 
         uint256 before0 = t0.balanceOf(user);
         uint256 before1 = t1.balanceOf(user);
         vm.prank(user);
-        (uint256 out0, uint256 out1) = book.withdrawShadow(shares, 0, 0);
+        (uint256 out0, uint256 out1) = book.withdrawMirror(shares, 0, 0);
         assertEq(t0.balanceOf(user) - before0, out0, "withdraw token0");
         assertEq(t1.balanceOf(user) - before1, out1, "withdraw token1");
-        (uint256 r0, uint256 r1, uint256 total) = book.shadowReserves();
+        (uint256 r0, uint256 r1, uint256 total) = book.mirrorReserves();
         assertEq(r0, 0, "reserve0 empty");
         assertEq(r1, 0, "reserve1 empty");
         assertEq(total, 0, "shares empty");
@@ -169,7 +169,7 @@ abstract contract FrontierZapBaseTest is Test {
     function testBalancedZapMatchesPreviewAndRawDeposit() public {
         _seedPool(10 * uint256(L), 20 * uint256(L));
 
-        FrontierRouter.ZapResult memory preview = router.previewZapDepositShadow(book, 5 * uint256(L), 10 * uint256(L));
+        FrontierRouter.ZapResult memory preview = router.previewZapDepositMirror(book, 5 * uint256(L), 10 * uint256(L));
         assertEq(preview.swapIn, 0, "balanced deposit does not swap");
         assertEq(preview.amount0Deposited, 5 * uint256(L), "preview token0 deposit");
         assertEq(preview.amount1Deposited, 10 * uint256(L), "preview token1 deposit");
@@ -177,10 +177,10 @@ abstract contract FrontierZapBaseTest is Test {
 
         vm.prank(user);
         FrontierRouter.ZapResult memory z =
-            router.zapDepositShadow(book, 5 * uint256(L), 10 * uint256(L), 0, preview.shares, user, block.timestamp);
+            router.zapDepositMirror(book, 5 * uint256(L), 10 * uint256(L), 0, preview.shares, user, block.timestamp);
 
         _assertZapEq(preview, z);
-        assertEq(book.shadowSharesOf(user), preview.shares, "shares credited to user");
+        assertEq(book.mirrorSharesOf(user), preview.shares, "shares credited to user");
         assertEq(t0.balanceOf(address(router)), 0, "router token0 dust");
         assertEq(t1.balanceOf(address(router)), 0, "router token1 dust");
     }
@@ -189,7 +189,7 @@ abstract contract FrontierZapBaseTest is Test {
         _seedPool(100 * uint256(L), 100 * uint256(L));
         _seedMarket();
 
-        FrontierRouter.ZapResult memory preview = router.previewZapDepositShadow(book, 0, 20 * uint256(L));
+        FrontierRouter.ZapResult memory preview = router.previewZapDepositMirror(book, 0, 20 * uint256(L));
         assertFalse(preview.swapped0For1, "quote swaps into outcome");
         assertGt(preview.swapIn, 0, "preview spends quote");
         assertGt(preview.swapOut, 0, "preview receives outcome");
@@ -199,10 +199,10 @@ abstract contract FrontierZapBaseTest is Test {
         uint256 user1Before = t1.balanceOf(user);
         vm.prank(user);
         FrontierRouter.ZapResult memory z =
-            router.zapDepositShadow(book, 0, 20 * uint256(L), preview.swapOut, 1, user, block.timestamp);
+            router.zapDepositMirror(book, 0, 20 * uint256(L), preview.swapOut, 1, user, block.timestamp);
 
         _assertZapEq(preview, z);
-        assertEq(book.shadowSharesOf(user), z.shares, "shares credited");
+        assertEq(book.mirrorSharesOf(user), z.shares, "shares credited");
         assertEq(t0.balanceOf(address(router)), 0, "router token0 dust");
         assertEq(t1.balanceOf(address(router)), 0, "router token1 dust");
         assertEq(t0.balanceOf(user) - user0Before, z.refund0, "token0 refund accounting");
@@ -214,7 +214,7 @@ abstract contract FrontierZapBaseTest is Test {
         _seedPool(100 * uint256(L), 100 * uint256(L));
         _seedMarket();
 
-        FrontierRouter.ZapResult memory preview = router.previewZapDepositShadow(book, 20 * uint256(L), 0);
+        FrontierRouter.ZapResult memory preview = router.previewZapDepositMirror(book, 20 * uint256(L), 0);
         assertTrue(preview.swapped0For1, "outcome swaps into quote");
         assertGt(preview.swapIn, 0, "preview spends outcome");
         assertGt(preview.swapOut, 0, "preview receives quote");
@@ -222,10 +222,10 @@ abstract contract FrontierZapBaseTest is Test {
 
         vm.prank(user);
         FrontierRouter.ZapResult memory z =
-            router.zapDepositShadow(book, 20 * uint256(L), 0, preview.swapOut, 1, user, block.timestamp);
+            router.zapDepositMirror(book, 20 * uint256(L), 0, preview.swapOut, 1, user, block.timestamp);
 
         _assertZapEq(preview, z);
-        assertEq(book.shadowSharesOf(user), z.shares, "shares credited");
+        assertEq(book.mirrorSharesOf(user), z.shares, "shares credited");
         assertEq(t0.balanceOf(address(router)), 0, "router token0 dust");
         assertEq(t1.balanceOf(address(router)), 0, "router token1 dust");
         _assertReserveSolvent();
@@ -246,72 +246,72 @@ abstract contract FrontierZapBaseTest is Test {
         _seedMarket();
 
         vm.expectRevert(bytes("insufficient shares"));
-        router.previewZapDepositShadow(book, 0, 1);
+        router.previewZapDepositMirror(book, 0, 1);
 
         vm.expectRevert(bytes("insufficient shares"));
-        router.previewZapDepositShadow(book, 1, 0);
-
-        vm.prank(user);
-        vm.expectRevert(bytes("insufficient shares"));
-        router.zapDepositShadow(book, 0, 1, 0, 0, user, block.timestamp);
+        router.previewZapDepositMirror(book, 1, 0);
 
         vm.prank(user);
         vm.expectRevert(bytes("insufficient shares"));
-        router.zapDepositShadow(book, 1, 0, 0, 0, user, block.timestamp);
+        router.zapDepositMirror(book, 0, 1, 0, 0, user, block.timestamp);
+
+        vm.prank(user);
+        vm.expectRevert(bytes("insufficient shares"));
+        router.zapDepositMirror(book, 1, 0, 0, 0, user, block.timestamp);
     }
 
     function testZapGuardsPreventBadExecution() public {
         _seedPool(100 * uint256(L), 100 * uint256(L));
         _seedMarket();
 
-        FrontierRouter.ZapResult memory preview = router.previewZapDepositShadow(book, 0, 20 * uint256(L));
+        FrontierRouter.ZapResult memory preview = router.previewZapDepositMirror(book, 0, 20 * uint256(L));
         vm.prank(user);
         vm.expectRevert();
-        router.zapDepositShadow(book, 0, 20 * uint256(L), preview.swapOut + 1, 0, user, block.timestamp);
+        router.zapDepositMirror(book, 0, 20 * uint256(L), preview.swapOut + 1, 0, user, block.timestamp);
 
         vm.prank(user);
         vm.expectRevert();
-        router.zapDepositShadow(book, 5 * uint256(L), 5 * uint256(L), 0, type(uint256).max, user, block.timestamp);
+        router.zapDepositMirror(book, 5 * uint256(L), 5 * uint256(L), 0, type(uint256).max, user, block.timestamp);
 
         vm.expectRevert(bytes("zero amounts"));
-        router.previewZapDepositShadow(book, 0, 0);
+        router.previewZapDepositMirror(book, 0, 0);
     }
 
     function testEmptyPoolFirstZapSetsRatioButRejectsOneSidedFirstDeposit() public {
-        FrontierRouter.ZapResult memory preview = router.previewZapDepositShadow(book, 2 * uint256(L), 7 * uint256(L));
+        FrontierRouter.ZapResult memory preview = router.previewZapDepositMirror(book, 2 * uint256(L), 7 * uint256(L));
         assertEq(preview.swapIn, 0, "first deposit does not auto-swap");
         assertEq(preview.shares, 9 * uint256(L), "first shares");
 
         vm.prank(user);
         FrontierRouter.ZapResult memory z =
-            router.zapDepositShadow(book, 2 * uint256(L), 7 * uint256(L), 0, preview.shares, user, block.timestamp);
+            router.zapDepositMirror(book, 2 * uint256(L), 7 * uint256(L), 0, preview.shares, user, block.timestamp);
         _assertZapEq(preview, z);
 
-        (uint256 r0, uint256 r1, uint256 total) = book.shadowReserves();
+        (uint256 r0, uint256 r1, uint256 total) = book.mirrorReserves();
         assertEq(r0, 2 * uint256(L), "reserve0");
         assertEq(r1, 7 * uint256(L), "reserve1");
         assertEq(total, 9 * uint256(L), "total shares");
 
         UniformFrontierBook fresh = _deployBook(0);
         vm.expectRevert(bytes("imbalanced first deposit"));
-        router.previewZapDepositShadow(fresh, uint256(L), 0);
+        router.previewZapDepositMirror(fresh, uint256(L), 0);
     }
 
     function testOneWeiAndSequentialDepositsWithdrawWithinRoundingTolerance() public {
         _seedPool(uint256(L), uint256(L));
 
         vm.prank(user);
-        FrontierRouter.ZapResult memory a = router.zapDepositShadow(book, 1, 1, 0, 1, user, block.timestamp);
+        FrontierRouter.ZapResult memory a = router.zapDepositMirror(book, 1, 1, 0, 1, user, block.timestamp);
         assertEq(a.shares, 2, "one wei shares");
 
         vm.prank(user2);
         FrontierRouter.ZapResult memory b =
-            router.zapDepositShadow(book, 3 * uint256(L), 3 * uint256(L), 0, 1, user2, block.timestamp);
+            router.zapDepositMirror(book, 3 * uint256(L), 3 * uint256(L), 0, 1, user2, block.timestamp);
         assertGt(b.shares, a.shares, "larger second deposit");
 
-        uint256 userShares = book.shadowSharesOf(user);
+        uint256 userShares = book.mirrorSharesOf(user);
         vm.prank(user);
-        (uint256 out0, uint256 out1) = book.withdrawShadow(userShares, 0, 0);
+        (uint256 out0, uint256 out1) = book.withdrawMirror(userShares, 0, 0);
         assertLe(out0, 2, "rounding bounded token0");
         assertLe(out1, 2, "rounding bounded token1");
         _assertReserveSolvent();
@@ -320,19 +320,19 @@ abstract contract FrontierZapBaseTest is Test {
     function testMaxUintPreviewGuardRevertsBeforeMintingFreeShares() public {
         _seedPool(uint256(L), uint256(L));
         vm.expectRevert();
-        router.previewZapDepositShadow(book, type(uint256).max, type(uint256).max);
+        router.previewZapDepositMirror(book, type(uint256).max, type(uint256).max);
     }
 
-    function testMultiActorCopyLiquiditySimulation() public {
+    function testMultiActorMirrorLiquiditySimulation() public {
         _seedPool(100 * uint256(L), 100 * uint256(L));
         _seedMarket();
 
         vm.prank(user);
         FrontierRouter.ZapResult memory a =
-            router.zapDepositShadow(book, 0, 30 * uint256(L), 1, 1, user, block.timestamp);
+            router.zapDepositMirror(book, 0, 30 * uint256(L), 1, 1, user, block.timestamp);
         vm.prank(user2);
         FrontierRouter.ZapResult memory b =
-            router.zapDepositShadow(book, 30 * uint256(L), 0, 1, 1, user2, block.timestamp);
+            router.zapDepositMirror(book, 30 * uint256(L), 0, 1, 1, user2, block.timestamp);
         assertGt(a.shares + b.shares, 0, "LPs received shares");
 
         vm.prank(taker);
@@ -352,17 +352,17 @@ abstract contract FrontierZapBaseTest is Test {
         book.sweepWithLimits(cur - 5, type(uint256).max, 5 * uint256(L), 0, block.timestamp);
         _assertReserveSolvent();
 
-        uint256 lpShares = book.shadowSharesOf(lp);
-        uint256 userShares = book.shadowSharesOf(user);
-        uint256 user2Shares = book.shadowSharesOf(user2);
+        uint256 lpShares = book.mirrorSharesOf(lp);
+        uint256 userShares = book.mirrorSharesOf(user);
+        uint256 user2Shares = book.mirrorSharesOf(user2);
         vm.prank(user);
-        book.withdrawShadow(userShares, 0, 0);
+        book.withdrawMirror(userShares, 0, 0);
         vm.prank(user2);
-        book.withdrawShadow(user2Shares, 0, 0);
+        book.withdrawMirror(user2Shares, 0, 0);
         vm.prank(lp);
-        book.withdrawShadow(lpShares, 0, 0);
+        book.withdrawMirror(lpShares, 0, 0);
 
-        (uint256 r0, uint256 r1, uint256 total) = book.shadowReserves();
+        (uint256 r0, uint256 r1, uint256 total) = book.mirrorReserves();
         assertEq(r0, 0, "reserve0 fully withdrawn");
         assertEq(r1, 0, "reserve1 fully withdrawn");
         assertEq(total, 0, "shares fully burned");
@@ -383,12 +383,12 @@ abstract contract FrontierZapBaseTest is Test {
         _seedPool(100 * uint256(L), 100 * uint256(L));
         _seedMarket();
 
-        FrontierRouter.ZapResult memory preview = router.previewZapDepositShadow(book, amount0, amount1);
+        FrontierRouter.ZapResult memory preview = router.previewZapDepositMirror(book, amount0, amount1);
         vm.prank(user);
         FrontierRouter.ZapResult memory z =
-            router.zapDepositShadow(book, amount0, amount1, preview.swapOut, preview.shares, user, block.timestamp);
+            router.zapDepositMirror(book, amount0, amount1, preview.swapOut, preview.shares, user, block.timestamp);
         _assertZapEq(preview, z);
-        assertEq(book.shadowSharesOf(user), z.shares, "shares credited");
+        assertEq(book.mirrorSharesOf(user), z.shares, "shares credited");
         _assertReserveSolvent();
     }
 
@@ -422,7 +422,7 @@ contract FrontierZapGeometricTest is FrontierZapBaseTest {
     }
 }
 
-contract CopyLiquidityHandler is Test {
+contract MirrorLiquidityHandler is Test {
     MockERC20 public t0;
     MockERC20 public t1;
     UniformFrontierBook public book;
@@ -455,7 +455,7 @@ contract CopyLiquidityHandler is Test {
 
     function trackedShares() external view returns (uint256 total) {
         for (uint256 i = 0; i < actors.length; i++) {
-            total += book.shadowSharesOf(actors[i]);
+            total += book.mirrorSharesOf(actors[i]);
         }
     }
 
@@ -465,19 +465,19 @@ contract CopyLiquidityHandler is Test {
         uint256 amount1 = bound(uint256(raw1), 1e12, 20 * uint256(L));
         if (seed % 3 == 0) amount0 = 0;
         if (seed % 3 == 1) amount1 = 0;
-        try router.previewZapDepositShadow(book, amount0, amount1) returns (FrontierRouter.ZapResult memory p) {
+        try router.previewZapDepositMirror(book, amount0, amount1) returns (FrontierRouter.ZapResult memory p) {
             vm.prank(actor);
-            try router.zapDepositShadow(book, amount0, amount1, p.swapOut, 1, actor, block.timestamp) {} catch {}
+            try router.zapDepositMirror(book, amount0, amount1, p.swapOut, 1, actor, block.timestamp) {} catch {}
         } catch {}
     }
 
     function withdraw(uint256 seed, uint96 rawShares) external {
         address actor = _actor(seed);
-        uint256 shares = book.shadowSharesOf(actor);
+        uint256 shares = book.mirrorSharesOf(actor);
         if (shares == 0) return;
         uint256 burn = bound(uint256(rawShares), 1, shares);
         vm.prank(actor);
-        book.withdrawShadow(burn, 0, 0);
+        book.withdrawMirror(burn, 0, 0);
     }
 
     function sweep(uint256 seed, int24 target, uint96 rawBudget) external {
@@ -499,12 +499,12 @@ contract CopyLiquidityHandler is Test {
     }
 }
 
-contract CopyLiquidityInvariantTest is Test {
+contract MirrorLiquidityInvariantTest is Test {
     MockERC20 internal t0;
     MockERC20 internal t1;
     UniformFrontierBook internal book;
     FrontierRouter internal router;
-    CopyLiquidityHandler internal handler;
+    MirrorLiquidityHandler internal handler;
     address internal lp = makeAddr("seed-lp");
     address internal feeRecipient = makeAddr("feeRecipient");
 
@@ -522,27 +522,27 @@ contract CopyLiquidityInvariantTest is Test {
         vm.startPrank(lp);
         t0.approve(address(book), type(uint256).max);
         t1.approve(address(book), type(uint256).max);
-        book.depositShadow(100 * uint256(L), 100 * uint256(L), 0);
+        book.depositMirror(100 * uint256(L), 100 * uint256(L), 0);
         book.deposit(101, 130, L);
         book.depositBid(70, 100, L);
         vm.stopPrank();
 
-        handler = new CopyLiquidityHandler(book, router, t0, t1);
+        handler = new MirrorLiquidityHandler(book, router, t0, t1);
         targetContract(address(handler));
     }
 
     /// forge-config: default.invariant.runs = 10000
     /// forge-config: default.invariant.depth = 1
-    function invariant_shadowReservesAreSolvent() public view {
-        (uint256 r0, uint256 r1, uint256 totalShares) = book.shadowReserves();
+    function invariant_mirrorReservesAreSolvent() public view {
+        (uint256 r0, uint256 r1, uint256 totalShares) = book.mirrorReserves();
         assertGe(t0.balanceOf(address(book)), r0, "token0 reserve insolvent");
         assertGe(t1.balanceOf(address(book)), r1, "token1 reserve insolvent");
-        assertEq(totalShares, book.shadowSharesOf(lp) + handler.trackedShares(), "share accounting");
+        assertEq(totalShares, book.mirrorSharesOf(lp) + handler.trackedShares(), "share accounting");
     }
 
     /// forge-config: default.invariant.runs = 10000
     /// forge-config: default.invariant.depth = 1
-    function invariant_shadowAggregatesDoNotUnderflow() public view {
+    function invariant_mirrorAggregatesDoNotUnderflow() public view {
         for (int24 t = 70; t <= 130; t += 10) {
             book.activeLiquidity(t);
             book.bidLiquidity(t);

@@ -1613,7 +1613,7 @@ body {
   flex-direction: column;
   gap: 14px;
 }
-.dbx-side > .dbx-copy-pane {
+.dbx-side > .dbx-mirror-pane {
   margin-top: 0;
 }
 
@@ -2634,8 +2634,8 @@ body {
   .dbx-chance > .num {
     font-size: 26px;
   }
-  .dbx-copy-stats,
-  .dbx-copy-fields {
+  .dbx-mirror-stats,
+  .dbx-mirror-fields {
     grid-template-columns: 1fr;
   }
 }
@@ -2940,7 +2940,7 @@ body {
 .dbx-bar2:hover {
   filter: brightness(1.3);
 }
-.dbx-bar-copy {
+.dbx-bar-mirror {
   position: absolute;
   left: 0;
   right: 0;
@@ -3012,7 +3012,7 @@ body {
   text-align: center;
 }
 
-.dbx-copy-pane {
+.dbx-mirror-pane {
   margin-top: 10px;
   padding: 11px;
   border-radius: 10px;
@@ -3021,23 +3021,23 @@ body {
     linear-gradient(180deg, rgba(240, 185, 11, 0.06), rgba(240, 185, 11, 0.015)),
     var(--bg-input);
 }
-.dbx-copy-head,
-.dbx-copy-title {
+.dbx-mirror-head,
+.dbx-mirror-title {
   display: flex;
   align-items: center;
 }
-.dbx-copy-head {
+.dbx-mirror-head {
   justify-content: space-between;
   gap: 12px;
 }
-.dbx-copy-title {
+.dbx-mirror-title {
   gap: 7px;
   color: var(--accent);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.02em;
 }
-.dbx-copy-swatch {
+.dbx-mirror-swatch {
   width: 13px;
   height: 13px;
   border-radius: 4px;
@@ -3051,33 +3051,33 @@ body {
       rgba(240, 185, 11, 0.18) 7px
     );
 }
-.dbx-copy-stats {
+.dbx-mirror-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
   margin-top: 9px;
 }
-.dbx-copy-stat {
+.dbx-mirror-stat {
   min-width: 0;
   padding: 8px 9px;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.025);
 }
-.dbx-copy-stat span {
+.dbx-mirror-stat span {
   display: block;
   color: var(--text-dim);
   font-size: 10.5px;
   margin-bottom: 2px;
 }
-.dbx-copy-stat strong {
+.dbx-mirror-stat strong {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text);
   font-size: 12.5px;
 }
-.dbx-copy-modes {
+.dbx-mirror-modes {
   display: flex;
   gap: 6px;
   margin-top: 9px;
@@ -3085,7 +3085,7 @@ body {
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.18);
 }
-.dbx-copy-modes button {
+.dbx-mirror-modes button {
   flex: 1;
   min-height: 30px;
   border: none;
@@ -3096,20 +3096,20 @@ body {
   font-weight: 700;
   cursor: pointer;
 }
-.dbx-copy-modes button.on {
+.dbx-mirror-modes button.on {
   color: #1d1603;
   background: linear-gradient(180deg, #ffd34d, var(--accent));
 }
-.dbx-copy-fields {
+.dbx-mirror-fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
   margin-top: 9px;
 }
-.dbx-copy-fields .dbx-field {
+.dbx-mirror-fields .dbx-field {
   margin: 0;
 }
-.dbx-copy-preview {
+.dbx-mirror-preview {
   display: grid;
   gap: 6px;
   margin-top: 9px;
@@ -3118,31 +3118,31 @@ body {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.025);
 }
-.dbx-copy-preview-head,
-.dbx-copy-line,
+.dbx-mirror-preview-head,
+.dbx-mirror-line,
 .dbx-slip {
   display: flex;
   align-items: center;
 }
-.dbx-copy-preview-head,
-.dbx-copy-line {
+.dbx-mirror-preview-head,
+.dbx-mirror-line {
   justify-content: space-between;
   gap: 10px;
 }
-.dbx-copy-preview-head {
+.dbx-mirror-preview-head {
   color: var(--text);
   font-size: 11px;
   font-weight: 800;
 }
-.dbx-copy-line {
+.dbx-mirror-line {
   min-width: 0;
   color: var(--text-mid);
   font-size: 11px;
 }
-.dbx-copy-line.warn {
+.dbx-mirror-line.warn {
   color: var(--warn);
 }
-.dbx-copy-line strong {
+.dbx-mirror-line strong {
   min-width: 0;
   overflow: hidden;
   text-align: right;
@@ -3167,7 +3167,7 @@ body {
   background: rgba(0, 0, 0, 0.2);
   text-align: right;
 }
-.dbx-copy-cta {
+.dbx-mirror-cta {
   width: 100%;
   min-height: 36px;
   margin-top: 9px;
@@ -3178,16 +3178,16 @@ body {
   font-weight: 800;
   cursor: pointer;
 }
-.dbx-copy-cta.withdraw {
+.dbx-mirror-cta.withdraw {
   color: var(--accent);
   background: rgba(240, 185, 11, 0.08);
   border: 1px solid rgba(240, 185, 11, 0.34);
 }
-.dbx-copy-cta:disabled {
+.dbx-mirror-cta:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
-.dbx-copy-withdraw {
+.dbx-mirror-withdraw {
   display: grid;
   gap: 8px;
   margin-top: 9px;

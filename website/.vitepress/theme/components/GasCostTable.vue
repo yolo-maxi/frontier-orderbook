@@ -55,9 +55,9 @@ const groups = [
     title: 'Venue',
     rows: [
       { label: 'Create a whole new geometric market via factory', gas: 8811051 },
-      { label: 'Copy-liquidity first deposit', gas: 190095 },
-      { label: 'Copy-liquidity pro-rata deposit', gas: 102984 },
-      { label: 'Copy-liquidity withdraw', gas: 76345 },
+      { label: 'Mirror-liquidity first deposit', gas: 190095 },
+      { label: 'Mirror-liquidity pro-rata deposit', gas: 102984 },
+      { label: 'Mirror-liquidity withdraw', gas: 76345 },
     ],
   },
 ]

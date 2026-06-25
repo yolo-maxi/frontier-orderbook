@@ -36,7 +36,7 @@ export default defineConfig({
           { text: 'LP on the Book', link: '/experiments/lp' },
           { text: 'The Uniswap v4 Lineage', link: '/experiments/v4-hook' },
           { text: 'Sub-Tick Fills (parked)', link: '/experiments/partial-fills' },
-          { text: 'Copy Liquidity', link: '/experiments/copy-liquidity' },
+          { text: 'Mirror Liquidity', link: '/experiments/mirror-liquidity' },
         ],
       },
       {

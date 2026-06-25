@@ -43,7 +43,7 @@ error UnalignedFrontier();
 error FrontierNotFilled();
 error FrontierNotMaximal();
 
-// ----- copy LP -----
+// ----- mirror LP -----
 error ZeroAmounts();
 error ImbalancedFirstDeposit();
 error EmptyPool();
@@ -68,6 +68,6 @@ error HookRejected();
 error TransferInFailed();
 error TransferOutFailed();
 error FeeTransferFailed();
-error ShadowFeeTransferFailed();
+error MirrorFeeTransferFailed();
 error FillPayoutFailed();
 error NonExactTransfer();
