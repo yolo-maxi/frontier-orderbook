@@ -6,3 +6,4 @@ prototype/broadcast/
 node_modules/
 landing/dist/
 website/node_modules
+ui/node_modules
